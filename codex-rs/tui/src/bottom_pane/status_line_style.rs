@@ -7,10 +7,13 @@ use ratatui::text::Line;
 use ratatui::text::Span;
 
 use super::status_line_setup::StatusLineItem;
+use crate::color::is_light;
 use crate::render::highlight::foreground_style_for_scopes;
 use crate::style::readable_color_on;
 use crate::style::secondary_text_style;
 use crate::terminal_palette::StdoutColorLevel;
+use crate::terminal_palette::best_color;
+use crate::terminal_palette::default_bg;
 use crate::terminal_palette::effective_stdout_color_level;
 use crate::thread_color::thread_color;
 use codex_protocol::ThreadId;
@@ -130,6 +133,8 @@ where
             && let Some(thread_id) = thread_id
         {
             Style::default().fg(thread_color(thread_id))
+        } else if use_theme_colors && item == StatusLineItem::Permissions {
+            permissions_status_line_style(&text)
         } else if use_theme_colors {
             let accent = StatusLineAccent::for_item(item);
             soften_status_line_style(
@@ -159,6 +164,24 @@ where
     }
 
     (!spans.is_empty()).then(|| Line::from(spans))
+}
+
+fn permissions_status_line_style(text: &str) -> Style {
+    if text != "Full Access" {
+        return secondary_text_style();
+    }
+
+    // Match the app's permission trigger: Full Access uses text-warning,
+    // orange-300 (#ff8549) on dark backgrounds and orange-500 (#e25507) on light.
+    // Other permission labels are neutral, not syntax-theme accents.
+    let light = default_bg().is_some_and(is_light);
+    let warning = if light { (226, 85, 7) } else { (255, 133, 73) };
+    let foreground = match effective_stdout_color_level() {
+        StdoutColorLevel::Ansi16 if light => Color::Red,
+        StdoutColorLevel::Ansi16 => Color::Yellow,
+        _ => best_color(warning),
+    };
+    Style::default().fg(foreground)
 }
 
 fn soften_status_line_style(mut style: Style) -> Style {
@@ -335,6 +358,84 @@ mod tests {
         assert_eq!(line.spans[0].style, secondary_text_style());
         assert_eq!(line.spans[1].style, secondary_text_style());
         assert_eq!(line.spans[2].style, secondary_text_style());
+    }
+
+    #[test]
+    fn permissions_match_the_app_instead_of_the_syntax_theme() {
+        let colors = crate::terminal_probe::DefaultColors {
+            fg: (222, 222, 222),
+            bg: (0, 0, 0),
+        };
+        crate::terminal_palette::with_test_default_colors(colors, || {
+            let line = status_line_from_segments_with_resolver(
+                [
+                    (StatusLineItem::ModelName, "gpt-5".to_string()),
+                    (StatusLineItem::Permissions, "Full Access".to_string()),
+                    (StatusLineItem::Permissions, "Workspace".to_string()),
+                    (StatusLineItem::Permissions, "Read Only".to_string()),
+                    (
+                        StatusLineItem::Permissions,
+                        "Custom permissions".to_string(),
+                    ),
+                    (StatusLineItem::Permissions, "my-profile".to_string()),
+                ],
+                /*use_theme_colors*/ true,
+                /*thread_id*/ None,
+                |_| Some(Style::default().magenta()),
+            )
+            .expect("status line");
+
+            assert_eq!(line.spans[0].style.fg, Some(Color::Magenta));
+            assert_eq!(
+                line.spans[2].style.fg,
+                Some(crate::terminal_palette::rgb_color((255, 133, 73)))
+            );
+            for index in [4, 6, 8, 10] {
+                assert_eq!(line.spans[index].style, secondary_text_style());
+            }
+            assert_eq!(
+                line_text(&line),
+                "gpt-5 · Full Access · Workspace · Read Only · Custom permissions · my-profile"
+            );
+        });
+    }
+
+    #[test]
+    fn permissions_warning_adapts_to_light_backgrounds() {
+        let colors = crate::terminal_probe::DefaultColors {
+            fg: (30, 30, 30),
+            bg: (255, 255, 255),
+        };
+        crate::terminal_palette::with_test_default_colors(colors, || {
+            let line = status_line_from_segments_with_resolver(
+                [(StatusLineItem::Permissions, "Full Access".to_string())],
+                /*use_theme_colors*/ true,
+                /*thread_id*/ None,
+                |_| panic!("permission colors must not use the syntax theme"),
+            )
+            .expect("status line");
+
+            assert_eq!(
+                line.spans[0].style.fg,
+                Some(readable_color_on(
+                    crate::terminal_palette::rgb_color((226, 85, 7)),
+                    /*background*/ None
+                ))
+            );
+        });
+    }
+
+    #[test]
+    fn permissions_respect_the_monochrome_toggle() {
+        let line = status_line_from_segments_with_resolver(
+            [(StatusLineItem::Permissions, "Full Access".to_string())],
+            /*use_theme_colors*/ false,
+            /*thread_id*/ None,
+            |_| panic!("monochrome status lines must not use theme colors"),
+        )
+        .expect("status line");
+
+        assert_eq!(line.spans[0].style, secondary_text_style());
     }
 
     #[test]

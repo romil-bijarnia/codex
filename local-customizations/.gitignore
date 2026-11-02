@@ -1,0 +1,9 @@
+**/__pycache__/
+**/*.pyc
+**/cache/
+**/viewers/
+**/package/
+**/installation.json
+**/disabled
+**/backups/
+**/*.log

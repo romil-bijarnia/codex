@@ -1,0 +1,2 @@
+# Shared backend default. Keep all other personal configuration separate.
+thread_unload_delay_secs = 0
