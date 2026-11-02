@@ -6,7 +6,7 @@ The upstream `main` branch is left separate; this is not an update to a newer CL
 
 Included:
 - The permission-status footer source patch, its snapshot, and the release lockfile correction.
-- The current launcher, with an empty local base prompt and immediate idle-chat unloading.
+- The current launcher, using the stock base prompt and immediate idle-chat unloading.
 - The terminal `codex visualize` command and its tests.
 - The optional setup-reminder helper, including its existing package/resource safeguards.
 - The exact-version native build, staging and terminal-colour test helpers.
@@ -16,8 +16,10 @@ are used instead. Immediate release uses the upstream `thread_unload_delay_secs 
 setting; it is not a replacement lock implementation. A chat still open in
 another client, or still doing work, is not forcibly unlocked.
 
-The empty base prompt is only a local CLI override. Personal instructions,
-skills, tool instructions and instructions supplied by the service remain separate.
+Base instructions come from the selected model's stock prompt. The launcher
+adds no instruction override. Personal instructions, skills, tool instructions
+and instructions supplied by the service remain separate. The retired
+`sara-lean.md` replacement and prompt-experiment backups are not installed.
 
 ## Restore the launcher
 

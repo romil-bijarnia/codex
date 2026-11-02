@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -31,17 +33,26 @@ class InstallTests(unittest.TestCase):
             (home/"config.toml").write_text(config)
             (home/"AGENTS.md").write_text("Keep this personal file.")
             upstream=root/"official.cjs"
-            upstream.write_text("// test fixture")
+            upstream.write_text("process.stdout.write(JSON.stringify(process.argv.slice(2)));\n")
             bin_dir=root/"bin"
             install.main(["--home",str(home),"--bin-dir",str(bin_dir),"--upstream",str(upstream)])
             self.assertTrue((bin_dir/"codex").is_symlink())
             self.assertEqual((home/"AGENTS.md").read_text(),"Keep this personal file.")
             self.assertEqual(tomllib.loads((home/"config.toml").read_text())["model"],"example")
             self.assertEqual(next((home/"backups").glob("*/config.toml")).read_text(),config)
-            launcher=(bin_dir/"codex").resolve().read_text()
-            self.assertIn('thread_unload_delay_secs=0',launcher)
-            self.assertIn('instructions=""',launcher)
-            self.assertNotIn("selectThreadReleaseFix",launcher)
+            for arguments in (
+                ["debug", "prompt-input"],
+                ["debug", "prompt-input", "-c", 'model_instructions_file="custom.md"'],
+            ):
+                result=subprocess.run(
+                    ["node", str(bin_dir/"codex"), *arguments],
+                    capture_output=True, text=True, check=True,
+                )
+                self.assertEqual(
+                    json.loads(result.stdout),
+                    ["-c", "thread_unload_delay_secs=0", *arguments],
+                )
+            self.assertNotIn("selectThreadReleaseFix",(bin_dir/"codex").resolve().read_text())
 
 if __name__=="__main__":
     unittest.main()

@@ -39,10 +39,9 @@ if (!fs.existsSync(upstream)) {
   process.exit(1);
 }
 
-// Blank the local CLI base prompt without changing shared desktop configuration.
 // Release closed, idle CLI chats immediately using Codex's built-in setting.
 // Put defaults first so explicit per-invocation overrides still win.
-process.argv.splice(2, 0, '-c', 'instructions=""', '-c', 'thread_unload_delay_secs=0');
+process.argv.splice(2, 0, '-c', 'thread_unload_delay_secs=0');
 
 const originalSpawn = childProcess.spawn;
 function selectVoiceFix(file) {

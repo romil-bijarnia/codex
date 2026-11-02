@@ -3,7 +3,6 @@
   "upstream_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
   "installed_native_sha256": "203632650b5cf867df308e8fe1fb996a11e0967fc245103c8e309fef2ae03e69",
   "cli_defaults": {
-    "instructions": "",
     "thread_unload_delay_secs": 0
   },
   "shared_backend_defaults": {
@@ -13,7 +12,7 @@
     "thread-release"
   ],
   "source_sha256": {
-    "local-customizations/security-setup-reminder/codex-launcher.cjs": "fed5312335eac4908d3206e0c04170853ab52c269dba822f2fa896b9b7fa3642",
+    "local-customizations/security-setup-reminder/codex-launcher.cjs": "d20626e21f0393c576a38d5a44b43846f7bd083635fe9aa8f89f6890ff085cb4",
     "local-customizations/security-setup-reminder/mute.py": "040a31ee3b041e3f5bbfbcd61bbcdc0a1d7f7325fef4d853a70e3e41f062572d",
     "local-customizations/visualize-cli/visualize.py": "a0ae38005060fbc5723978b36025871170368daf0451867f97dff68ff8c4d861",
     "codex-rs/tui/src/bottom_pane/status_line_style.rs": "79a6fc84b427844a5599ae9e722449f68d8f1a2bc42f4971e8e9bf84a1a50afd"
