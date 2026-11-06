@@ -74,12 +74,11 @@ impl App {
             }
             return;
         }
-        let config = self.chat_widget.config_ref();
         let selection = PermissionProfileSelection {
             profile_id: codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS
                 .to_string(),
-            approval_policy: Some(config.permissions.approval_policy.value().into()),
-            approvals_reviewer: Some(config.approvals_reviewer),
+            approval_policy: Some(AskForApproval::Never),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
             display_label: crate::el2_control::LABEL.to_string(),
         };
         if self.select_permission_profile(app_server, selection).await {
