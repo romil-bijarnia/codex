@@ -13,6 +13,10 @@ def customize_prompt(prompt: str, rules: Path) -> str:
 
     replacements = [
         (
+            "The following instructions are critical for you to be an effective collaborator, so follow them carefully. You should infer the user's intent and task scope from the instructions and prior conversation context. Your job is to bias towards action and carry the user's intended task to completion.",
+            (rules / 'proactivity.md').read_text().strip(),
+        ),
+        (
             "If the user's intent or task scope is unclear, progress towards the user's goal with the information available and then ask the user for clarification while continuing independent work.",
             (rules / 'investigation.md').read_text().strip(),
         ),
@@ -25,6 +29,6 @@ def customize_prompt(prompt: str, rules: Path) -> str:
         if replacement in prompt:
             continue
         if prompt.count(original) != 1:
-            raise ValueError('The clarification guidance changed; review the prompt before applying these rules.')
+            raise ValueError('The communication guidance changed; review the prompt before applying these rules.')
         prompt = prompt.replace(original, replacement, 1)
     return prompt

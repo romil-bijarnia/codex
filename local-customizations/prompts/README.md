@@ -1,7 +1,10 @@
 The complete personal base prompt is generated locally as `sara-system.md` from
 the installed model's base prompt. It replaces the writing-style section with
 `writing-style.md`, applies the investigate-before-asking rule in
-`investigation.md`, and appends `repository-preservation.md`. The writing rules
+`investigation.md` and the initiative rule in `proactivity.md`, and appends
+`repository-preservation.md`. The initiative rule requires taking the next
+useful step, resolving routine obstacles and following through with verification
+within the user's requested goal and authorization. The writing rules
 require honest, direct answers and routine handling of password-related tasks
 without unsolicited warnings or repeated reminders. Other prompt sections are
 preserved. `origin.json` identifies the original GPT-6.1-Sol text by hash. The

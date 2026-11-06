@@ -3,5 +3,5 @@
   "source": "the installed model catalog instructions_template",
   "original_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "original_characters": 21524,
-  "change": "Replace the writing-style section with direct, evidence-based communication and password guidance; investigate before asking questions; append the repository preservation rule. Other base-prompt sections are preserved."
+  "change": "Replace the writing-style section with direct, evidence-based communication and password guidance; investigate before asking questions; take the next useful steps proactively within the requested goal and authorization; append the repository preservation rule. Other base-prompt sections are preserved."
 }
