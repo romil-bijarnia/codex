@@ -96,9 +96,14 @@ impl ChatWidget {
             pet_http_client.clone(),
         );
         let config_panel_tui = local_settings.tui.clone();
+        let el2_control_enabled = cfg!(target_os = "linux")
+            && config.permissions.effective_permission_profile() == PermissionProfile::Disabled
+            && crate::el2_control::default_selected(&config.codex_home);
         let mut widget = Self {
             empty_state_animation: std::cell::RefCell::new(empty_state_animation),
             daybreak_enabled: false,
+            el2_control_enabled,
+            el2_control_request_id: None,
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
             codex_op_target,

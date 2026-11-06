@@ -93,6 +93,10 @@ impl ChatWidget {
         let connector_scope_changed = previous_thread_id != Some(session.thread_id)
             || self.config.cwd.as_path() != session.cwd.as_path();
         self.thread_id = Some(session.thread_id);
+        if previous_thread_id != self.thread_id {
+            self.el2_control_enabled = false;
+            self.el2_control_request_id = None;
+        }
         self.daybreak_enabled = self.config.features.enabled(Feature::CliDaybreak)
             && session.daybreak_enabled
             && !matches!(display, SessionConfiguredDisplay::SideConversation);
@@ -257,6 +261,9 @@ impl ChatWidget {
             self.add_info_message("Daybreak is on for new turns.".into(), /*hint*/ None);
         }
         self.transcript.saw_copy_source_this_turn = false;
+        if previous_thread_id != self.thread_id {
+            self.restore_el2_control_selection();
+        }
         self.refresh_skills_for_current_cwd(/*force_reload*/ true);
         self.refresh_connector_mentions(/*force_refresh*/ false);
         let initial_user_message_pending = self.initial_user_message.is_some();

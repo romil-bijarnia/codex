@@ -594,7 +594,17 @@ fn count_or_skipped(count: usize, complete: bool) -> String {
 }
 
 fn path_key(path: &Path) -> PathBuf {
-    normalize_for_path_comparison(path).unwrap_or_else(|_| path.to_path_buf())
+    if let Ok(key) = normalize_for_path_comparison(path) {
+        return key;
+    }
+    // Compressed rollouts retain the absent .jsonl path as their logical key.
+    // Resolve its existing parent so aliases still compare as the same file.
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+        && let Ok(parent) = normalize_for_path_comparison(parent)
+    {
+        return parent.join(name);
+    }
+    path.to_path_buf()
 }
 
 fn rollout_path_key(path: &Path) -> PathBuf {
@@ -944,6 +954,33 @@ mod tests {
         assert_detail(&check, "rollout DB scan errors", "0");
         assert_detail(&check, "rollout DB missing active rows", "0");
         assert_detail(&check, "rollout DB missing archived rows", "0");
+        assert_detail(&check, "rollout DB stale rows", "0");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn thread_inventory_matches_compressed_rollout_through_symlink_alias() {
+        let fixture = Fixture::new().await;
+        let thread_id = "00000000-0000-0000-0000-000000000001";
+        let path = fixture.write_rollout(false, "2025-01-02T10-00-00", thread_id);
+        compress_rollout(&path);
+        let aliases = TempDir::new().expect("alias directory");
+        let alias = aliases.path().join("codex-home");
+        std::os::unix::fs::symlink(fixture.codex_home.path(), &alias).expect("home alias");
+        let aliased_path = alias.join(path.strip_prefix(fixture.codex_home.path()).unwrap());
+        fixture
+            .insert_thread_row(thread_id, &aliased_path, false)
+            .await;
+
+        let check = thread_inventory_check_for_roots(
+            fixture.codex_home.path(),
+            &fixture.sqlite(),
+            "test-provider",
+        )
+        .await;
+
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert_detail(&check, "rollout DB missing active rows", "0");
         assert_detail(&check, "rollout DB stale rows", "0");
     }
 

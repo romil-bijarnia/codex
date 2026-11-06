@@ -2604,6 +2604,9 @@ impl App {
             AppEvent::PersistDaybreakSelection { thread_id, enabled } => {
                 self.persist_daybreak_selection(app_server, thread_id, enabled).await;
             }
+            AppEvent::DisableDaybreakForModelChange { thread_id } => {
+                self.disable_daybreak_for_model_change(app_server, thread_id).await;
+            }
             AppEvent::SelectSessionModel { model, effort, service_tier } => {
                 self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.select_session_model(app_server, model, effort, service_tier).await;
@@ -2772,6 +2775,9 @@ impl App {
                 self.chat_widget.submit_initial_user_message_if_pending();
             }
             AppEvent::SelectPermissionProfile(selection) => {
+                if selection.display_label != crate::el2_control::LABEL {
+                    self.chat_widget.clear_el2_control_selection();
+                }
                 let inline_selection = self
                     .chat_widget
                     .complete_inline_permission_profile_selection();
@@ -2779,6 +2785,12 @@ impl App {
                 if inline_selection {
                     self.app_event_tx.send(AppEvent::SettingsSelectionClosed);
                 }
+            }
+            AppEvent::ActivateEl2Control { thread_id, quiet } => {
+                self.activate_el2_control(app_server, thread_id, quiet);
+            }
+            AppEvent::El2ControlActivated { thread_id, request_id, quiet, result } => {
+                self.on_el2_control_activated(app_server, thread_id, request_id, quiet, result).await;
             }
             AppEvent::UpdateApprovalsReviewer(policy) => {
                 if self.reject_pending_permission_change() {

@@ -767,7 +767,11 @@ impl ChatWidget {
                     }
                 }),
             StatusLineItem::Status => Some(self.run_state_status_text()),
-            StatusLineItem::Permissions => Some(permissions_display(&self.config)),
+            StatusLineItem::Permissions => Some(if self.el2_control_is_active() {
+                crate::el2_control::LABEL.to_string()
+            } else {
+                permissions_display(&self.config)
+            }),
             StatusLineItem::ApprovalMode => Some(approval_mode_display(&self.config)),
             StatusLineItem::UsedTokens => {
                 let usage = self.status_line_total_usage();

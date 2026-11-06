@@ -74,6 +74,18 @@ pub(crate) fn prefetch(
     tx: AppEventSender,
     request_id: Uuid,
 ) {
+    // Keep the terminal's optional reminder preference in the native frontend.
+    // The existing opt-in and disabled marker restore the standard reminder.
+    if std::env::var_os("CODEX_SECURITY_SETUP_REMINDERS").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+        && !config
+            .codex_home
+            .join("local-overrides/security-setup-reminder/disabled")
+            .exists()
+    {
+        tracing::debug!("optional security setup reminder disabled by local preference");
+        return;
+    }
     if config.model_provider_id != "openai" || server.uses_remote_workspace() {
         return;
     }

@@ -331,6 +331,7 @@ pub(crate) mod quick_dials;
 mod session_model_selection;
 use self::notifications::Notification;
 pub(crate) use self::session_model_selection::AstraModelPickerAction;
+mod el2_control;
 mod permission_discovery;
 mod permission_popups;
 mod permission_shortcuts;
@@ -524,6 +525,8 @@ pub(crate) struct ChatWidget {
     pub(crate) empty_state_animation:
         std::cell::RefCell<crate::empty_state_animation::EmptyStateAnimation>,
     pub(crate) daybreak_enabled: bool,
+    el2_control_enabled: bool,
+    el2_control_request_id: Option<uuid::Uuid>,
     app_event_tx: AppEventSender,
     codex_op_target: CodexOpTarget,
     bottom_pane: BottomPane,

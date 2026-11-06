@@ -164,6 +164,22 @@ impl ChatWidget {
             }
         }
 
+        if self.el2_control_is_active() {
+            for item in &mut items {
+                item.is_current = false;
+            }
+        }
+        let full_access_disabled_reason = self
+            .config
+            .permissions
+            .can_set_permission_profile(&PermissionProfile::Disabled)
+            .err()
+            .map(|error| error.to_string());
+        if let Some(item) = self.el2_control_selection_item(full_access_disabled_reason) {
+            items.push(item);
+        }
+        items.reverse();
+
         let footer_note = show_elevate_sandbox_hint.then(|| {
             vec![
                 "The non-admin sandbox protects your files and prevents network access under most circumstances. However, it carries greater risk if prompt injected. To upgrade to the default sandbox, run ".dim(),

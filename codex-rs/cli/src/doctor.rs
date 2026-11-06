@@ -1608,7 +1608,10 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
                             ));
                         }
                     } else if !env_var_present(env_var.name()) {
-                        missing_env.push(format!("{name}: env var {} is not set", env_var.name()));
+                        details.push(format!(
+                            "{name}: optional forwarded env var {} is not set",
+                            env_var.name()
+                        ));
                     }
                 }
             }
@@ -3611,6 +3614,30 @@ mod tests {
                 .iter()
                 .any(|detail| detail.contains("optional reachability failed: optional:"))
         );
+    }
+
+    #[tokio::test]
+    async fn mcp_check_allows_absent_optional_forwarded_environment() {
+        let command = toml::Value::String(
+            std::env::current_exe()
+                .expect("current exe")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let server: McpServerConfig = toml::from_str(&format!(
+            r#"
+                command = {command}
+                required = true
+                env_vars = ["CODEX_DOCTOR_OPTIONAL_FORWARD_847153D1"]
+            "#,
+        ))
+        .expect("stdio config");
+        let check =
+            mcp_check_from_servers(&HashMap::from([("forwarder".to_string(), server)])).await;
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.details.iter().any(|detail| {
+            detail.contains("optional forwarded env var CODEX_DOCTOR_OPTIONAL_FORWARD_847153D1")
+        }));
     }
 
     #[tokio::test]

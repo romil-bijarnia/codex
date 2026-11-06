@@ -45,7 +45,6 @@ use supports_color::Stream;
 
 #[cfg(all(
     target_os = "linux",
-    target_env = "musl",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 #[global_allocator]
@@ -65,6 +64,7 @@ mod exec_args_tests;
 #[cfg(test)]
 #[path = "exec_server_args_tests.rs"]
 mod exec_server_args_tests;
+mod local_commands;
 mod marketplace_cmd;
 mod mcp_cmd;
 mod mcp_login;
@@ -144,6 +144,12 @@ struct MultitoolCli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
+    /// Open a saved local visualization in your browser.
+    Visualize(local_commands::HelperArgs),
+
+    /// Use the separate API-key profile.
+    Api(local_commands::HelperArgs),
+
     /// Browse all agent sessions on the shared local app-server daemon.
     Agents(AgentsCommand),
 
@@ -1038,6 +1044,11 @@ fn stage_str(stage: Stage) -> &'static str {
 
 fn main() -> anyhow::Result<()> {
     codex_build_info::initialize!();
+    // Preserve helper arguments, including --help and nested -c overrides,
+    // before the native CLI interprets its own global options.
+    if let Some((helper, args)) = local_commands::direct_invocation(std::env::args_os()) {
+        return local_commands::run(helper, args);
+    }
     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
         // Keep the CLI dispatcher off the runtime's stack while the TUI rebuilds a thread.
@@ -1103,6 +1114,12 @@ async fn cli_main(
 
     let open_agents_overview = matches!(&subcommand, Some(Subcommand::Agents(_)));
     match subcommand {
+        Some(Subcommand::Visualize(args)) => {
+            return local_commands::run(local_commands::Helper::Visualize, args.args);
+        }
+        Some(Subcommand::Api(args)) => {
+            return local_commands::run(local_commands::Helper::Api, args.args);
+        }
         None | Some(Subcommand::Agents(_)) => {
             prepend_config_flags(
                 &mut interactive.config_overrides,
@@ -2371,6 +2388,8 @@ fn unsupported_subcommand_name_for_strict_config(
             Some(app_server_subcommand_name(app_server.subcommand.as_ref()))
         }
         Some(Subcommand::RemoteControl(remote_control)) => Some(remote_control.subcommand_name()),
+        Some(Subcommand::Visualize(_)) => Some("visualize"),
+        Some(Subcommand::Api(_)) => Some("api"),
         Some(Subcommand::Mcp(_)) => Some("mcp"),
         Some(Subcommand::Plugin(_)) => Some("plugin"),
         Some(Subcommand::MigrateRollouts(_)) => Some("migrate-rollouts"),

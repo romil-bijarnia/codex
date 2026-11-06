@@ -58,9 +58,13 @@ impl ChatWidget {
         current: Option<RealtimeVoice>,
         voices: RealtimeVoicesList,
     ) {
-        // The TUI uses V3, which shares the V1 voice catalog.
-        let mut items: Vec<SelectionItem> = voices
-            .v1
+        // Prefer the complete V3 catalog, retaining older servers' V1 fallback.
+        let available = if voices.v3.is_empty() {
+            voices.v1
+        } else {
+            voices.v3
+        };
+        let mut items: Vec<SelectionItem> = available
             .into_iter()
             .map(|voice| SelectionItem {
                 name: voice.wire_name().to_string(),

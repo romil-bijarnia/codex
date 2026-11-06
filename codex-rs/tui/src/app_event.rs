@@ -1349,6 +1349,10 @@ pub(crate) enum AppEvent {
         thread_id: ThreadId,
         enabled: bool,
     },
+    /// Disable Daybreak after an incompatible explicit model choice, without restoring a model.
+    DisableDaybreakForModelChange {
+        thread_id: ThreadId,
+    },
 
     /// Fetch the current catalog even when cached models produce no picker.
     FetchModels {
@@ -1573,6 +1577,18 @@ pub(crate) enum AppEvent {
 
     /// Re-open the permissions presets popup.
     OpenPermissionsPopup,
+
+    /// Activate and verify the owner EL2 interface on the app-server host.
+    ActivateEl2Control {
+        thread_id: Option<ThreadId>,
+        quiet: bool,
+    },
+    El2ControlActivated {
+        thread_id: Option<ThreadId>,
+        request_id: uuid::Uuid,
+        quiet: bool,
+        result: Result<crate::el2_control::Activation, String>,
+    },
 
     /// Resolve an inline permission profile after any app-owned platform preflight.
     ResolvePermissionProfile {

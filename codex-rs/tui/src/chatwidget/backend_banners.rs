@@ -59,7 +59,7 @@ pub(super) struct BackendBannerState {
 }
 
 impl ChatWidget {
-    pub(super) fn restrict_model_picker_to_luna_reserve(&self) -> bool {
+    pub(crate) fn restrict_model_picker_to_luna_reserve(&self) -> bool {
         // A fresh account read can allow manual recovery even without a valid saved return model.
         self.current_model() == LUNA_RESERVE_MODEL
             && !self.backend_banner_state.ordinary_usage_recovered

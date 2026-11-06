@@ -304,6 +304,14 @@ impl ChatWidget {
 
     /// Set the model in the widget's config copy and stored collaboration mode.
     pub(crate) fn set_model(&mut self, model: &str) {
+        let disable_daybreak = self.daybreak_enabled
+            && crate::daybreak::program_for_turn(
+                &self.model_catalog.models,
+                model,
+                self.daybreak_account_eligible(),
+                /*enabled*/ true,
+            )
+            .is_err();
         if model != self.current_model() {
             if self.current_model() == crate::model_catalog::LUNA_RESERVE_MODEL {
                 self.clear_reserve_return();
@@ -321,6 +329,13 @@ impl ChatWidget {
             && let Some(mask) = self.active_collaboration_mask.as_mut()
         {
             mask.model = Some(model.to_string());
+        }
+        if disable_daybreak {
+            self.set_daybreak_enabled(false);
+            if let Some(thread_id) = self.thread_id {
+                self.app_event_tx
+                    .send(AppEvent::DisableDaybreakForModelChange { thread_id });
+            }
         }
         self.refresh_effective_service_tier();
         self.refresh_model_dependent_surfaces();
@@ -449,7 +464,7 @@ impl ChatWidget {
             .unwrap_or(ModeKind::Default)
     }
 
-    pub(super) fn effective_reasoning_effort(&self) -> Option<ReasoningEffortConfig> {
+    pub(crate) fn effective_reasoning_effort(&self) -> Option<ReasoningEffortConfig> {
         if !self.collaboration_modes_enabled() {
             return self.current_collaboration_mode.reasoning_effort();
         }

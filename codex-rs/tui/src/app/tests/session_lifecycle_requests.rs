@@ -46,6 +46,14 @@ use tokio_tungstenite::tungstenite::error::ProtocolError;
 pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 
+fn daybreak_return_path_for_test(app: &App, thread_id: ThreadId) -> std::path::PathBuf {
+    app.config
+        .codex_home
+        .join("state/daybreak-return")
+        .join(format!("{thread_id}.json"))
+        .to_path_buf()
+}
+
 fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
     match error {
         WebSocketError::Protocol(ProtocolError::ResetWithoutClosingHandshake) => true,
@@ -57,6 +65,89 @@ fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
         ),
         _ => false,
     }
+}
+
+#[tokio::test]
+async fn daybreak_command_switches_and_restores_the_model_and_reasoning() -> Result<()> {
+    use codex_protocol::openai_models::ModelAccessPrograms;
+    use codex_protocol::turn_input::CyberAccessProgram;
+
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let (mut server, _requests, proxy) =
+        start_recording_app_server(&app.config, None, None).await?;
+    let started = server.start_thread(&app.config).await?;
+    let thread_id = started.session.thread_id;
+    app.active_thread_id = Some(thread_id);
+    app.chat_widget.handle_thread_session_quiet(started.session);
+    app.chat_widget.update_account_state(None, None, true, true);
+    app.chat_widget.open_model_popup();
+    let request_id = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::FetchModels { request_id } => Some(request_id),
+            _ => None,
+        })
+        .last()
+        .expect("model catalog request");
+    let original_model = app.chat_widget.current_model().to_string();
+    let original_effort = app.chat_widget.effective_reasoning_effort();
+    let mut original = crate::test_support::TEST_MODEL_PRESETS[0].clone();
+    original.model = original_model.clone();
+    original.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard],
+    });
+    let mut sol = original.clone();
+    sol.model = "gpt-6-sol".into();
+    sol.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![
+            CyberAccessProgram::Standard,
+            CyberAccessProgram::DaybreakBlue,
+        ],
+    });
+    app.chat_widget
+        .on_models_loaded(request_id, Ok(vec![original, sol]));
+    app.chat_widget
+        .handle_key_event(KeyEvent::from(KeyCode::Esc));
+
+    app.persist_daybreak_selection(&mut server, thread_id, true)
+        .await;
+    assert!(app.chat_widget.daybreak_enabled);
+    assert_eq!(app.chat_widget.current_model(), "gpt-6-sol");
+    assert_eq!(
+        app.chat_widget.effective_reasoning_effort(),
+        original_effort
+    );
+    assert!(daybreak_return_path_for_test(&app, thread_id).is_file());
+
+    app.persist_daybreak_selection(&mut server, thread_id, false)
+        .await;
+    assert!(!app.chat_widget.daybreak_enabled);
+    assert_eq!(app.chat_widget.current_model(), original_model);
+    assert_eq!(
+        app.chat_widget.effective_reasoning_effort(),
+        original_effort
+    );
+    assert!(!daybreak_return_path_for_test(&app, thread_id).exists());
+
+    app.persist_daybreak_selection(&mut server, thread_id, true)
+        .await;
+    assert!(app.chat_widget.daybreak_enabled);
+    while events.try_recv().is_ok() {}
+    app.chat_widget.set_model(&original_model);
+    assert!(!app.chat_widget.daybreak_enabled);
+    let disable = std::iter::from_fn(|| events.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::DisableDaybreakForModelChange { .. }))
+        .expect("disable Daybreak after an incompatible model selection");
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    app.handle_event(&mut tui, &mut server, disable).await?;
+    assert_eq!(app.chat_widget.current_model(), original_model);
+    assert!(!daybreak_return_path_for_test(&app, thread_id).exists());
+    assert_eq!(
+        server.thread_read(thread_id, false).await?.daybreak_enabled,
+        Some(false)
+    );
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
 }
 
 #[tokio::test]

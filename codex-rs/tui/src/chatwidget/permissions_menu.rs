@@ -57,6 +57,32 @@ impl ChatWidget {
         requested_approval_policy: Option<AskForApproval>,
         requested_reviewer: Option<ApprovalsReviewer>,
     ) -> bool {
+        if matches!(
+            profile_id,
+            "el2" | "el2-control" | crate::el2_control::PROFILE_ALIAS
+        ) {
+            if requested_approval_policy.is_some() || requested_reviewer.is_some() {
+                self.add_error_message(
+                    "EL2 Control preserves the current approval settings. Change those separately."
+                        .into(),
+                );
+                return false;
+            }
+            let approval = self.config.permissions.approval_policy.value().into();
+            if let Some(reason) = discovery.disabled_reason(
+                BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS,
+                Some(approval),
+                Some(self.config.approvals_reviewer.into()),
+            ) {
+                self.add_error_message(format!("EL2 Control is unavailable: {reason}"));
+                return false;
+            }
+            self.app_event_tx.send(AppEvent::ActivateEl2Control {
+                thread_id: self.thread_id,
+                quiet: false,
+            });
+            return true;
+        }
         let reviewer = match profile_id {
             ":approve-for-me" if !self.config.features.enabled(Feature::GuardianApproval) => {
                 self.add_error_message(
@@ -196,6 +222,7 @@ impl ChatWidget {
             AskForApproval::from(full_access.approval),
             ApprovalsReviewer::User,
         ));
+        items.reverse();
         items.push(self.builtin_permission_mode_selection_item(
             &discovery,
             read_only,
@@ -204,6 +231,19 @@ impl ChatWidget {
             AskForApproval::from(read_only.approval),
             ApprovalsReviewer::User,
         ));
+        if self.el2_control_is_active() {
+            for item in &mut items {
+                item.is_current = false;
+            }
+        }
+        let el2_disabled_reason = discovery.disabled_reason(
+            BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS,
+            Some(self.config.permissions.approval_policy.value().into()),
+            Some(self.config.approvals_reviewer.into()),
+        );
+        if let Some(item) = self.el2_control_selection_item(el2_disabled_reason) {
+            items.insert(0, item);
+        }
         items.extend(
             discovery
                 .profiles

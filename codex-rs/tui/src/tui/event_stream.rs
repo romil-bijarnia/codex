@@ -177,6 +177,7 @@ pub struct TuiEventStream<S: EventSource + Default + Unpin = CrosstermEventSourc
     resume_stream: WatchStream<()>,
     terminal_focused: Arc<AtomicBool>,
     poll_draw_first: bool,
+    wheel_events_since_draw: usize,
     #[cfg(unix)]
     suspend_context: crate::tui::job_control::SuspendContext,
     #[cfg(unix)]
@@ -198,6 +199,7 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
             resume_stream,
             terminal_focused,
             poll_draw_first: false,
+            wheel_events_since_draw: 0,
             #[cfg(unix)]
             suspend_context,
             #[cfg(unix)]
@@ -323,27 +325,41 @@ impl<S: EventSource + Default + Unpin> Stream for TuiEventStream<S> {
     type Item = TuiEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // approximate fairness + no starvation via round-robin.
-        let draw_first = self.poll_draw_first;
+        // Consume ready wheel input before drawing intermediate positions, while
+        // allowing a pending frame through during a sustained stream of input.
+        const MAX_WHEEL_EVENTS_PER_FRAME: usize = 64;
+        let draw_first = match self.wheel_events_since_draw {
+            0 => self.poll_draw_first,
+            count => count >= MAX_WHEEL_EVENTS_PER_FRAME,
+        };
         self.poll_draw_first = !self.poll_draw_first;
 
-        if draw_first {
-            if let Poll::Ready(event) = self.poll_draw_event(cx) {
-                return Poll::Ready(event);
-            }
-            if let Poll::Ready(event) = self.poll_crossterm_event(cx) {
-                return Poll::Ready(event);
+        let result = if draw_first {
+            match self.poll_draw_event(cx) {
+                Poll::Pending => self.poll_crossterm_event(cx),
+                ready => ready,
             }
         } else {
-            if let Poll::Ready(event) = self.poll_crossterm_event(cx) {
-                return Poll::Ready(event);
+            match self.poll_crossterm_event(cx) {
+                Poll::Pending => self.poll_draw_event(cx),
+                ready => ready,
             }
-            if let Poll::Ready(event) = self.poll_draw_event(cx) {
-                return Poll::Ready(event);
+        };
+        if let Poll::Ready(Some(event)) = &result {
+            if matches!(event, TuiEvent::Mouse(mouse) if matches!(
+                mouse.kind,
+                crossterm::event::MouseEventKind::ScrollUp
+                    | crossterm::event::MouseEventKind::ScrollDown
+            )) {
+                self.wheel_events_since_draw = self.wheel_events_since_draw.saturating_add(1);
+            } else {
+                self.wheel_events_since_draw = 0;
+                if matches!(event, TuiEvent::Draw) {
+                    self.poll_draw_first = false;
+                }
             }
         }
-
-        Poll::Pending
+        result
     }
 }
 
@@ -644,5 +660,70 @@ mod tests {
             Some(TuiEvent::Key(key)) => assert_eq!(key, expected_key),
             other => panic!("expected key event, got {other:?}"),
         }
+    }
+
+    fn wheel(kind: MouseEventKind) -> EventResult {
+        Ok(Event::Mouse(MouseEvent {
+            kind,
+            column: 8,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        }))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wheel_burst_drains_in_order_before_a_pending_frame() {
+        let (broker, handle, draw_tx, draw_rx, focused) = setup();
+        let mut stream = make_stream(broker, draw_rx, focused);
+        let kinds = [
+            MouseEventKind::ScrollUp,
+            MouseEventKind::ScrollUp,
+            MouseEventKind::ScrollDown,
+            MouseEventKind::ScrollUp,
+        ];
+        draw_tx.send(()).unwrap();
+        for kind in kinds {
+            handle.send(wheel(kind));
+        }
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        handle.send(Ok(Event::Key(key)));
+        for expected in kinds {
+            match stream.next().await {
+                Some(TuiEvent::Mouse(actual)) => assert_eq!(actual.kind, expected),
+                actual => panic!("pending frame interrupted a ready wheel burst: {actual:?}"),
+            }
+        }
+        assert!(matches!(stream.next().await, Some(TuiEvent::Key(actual)) if actual == key));
+        assert!(matches!(stream.next().await, Some(TuiEvent::Draw)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wheel_flood_yields_a_frame_without_losing_input() {
+        let (broker, handle, draw_tx, draw_rx, focused) = setup();
+        let mut stream = make_stream(broker, draw_rx, focused);
+        draw_tx.send(()).unwrap();
+        for _ in 0..65 {
+            handle.send(wheel(MouseEventKind::ScrollUp));
+        }
+        for _ in 0..64 {
+            assert!(matches!(stream.next().await, Some(TuiEvent::Mouse(_))));
+        }
+        assert!(matches!(stream.next().await, Some(TuiEvent::Draw)));
+        assert!(matches!(stream.next().await, Some(TuiEvent::Mouse(_))));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wheel_short_tail_draws_immediately_when_input_runs_out() {
+        let (broker, handle, draw_tx, draw_rx, focused) = setup();
+        let mut stream = make_stream(broker, draw_rx, focused);
+        handle.send(wheel(MouseEventKind::ScrollDown));
+        handle.send(wheel(MouseEventKind::ScrollDown));
+        draw_tx.send(()).unwrap();
+        assert!(matches!(stream.next().await, Some(TuiEvent::Mouse(_))));
+        assert!(matches!(stream.next().await, Some(TuiEvent::Mouse(_))));
+        let next = timeout(Duration::from_millis(50), stream.next())
+            .await
+            .unwrap();
+        assert!(matches!(next, Some(TuiEvent::Draw)));
     }
 }

@@ -457,7 +457,14 @@ impl App {
         }
         if let TuiEvent::Mouse(mouse) = event {
             let composer_ready = self.chat_widget.prepare_composer_mouse(*mouse);
-            if mouse.kind != crossterm::event::MouseEventKind::Moved {
+            // Wheel bursts update the viewport; the scheduled frame presents it.
+            // Repainting before every tick queues work that is already obsolete.
+            if !matches!(
+                mouse.kind,
+                crossterm::event::MouseEventKind::Moved
+                    | crossterm::event::MouseEventKind::ScrollUp
+                    | crossterm::event::MouseEventKind::ScrollDown
+            ) {
                 let size = tui.prepare_draw_size()?;
                 self.render_owned_transcript(tui, size)?;
             }
