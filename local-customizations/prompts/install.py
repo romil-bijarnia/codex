@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move the retired Sara base override into global AGENTS.md, without backups."""
+"""Load personal guidance from AGENTS.md with the stock base prompt disabled."""
 import json
 import os
 from pathlib import Path
@@ -48,16 +48,18 @@ def main():
     if selected and not legacy.is_file():
         raise SystemExit('The selected Sara prompt is missing; no files changed.')
 
-    # Remove only the root-level selector, preserving all other config bytes.
+    # Replace only the root-level base override, preserving other settings.
     root_end = re.search(r'^[ \t]*\[', text, re.MULTILINE)
     offset = root_end.start() if root_end else len(text)
-    root = re.sub(r'^[ \t]*model_instructions_file\s*=.*(?:\n|$)', '',
+    root = re.sub(r'^[ \t]*(?:model_instructions_file|instructions)\s*=.*(?:\n|$)', '',
                   text[:offset], flags=re.MULTILINE)
+    root = 'instructions = ""\n' + root
     updated_config = root + text[offset:]
     expected = dict(parsed)
     expected.pop('model_instructions_file', None)
+    expected['instructions'] = ''
     if tomllib.loads(updated_config) != expected:
-        raise SystemExit('Cannot remove the selector without changing other settings; no files changed.')
+        raise SystemExit('Cannot disable the base prompt without changing other settings; no files changed.')
 
     template = source / 'AGENTS.md'
     default = template.read_text() if template.is_file() else ''
@@ -67,6 +69,9 @@ def main():
     old_prompt = legacy.read_text().strip() if legacy.exists() else ''
     if old_prompt and old_prompt != guidance:
         guidance = (guidance + '\n\n' + old_prompt).strip()
+    inline_prompt = parsed.get('instructions', '').strip()
+    if inline_prompt and inline_prompt not in guidance:
+        guidance = (guidance + '\n\n' + inline_prompt).strip()
     guidance = guidance or default_guidance
     if default_personal.strip() and default_personal.strip() not in personal:
         personal = (personal.rstrip() + '\n\n' + default_personal.strip()).strip()
@@ -77,13 +82,14 @@ def main():
     if len(merged.encode()) > 32768:
         raise SystemExit('Merged instructions exceed the default 32 KiB limit; no files changed.')
 
-    # Preserve the guidance first, then disable and remove the retired override.
+    # Preserve the guidance before disabling stock and removing the retired file.
     if current != merged:
         atomic_write(agents, merged)
     if text != updated_config:
         atomic_write(config, updated_config)
     legacy.unlink(missing_ok=True)
-    print(json.dumps({'agents': str(agents), 'custom_base_prompt': False,
+    print(json.dumps({'agents': str(agents), 'stock_base_prompt': False,
+                      'base_instructions': '', 'model_instructions_file': None,
                       'legacy_prompt_removed': not legacy.exists(),
                       'agents_bytes': len(merged.encode()), 'backups_created': False}))
 
