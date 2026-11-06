@@ -8,14 +8,21 @@ sets the empty base instructions, removes the old `model_instructions_file`
 selector, and deletes the retired live `~/.codex/prompts/sara-system.md` file.
 Any retired Sara prompt or nonempty inline instructions are first preserved in
 AGENTS.md alongside existing instructions when migrating an older setup. The
-current personal template is a self-contained rewrite, not a concatenated copy
-of the old base prompt. It preserves Romil's voice, working rules, repository
-requirements, and machine capabilities and authorisations. It distinguishes
-conversation, reviews, learning and action, consolidates repeated guidance, and
-uses useful progress updates and proportionate verification rather than rigid
-procedures. Messaging authorisation is defined in AGENTS.md; the installer
-adds no separate per-recipient or per-message approval requirement. The
-installer itself does not rewrite existing instructions.
+current personal template is a self-contained set of owner instructions. It
+records broad standing delegation to administer Romil's systems using the access
+actually available, including root, desktop/application control and supported
+EL2 operations. Romil states the outcome; Sara owns implementation, verification
+and delivery, with concrete reporting of what changed, what was checked, the
+observed result and any remaining uncertainty. It retains the communication
+preferences, task steering, messaging authorisation, account/password handling,
+repository preservation and machine-specific capabilities and limitations.
+Privileged work does not require repeated consent merely because it is powerful
+or low-level; a requested destructive result authorises its necessary steps.
+The instructions distinguish authorisation from actual access and external
+controls. No new OS privilege or service capability is created by editing them.
+Verification is bounded: run the checks needed for the actual change, then
+finish delivery; do not widen or repeat testing without a specific unresolved
+concern. The installer itself does not rewrite existing instructions.
 
 The installer preserves unrelated settings and instructions, is idempotent,
 and creates no backups. It refuses to remove a different file override or exceed
