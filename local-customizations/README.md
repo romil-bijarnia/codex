@@ -9,7 +9,7 @@ Included:
 - The launcher and immediate idle-chat unloading.
 - Native Linux EL2 selection, saved startup choice, input scrolling and Daybreak behavior.
 - The native Linux allocator repair and current doctor source fixes.
-- The personal base-prompt file and repository-preservation rule.
+- The global AGENTS.md migration and repository-preservation rule.
 - The terminal `codex visualize` command and its tests.
 - The optional setup-reminder helper, including its existing package/resource safeguards.
 - The exact-version native build, staging and terminal-colour test helpers.
@@ -19,11 +19,12 @@ are used instead. Immediate release uses the upstream `thread_unload_delay_secs 
 setting; it is not a replacement lock implementation. A chat still open in
 another client, or still doing work, is not forcibly unlocked.
 
-The personal base prompt preserves the installed GPT-6.1-Sol instructions and
-adds the repository-preservation rule. Its installer selects the actual base
-prompt through `model_instructions_file`; see [the prompt files](prompts/README.md).
-Personal instructions, skills, tool instructions and service instructions retain
-their existing roles. The retired `sara-lean.md` experiment is not installed.
+Personal guidance is loaded from global AGENTS.md rather than a custom base
+prompt. The migration removes `model_instructions_file` and preserves the full
+previous guidance alongside personal instructions; see [the instructions kit](prompts/README.md).
+Codex's built-in model base prompt, skills, tool instructions and service
+instructions retain their existing roles. Neither retired Sara prompt override
+is installed.
 
 The original macOS launcher recipe below remains available. Current Linux
 behavior and recovery are documented in [the Linux notes](linux/README.md).

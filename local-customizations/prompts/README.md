@@ -1,29 +1,23 @@
-The complete personal base prompt is generated locally as `sara-system.md` from
-the installed model's base prompt. It replaces the writing-style section with
-`writing-style.md`, applies the investigate-before-asking rule in
-`investigation.md` and the initiative rule in `proactivity.md`, and appends
-`repository-preservation.md`. The initiative rule requires taking the next
-useful step, resolving routine obstacles and following through with verification
-within the user's requested goal and authorization. The writing rules
-require honest, direct answers and routine handling of password-related tasks
-without unsolicited warnings or repeated reminders. Other prompt sections are
-preserved. `origin.json` identifies the original GPT-6.1-Sol text by hash. The
-complete personal prompt is preserved in private GRID.
+Personal guidance now lives in global `~/.codex/AGENTS.md`. The custom
+`model_instructions_file` override has been retired, so fresh conversations use
+Codex's built-in model base prompt plus the normal user-instruction layers.
 
-Run `python3 local-customizations/prompts/install.py` to copy the prompt into
-`~/.codex/prompts/sara-system.md` and select it through `model_instructions_file`.
-When the complete prompt is absent, the installer reads the selected model's
-base instructions from the installed model catalog. `customize.py` applies the
-same communication rules to generated prompts and supplied complete prompts.
-It stops if expected section markers have changed so an upstream change cannot
-silently remove other instructions.
-The installer preserves other settings and backs up the previous files. This
-changes the local model base prompt, rather than relying on an AGENTS.md entry.
-Service instructions, permissions, tools and other instruction layers retain
-their existing roles. New conversations load the selected prompt file.
+Run `python3 local-customizations/prompts/install.py` to migrate the previous
+`~/.codex/prompts/sara-system.md` into AGENTS.md, remove its root-level config
+selector, and delete the retired live file. The migration retains the full old
+prompt and existing personal/machine instructions. It does not simplify them.
+The original personal instructions follow the migrated block, so the user's
+more specific preferences remain explicit.
 
-This is a deliberate full base-prompt override. It does not automatically track
-upstream prompt changes. When rebasing onto a different model prompt, review
-the communication rules, retain the preservation rule and update the origin
-record. Start a new conversation to load prompt changes; no CLI rebuild is
-required.
+The installer preserves unrelated settings and instructions, is idempotent,
+and creates no backups. It refuses to remove a different override or exceed
+the default 32 KiB instruction limit. Start a new conversation after migration;
+already-running conversations keep their loaded instructions. No rebuild or
+restart of active work is needed.
+
+The complete merged AGENTS.md is preserved only in private GRID under
+`extras/linux-el2-owner-control/instructions/AGENTS.md`. Its installer can also
+restore a clean profile from that template, preserving existing instructions.
+The public Codex kit ships the migration tool, not the personal template; it
+requires existing instructions or the legacy live prompt. The old customization
+fragments and origin record are historical reference, not active generators.

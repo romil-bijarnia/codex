@@ -1,2 +1,4 @@
-# The complete model prompt is backed up in private GRID; generate it locally.
+# Complete personal instruction text is preserved only in private GRID.
 sara-system.md
+AGENTS.md
+__pycache__/

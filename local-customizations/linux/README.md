@@ -32,7 +32,9 @@ new package atomically and keep the previous generation for recovery.
 
 The EL2 default is `~/.codex/state/owner-el2-selection/default.json` containing
 `{"enabled":true}`. Per-conversation opt-outs take precedence. The personal
-base prompt is installed with `python3 local-customizations/prompts/install.py`.
+guidance is migrated to global AGENTS.md with
+`python3 local-customizations/prompts/install.py`, which removes the custom
+base-prompt override.
 Do not replace a user's complete configuration with a saved machine snapshot.
 
 If a stock update removes the custom permissions menu, restore an already
