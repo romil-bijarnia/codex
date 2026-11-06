@@ -35,6 +35,23 @@ The EL2 default is `~/.codex/state/owner-el2-selection/default.json` containing
 base prompt is installed with `python3 local-customizations/prompts/install.py`.
 Do not replace a user's complete configuration with a saved machine snapshot.
 
+If a stock update removes the custom permissions menu, restore an already
+verified personal package instead of rebuilding it:
+
+```bash
+python3 local-customizations/linux/restore-client.py \
+  ~/.codex/packages/standalone/releases/local-romil-cli-b06119f483487060-aarch64-unknown-linux-gnu
+```
+
+The helper checks the saved executable hash and completed verification suites,
+takes the daemon and installer locks, disables daemon automatic updates and the
+separate terminal startup update popup, then atomically selects the package.
+It preserves unrelated settings, resources, other packages and running chats.
+It does not rebuild, launch a watcher, run a model request or probe EL2. Relaunch
+the terminal frontend to load the restored executable; the shared backend need
+not restart. An explicit stock installer or update command can replace this
+selection again. Incorporate upstream updates into the custom build deliberately.
+
 The 6 November installed startup build was verified with one fresh terminal
 launch: EL2 appeared without a Full Access flash, without an activation receipt
 or a model request. The kernel bridge was verified separately earlier. This
