@@ -167,6 +167,14 @@ where
 }
 
 fn permissions_status_line_style(text: &str) -> Style {
+    if text == crate::el2_control::LABEL {
+        let foreground = match effective_stdout_color_level() {
+            StdoutColorLevel::Ansi16 => Color::LightRed,
+            _ => best_color((255, 95, 109)),
+        };
+        return Style::default().fg(foreground);
+    }
+
     if text != "Full Access" {
         return secondary_text_style();
     }

@@ -3,6 +3,10 @@ EL2 Control selects the existing `:danger-full-access` profile with
 replaces the previous approval settings instead of inheriting them. With
 approvals disabled, the reviewer setting does not add approval prompts.
 
+The footer renders EL2 Control in crimson red (`#FF5F6D`) when status-line
+colours are enabled, using bright red on 16-colour terminals. The existing
+monochrome toggle and contrast adjustment still apply.
+
 The owner installation uses the same saved defaults in `config.toml`:
 
 ```toml
