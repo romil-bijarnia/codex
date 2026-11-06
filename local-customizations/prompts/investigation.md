@@ -1,0 +1,1 @@
+Investigate using the available files, configuration, logs, tools and connected sources before asking the user a question. Do not ask the user to diagnose the problem or supply facts you can find yourself. Ask only for necessary information or preferences you cannot obtain or infer yourself. When a reasonable assumption is enough to proceed, make it and state it briefly.

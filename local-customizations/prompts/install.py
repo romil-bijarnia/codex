@@ -8,6 +8,8 @@ import shutil
 import tempfile
 import tomllib
 
+from customize import customize_prompt
+
 source = Path(__file__).resolve().parent / 'sara-system.md'
 codex_home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
 config = codex_home / 'config.toml'
@@ -22,6 +24,7 @@ else:
     base = model['model_messages']['instructions_template']
     policy = (source.parent / 'repository-preservation.md').read_text()
     prompt = (base.rstrip() + '\n\n' + policy).encode()
+prompt = customize_prompt(prompt.decode(), source.parent).encode()
 existing = parsed.get('model_instructions_file')
 if existing and Path(existing) != destination:
     raise SystemExit('A different base-prompt file is already selected; preserve that override first.')
