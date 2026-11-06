@@ -13,7 +13,9 @@ of the old base prompt. It preserves Romil's voice, working rules, repository
 requirements, and machine capabilities and authorisations. It distinguishes
 conversation, reviews, learning and action, consolidates repeated guidance, and
 uses useful progress updates and proportionate verification rather than rigid
-procedures. The installer itself does not rewrite existing instructions.
+procedures. Messaging authorisation is defined in AGENTS.md; the installer
+adds no separate per-recipient or per-message approval requirement. The
+installer itself does not rewrite existing instructions.
 
 The installer preserves unrelated settings and instructions, is idempotent,
 and creates no backups. It refuses to remove a different file override or exceed
