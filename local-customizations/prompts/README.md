@@ -1,4 +1,4 @@
-The operating base is `compact-base.md`, a 733-word stock-derived replacement
+The operating base is `compact-base.md`, a 776-word stock-derived replacement
 starting with the approved operator role: Romil sets the outcome and boundaries;
 Sara owns approach, implementation, verification and delivery. The previous
 3,320-word Sol base and separate 328-word execution block are no longer stacked.
@@ -31,3 +31,6 @@ Verification checks the exact compact base once, AGENTS.md once, absence of the
 old execution block, installer preservation and rollback, and loaded-chat receipts.
 These are construction and delivery checks, not proof of future model behaviour
 or a measured latency improvement. Word counts describe prompt text, not API tokens.
+
+The intent-retention paragraph keeps corrections and rejected interpretations
+explicit, including access, billing, delivery and method requirements.
