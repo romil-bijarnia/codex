@@ -1,45 +1,44 @@
-Personal guidance lives in global `~/.codex/AGENTS.md`. The stock model base
-prompt is deliberately disabled with the root-level `instructions = ""` setting.
-There is no separate custom system-prompt file to maintain. Skills, tools,
-permissions and service-provided instruction layers retain their existing roles.
+The selected model's unmodified stock Codex base prompt is enabled. Personal
+preferences, standing owner authorisation and task requirements are loaded from
+global `~/.codex/AGENTS.md` alongside it. No complete copied model prompt or
+empty-base override is installed. Each selected model uses its own stock prompt.
 
-Run `python3 local-customizations/prompts/install.py` to install this setup. It
-sets the empty base instructions, removes the old `model_instructions_file`
-selector, and deletes the retired live `~/.codex/prompts/sara-system.md` file.
-Any retired Sara prompt or nonempty inline instructions are first preserved in
-AGENTS.md alongside existing instructions when migrating an older setup. The
-current personal template is a self-contained set of owner instructions. It
-records broad standing delegation to administer Romil's systems using the access
-actually available, including root, desktop/application control and supported
-EL2 operations. Romil states the outcome; Sara owns implementation, verification
-and delivery, with concrete reporting of what changed, what was checked, the
-observed result and any remaining uncertainty. It retains the communication
-preferences, task steering, messaging authorisation, account/password handling,
-repository preservation and machine-specific capabilities and limitations.
-Privileged work does not require repeated consent merely because it is powerful
-or low-level; a requested destructive result authorises its necessary steps.
-The instructions distinguish authorisation from actual access and external
-controls. No new OS privilege or service capability is created by editing them.
-Verification is bounded: run the checks needed for the actual change, then
-finish delivery; do not widen or repeat testing without a specific unresolved
-concern. The installer itself does not rewrite existing instructions.
+Run `python3 local-customizations/prompts/install.py` to remove root-level
+`instructions` and `model_instructions_file` overrides. The installer preserves
+existing AGENTS.md, the selected model, permissions and unrelated configuration.
+For a clean profile, the private GRID kit restores the reviewed personal template.
+The public kit requires an existing global AGENTS.md. No backups are created and
+no retired prompt files are deleted. A retired copied-base block in AGENTS.md
+requires review first, so it cannot silently duplicate the restored stock text.
 
-The installer preserves unrelated settings and instructions, is idempotent,
-and creates no backups. It refuses to remove a different file override or exceed
-the default 32 KiB instruction limit. Verify saved changes with a freshly
-constructed request; do not infer an existing conversation's loaded state from
-its saved configuration alone. The client can deliver instruction updates to an
-existing conversation. No CLI rebuild or restart of active work is needed.
+The reviewed template explains how the layers fit together. Owner and messaging
+authorisation is explicit standing consent where the stock prompt permits
+already-authorised work. Implementation requests include explicit standing
+permission for focused verification; checks remain proportional and bounded.
+Skill announcements and progress updates follow the stock requirements. Task
+restrictions remain in force until Romil changes them; urgency does not revoke
+constraints on windows, settings or methods. Voice, account/password handling,
+repository preservation and verified machine capabilities are retained.
 
-The complete personal AGENTS.md is preserved only in private GRID under
-`extras/linux-el2-owner-control/instructions/AGENTS.md`. Its installer can also
-restore a clean profile from that template, preserving existing instructions.
-The public Codex kit ships the migration tool, not the personal template; it
-requires existing instructions or the legacy live prompt. The old customization
-fragments and origin record are historical reference, not active generators.
+The complete personal template is preserved only in private GRID at
+`extras/linux-el2-owner-control/instructions/AGENTS.md`. Existing instructions
+are never automatically overwritten or combined with a different template.
+The old customisation fragments and origin record are historical reference.
 
-Verification uses `codex debug prompt-input` and checks that the stock base is
-absent and AGENTS.md is loaded once in the user instruction layer. This checks
-request construction without making a real model request. To restore the stock
-base later, remove the root-level `instructions = ""` setting and start a new
-conversation; do not remove AGENTS.md.
+Verification uses `codex debug prompt-input` to compare the complete rendered
+base with the installed model catalog and confirm AGENTS.md is loaded once.
+This verifies request construction, not the quality of future model behaviour.
+Existing chats must also be checked for refreshed instruction state; saved
+configuration alone does not prove that every running chat has updated.
+
+To update every currently loaded chat without starting a turn or resuming paused
+work, run `python3 local-customizations/prompts/refresh-loaded-chats.py --apply`.
+Without `--apply` it audits only. The helper uses the running local app server's
+native history-update API, applies the current model's exact stock instructions
+and updated global AGENTS.md where needed, and reads back the persisted updates.
+It preserves task identities, goals and history, and makes no model requests.
+Archived or unloaded histories are not opened or rewritten by this command;
+run it after reopening an older chat if that chat retains an earlier base.
+Native updates can be accepted before the rollout log catches up. If the
+helper reports persistence_pending, audit again without --apply; do not repeat
+an accepted mutation merely to wait for its log readback.

@@ -22,10 +22,10 @@ another client, or still doing work, is not forcibly unlocked.
 Personal guidance is loaded from global AGENTS.md rather than a custom base
 prompt. The migration removes `model_instructions_file` and preserves the full
 previous guidance alongside personal instructions; see [the instructions kit](prompts/README.md).
-The stock model base prompt is disabled with `instructions = ""`, leaving
-AGENTS.md as the maintained personal guidance. Skills, tool instructions and
-service instructions remain separate. Neither retired Sara prompt file is
-installed.
+Each model uses its unmodified stock base prompt plus the reviewed global
+AGENTS.md for personal guidance and standing authorisation. The installer
+removes base overrides and preserves model and permission settings. Skills,
+tool instructions and service instructions retain their normal roles.
 
 The original macOS launcher recipe below remains available. Current Linux
 behavior and recovery are documented in [the Linux notes](linux/README.md).
