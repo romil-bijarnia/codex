@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Install stock Codex instructions plus a small personal execution block."""
+"""Install the compact stock-derived base, or restore stock with --stock."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -24,40 +25,49 @@ def atomic_write(path, text):
         temporary.unlink(missing_ok=True)
 
 
-def merge_execution_rules(existing, rules):
+def remove_execution_rules(existing):
     if BEGIN not in existing and END not in existing:
-        return existing + ('\n\n' if existing else '') + rules
+        return existing
     if existing.count(BEGIN) != 1 or existing.count(END) != 1:
         raise ValueError('Malformed execution-rule markers; no files changed.')
     before, rest = existing.split(BEGIN, 1)
     _, after = rest.split(END, 1)
-    return before + rules.rstrip() + after
+    return (before + after).strip()
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--stock', action='store_true')
+    args = parser.parse_args()
     source = Path(__file__).resolve().parent
     codex_home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
     config = codex_home / 'config.toml'
     agents = codex_home / 'AGENTS.md'
+    destination = codex_home / 'prompts/sara-system.md'
     text = config.read_text() if config.exists() else ''
     parsed = tomllib.loads(text)
-    rules = (source / 'execution-rules.md').read_text().strip()
-    if rules.count(BEGIN) != 1 or rules.count(END) != 1:
-        raise SystemExit('Invalid execution rules; no files changed.')
-    developer = merge_execution_rules(parsed.get('developer_instructions', ''), rules)
+    developer = remove_execution_rules(parsed.get('developer_instructions', ''))
+    compact = (source / 'compact-base.md').read_text()
+    if not compact.strip():
+        raise SystemExit('Compact base is empty; no files changed.')
 
-    # Keep each model's native stock base and preserve unrelated developer text.
     root_end = re.search(r'^[ \t]*\[', text, re.MULTILINE)
     offset = root_end.start() if root_end else len(text)
     root = re.sub(r'^[ \t]*(?:model_instructions_file|instructions|developer_instructions)\s*=.*(?:\n|$)', '',
                   text[:offset], flags=re.MULTILINE)
-    updated_config = 'developer_instructions = ' + json.dumps(developer, ensure_ascii=False) + '\n' + root + text[offset:]
+    prefix = ''
     expected = dict(parsed)
-    expected.pop('instructions', None)
-    expected.pop('model_instructions_file', None)
-    expected['developer_instructions'] = developer
+    for key in ('instructions', 'model_instructions_file', 'developer_instructions'):
+        expected.pop(key, None)
+    if not args.stock:
+        prefix += 'model_instructions_file = ' + json.dumps(str(destination)) + '\n'
+        expected['model_instructions_file'] = str(destination)
+    if developer:
+        prefix += 'developer_instructions = ' + json.dumps(developer, ensure_ascii=False) + '\n'
+        expected['developer_instructions'] = developer
+    updated_config = prefix + root + text[offset:]
     if tomllib.loads(updated_config) != expected:
-        raise SystemExit('Cannot update the prompt without changing other settings; no files changed.')
+        raise SystemExit('Cannot update the base without changing other settings; no files changed.')
 
     template = source / 'AGENTS.md'
     if agents.exists():
@@ -70,14 +80,17 @@ def main():
         raise SystemExit('AGENTS.md must be nonempty and within 32 KiB; no files changed.')
     if '<!-- BEGIN SARA MIGRATED SYSTEM GUIDANCE -->' in personal:
         raise SystemExit('Review the retired copied base block in AGENTS.md first; no files changed.')
+
     if not agents.exists():
         atomic_write(agents, personal)
+    if not args.stock and (not destination.exists() or destination.read_text() != compact):
+        atomic_write(destination, compact)
     if text != updated_config:
         atomic_write(config, updated_config)
-    print(json.dumps({'agents': str(agents), 'stock_base_prompt': True,
-                      'personal_execution_rules': True,
-                      'model_instructions_file': None, 'existing_agents_preserved': True,
-                      'backups_created': False}))
+    print(json.dumps({'base_mode': 'stock' if args.stock else 'compact',
+                      'base_file': None if args.stock else str(destination),
+                      'separate_execution_block': False, 'agents': str(agents),
+                      'existing_agents_preserved': True, 'backups_created': False}))
 
 
 if __name__ == '__main__':

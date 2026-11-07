@@ -1,7 +1,38 @@
 {
-  "model": "gpt-6.1-sol",
-  "source": "the installed model catalog instructions_template",
-  "original_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
-  "original_characters": 21524,
-  "change": "Replace the writing-style section with direct, evidence-based communication and password guidance; investigate before asking questions; take the next useful steps proactively within the requested goal and authorization; append the repository preservation rule. Other base-prompt sections are preserved."
+  "source": "installed model catalog: model_messages.instructions_template",
+  "source_model": "gpt-6.1-sol",
+  "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
+  "stock_words": 3320,
+  "compact_sha256": "7ba7071af82bc5668321c9a9a18c8d66f40302e23d16955d5cb7923a7ff106e3",
+  "compact_words": 733,
+  "prior_added_execution_block_words": 328,
+  "mode": "compact global base replacement",
+  "stock_updates": "require deliberate review; not automatically copied into the compact file",
+  "retained_in_base": [
+    "operator role",
+    "outcome ownership",
+    "task and method constraints",
+    "authorisation scope",
+    "investigation before questions",
+    "obstacle handling",
+    "bounded verification",
+    "honest reporting",
+    "progress and task continuity",
+    "skills and tool procedure",
+    "safe shell/text handling",
+    "formatting, PR and delivery guidance"
+  ],
+  "retained_in_AGENTS": [
+    "voice and explanation preferences",
+    "standing owner and messaging authorisation",
+    "account handling",
+    "repository preservation",
+    "machine capabilities and limitations"
+  ],
+  "runtime_owned": [
+    "tool schemas",
+    "actual permissions",
+    "model capabilities",
+    "available skills and connectors"
+  ]
 }

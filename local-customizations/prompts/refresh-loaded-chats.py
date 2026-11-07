@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply stock and personal instruction updates to loaded chats, without a turn.
+"""Apply the configured base and personal updates to loaded chats, without a turn.
 
 Audits by default. --apply appends native model-visible context updates through
 the existing app server. It does not restart chats, change goals or run work.
@@ -182,14 +182,24 @@ def main():
             thread = client.rpc('thread/read', {
                 'threadId': identifier, 'includeTurns': False})['thread']
             model = thread['model']
-            stock = catalog[model]['model_messages']['instructions_template'].strip()
+            if config.get('model_instructions_file'):
+                base_path = Path(config['model_instructions_file']).expanduser()
+                if not base_path.is_absolute():
+                    base_path = Path(thread['cwd']) / base_path
+                base_text = base_path.read_text().strip()
+            elif 'instructions' in config:
+                base_text = config['instructions'].strip()
+            else:
+                base_text = catalog[model]['model_messages']['instructions_template'].strip()
             current, previous_agents, previous_rules = history_state(thread['path'])
             items = []
-            if current is None or current.strip() != stock:
+            if current is None or current.strip() != base_text:
                 items.append(message('developer', '<model_instructions>\n'
                     f'The current model is {model}.\n'
-                    'The following instructions replace the previous base instructions:\n\n'
-                    + stock + '\n</model_instructions>', 'model.instructions'))
+                    + ('The following instructions replace the previous base instructions:\n\n'
+                       + base_text if base_text else
+                       'The previous base instructions no longer apply. No replacement base instructions are active.')
+                    + '\n</model_instructions>', 'model.instructions'))
             if rules != previous_rules:
                 if rules:
                     items.append(message('developer',
@@ -199,7 +209,7 @@ def main():
                     items.append(message('developer',
                         '<personal_execution_rules_removed>\n'
                         'The previous personal execution rules no longer apply. '
-                        'The stock base and AGENTS.md remain active.\n'
+                        'The configured base and AGENTS.md remain active.\n'
                         '</personal_execution_rules_removed>', 'developer.instructions'))
             if personal not in previous_agents:
                 items.append(message('user', '# AGENTS.md instructions\n\n<INSTRUCTIONS>\n'
@@ -216,7 +226,7 @@ def main():
                 record['verified_persisted'] = False
                 for _ in range(30):
                     after, after_agents, after_rules = history_state(thread['path'])
-                    if (after is not None and after.strip() == stock
+                    if (after is not None and after.strip() == base_text
                             and personal in after_agents and after_rules == rules):
                         record['verified_persisted'] = True
                         break
@@ -229,6 +239,7 @@ def main():
     finally:
         client.sock.close()
     print(json.dumps({'applied': args.apply, 'chats': results,
+                      'base_mode': 'file' if config.get('model_instructions_file') else 'inline' if 'instructions' in config else 'stock',
                       'personal_execution_rules_configured': bool(rules),
                       'new_turns_started': 0, 'model_requests': 0,
                       'pending_readback_requires_audit_not_repeat_apply':
