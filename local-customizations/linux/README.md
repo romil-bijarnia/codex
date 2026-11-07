@@ -34,7 +34,8 @@ The EL2 default is `~/.codex/state/owner-el2-selection/default.json` containing
 `{"enabled":true}`. Per-conversation opt-outs take precedence. The personal
 guidance is migrated to global AGENTS.md with
 `python3 local-customizations/prompts/install.py`, which removes the custom
-base-prompt file override and restores the selected model's stock base prompt.
+base-prompt file override, keeps the selected model's stock base, and installs
+the personal execution block at developer-instruction priority.
 Do not replace a user's complete configuration with a saved machine snapshot.
 
 If a stock update removes the custom permissions menu, restore an already

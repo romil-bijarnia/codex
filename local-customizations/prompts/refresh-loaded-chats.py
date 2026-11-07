@@ -13,6 +13,7 @@ from pathlib import Path
 import socket
 import struct
 import time
+import tomllib
 
 
 class Client:
@@ -116,7 +117,7 @@ def discover_socket():
 
 
 def history_state(path):
-    instructions, agents = None, ''
+    instructions, agents, execution_rules = None, '', ''
     for line in Path(path).open():
         item = json.loads(line)
         payload = item.get('payload', {})
@@ -136,15 +137,22 @@ def history_state(path):
                 instructions = ''
         if payload.get('role') == 'user' and text.startswith('# AGENTS.md instructions'):
             agents = text
-    return instructions, agents
+        if payload.get('role') == 'developer':
+            if '<personal_execution_rules_removed>' in text:
+                execution_rules = ''
+            elif '<personal_execution_rules>' in text and '</personal_execution_rules>' in text:
+                execution_rules = '<personal_execution_rules>' + text.split(
+                    '<personal_execution_rules>', 1)[1].split('</personal_execution_rules>', 1)[0]
+                execution_rules += '</personal_execution_rules>'
+    return instructions, agents, execution_rules
 
 
-def message(role, text):
+def message(role, text, kind=None):
     item = {'type': 'message', 'role': role,
             'content': [{'type': 'input_text', 'text': text}]}
-    if role == 'developer':
+    if kind:
         item['internal_chat_message_metadata_passthrough'] = {
-            'content_item_kinds': ['model.instructions']}
+            'content_item_kinds': [kind]}
     return item
 
 
@@ -157,6 +165,13 @@ def main():
     models = json.loads((home / 'models_cache.json').read_text())['models']
     catalog = {model['slug']: model for model in models}
     personal = (home / 'AGENTS.md').read_text().strip()
+    config = tomllib.loads((home / 'config.toml').read_text())
+    developer = config.get('developer_instructions', '').strip()
+    rules = ''
+    if '<personal_execution_rules>' in developer:
+        rules = '<personal_execution_rules>' + developer.split(
+            '<personal_execution_rules>', 1)[1].split('</personal_execution_rules>', 1)[0]
+        rules += '</personal_execution_rules>'
     client = Client(args.socket or discover_socket())
     results = []
     try:
@@ -168,16 +183,28 @@ def main():
                 'threadId': identifier, 'includeTurns': False})['thread']
             model = thread['model']
             stock = catalog[model]['model_messages']['instructions_template'].strip()
-            current, previous_agents = history_state(thread['path'])
+            current, previous_agents, previous_rules = history_state(thread['path'])
             items = []
             if current is None or current.strip() != stock:
                 items.append(message('developer', '<model_instructions>\n'
                     f'The current model is {model}.\n'
                     'The following instructions replace the previous base instructions:\n\n'
-                    + stock + '\n</model_instructions>'))
+                    + stock + '\n</model_instructions>', 'model.instructions'))
+            if rules != previous_rules:
+                if rules:
+                    items.append(message('developer',
+                        'The following personal execution rules replace any earlier personal execution rules.\n\n'
+                        + developer, 'developer.instructions'))
+                else:
+                    items.append(message('developer',
+                        '<personal_execution_rules_removed>\n'
+                        'The previous personal execution rules no longer apply. '
+                        'The stock base and AGENTS.md remain active.\n'
+                        '</personal_execution_rules_removed>', 'developer.instructions'))
             if personal not in previous_agents:
                 items.append(message('user', '# AGENTS.md instructions\n\n<INSTRUCTIONS>\n'
-                    'These AGENTS.md instructions replace all previously provided AGENTS.md instructions.\n\n'
+                    'These global AGENTS.md instructions replace earlier global AGENTS.md instructions. '
+                    'Keep applicable project instructions and all current task constraints.\n\n'
                     + personal + '\n</INSTRUCTIONS>'))
             record = {'thread_id': identifier, 'model': model,
                       'updates_needed': len(items), 'status_before': thread['status']}
@@ -188,8 +215,9 @@ def main():
                 # Poll the receipt's readback; never repeat the mutation to wait.
                 record['verified_persisted'] = False
                 for _ in range(30):
-                    after, after_agents = history_state(thread['path'])
-                    if after is not None and after.strip() == stock and personal in after_agents:
+                    after, after_agents, after_rules = history_state(thread['path'])
+                    if (after is not None and after.strip() == stock
+                            and personal in after_agents and after_rules == rules):
                         record['verified_persisted'] = True
                         break
                     time.sleep(0.05)
@@ -201,6 +229,7 @@ def main():
     finally:
         client.sock.close()
     print(json.dumps({'applied': args.apply, 'chats': results,
+                      'personal_execution_rules_configured': bool(rules),
                       'new_turns_started': 0, 'model_requests': 0,
                       'pending_readback_requires_audit_not_repeat_apply':
                           any(r.get('persistence_pending') for r in results),

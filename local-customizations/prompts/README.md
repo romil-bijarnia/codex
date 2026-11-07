@@ -1,44 +1,40 @@
-The selected model's unmodified stock Codex base prompt is enabled. Personal
-preferences, standing owner authorisation and task requirements are loaded from
-global `~/.codex/AGENTS.md` alongside it. No complete copied model prompt or
-empty-base override is installed. Each selected model uses its own stock prompt.
+The effective operating prompt is the selected model's unmodified stock base
+plus the small `execution-rules.md` block at the same developer-instruction
+priority. Global `~/.codex/AGENTS.md` retains Romil's voice, standing authorisations
+and machine context. This strengthens the working rules without pinning a full
+copied stock prompt or disabling the base. Model changes retain their own stock
+instructions, and stock updates continue to apply.
 
-Run `python3 local-customizations/prompts/install.py` to remove root-level
-`instructions` and `model_instructions_file` overrides. The installer preserves
-existing AGENTS.md, the selected model, permissions and unrelated configuration.
-For a clean profile, the private GRID kit restores the reviewed personal template.
-The public kit requires an existing global AGENTS.md. No backups are created and
-no retired prompt files are deleted. A retired copied-base block in AGENTS.md
-requires review first, so it cannot silently duplicate the restored stock text.
+Run `python3 local-customizations/prompts/install.py` to install this setup. The
+installer removes root-level base replacements and selects the personal block
+through `developer_instructions`. It replaces only the managed execution block,
+preserving unrelated developer instructions, the selected model, permission
+settings, existing AGENTS.md and other configuration. The private GRID template
+can populate a clean profile; existing personal files are never overwritten.
+No backups are created. Root keys written by this installer are single-line TOML
+strings; if it cannot safely update another format, it stops before any writes.
 
-The reviewed template explains how the layers fit together. Owner and messaging
-authorisation is explicit standing consent where the stock prompt permits
-already-authorised work. Implementation requests include explicit standing
-permission for focused verification; checks remain proportional and bounded.
-Skill announcements and progress updates follow the stock requirements. Task
-restrictions remain in force until Romil changes them; urgency does not revoke
-constraints on windows, settings or methods. Voice, account/password handling,
-repository preservation and verified machine capabilities are retained.
+The execution block keeps the actual requested outcome and all task constraints
+in view, requires continued useful work instead of stopping at preparation,
+bounds verification, distinguishes compatibility from measured behaviour, and
+requires concrete truthful reporting. Explicit standing permissions remain in
+AGENTS.md. The stock base and user preferences retain their existing roles;
+this is not a promise that wording alone guarantees correct model behaviour.
 
 The complete personal template is preserved only in private GRID at
-`extras/linux-el2-owner-control/instructions/AGENTS.md`. Existing instructions
-are never automatically overwritten or combined with a different template.
-The old customisation fragments and origin record are historical reference.
+`extras/linux-el2-owner-control/instructions/AGENTS.md`. The old complete-prompt
+fragments and origin record are historical reference, not the active generator.
 
-Verification uses `codex debug prompt-input` to compare the complete rendered
-base with the installed model catalog and confirm AGENTS.md is loaded once.
-This verifies request construction, not the quality of future model behaviour.
-Existing chats must also be checked for refreshed instruction state; saved
-configuration alone does not prove that every running chat has updated.
+Use `python3 local-customizations/prompts/refresh-loaded-chats.py --apply` to update currently loaded
+chats through the running local app server. Without `--apply` it audits only.
+It preserves task identities, goals, applicable project instructions and history,
+starts no turns, and makes no model requests. It applies the stock base, personal
+execution block and global AGENTS.md independently, so there is no duplicated
+complete model prompt. Archived or unloaded histories are not opened or rewritten.
+If persistence_pending is reported, audit again without --apply; do not repeat
+an accepted update merely to wait for its saved-log readback.
 
-To update every currently loaded chat without starting a turn or resuming paused
-work, run `python3 local-customizations/prompts/refresh-loaded-chats.py --apply`.
-Without `--apply` it audits only. The helper uses the running local app server's
-native history-update API, applies the current model's exact stock instructions
-and updated global AGENTS.md where needed, and reads back the persisted updates.
-It preserves task identities, goals and history, and makes no model requests.
-Archived or unloaded histories are not opened or rewritten by this command;
-run it after reopening an older chat if that chat retains an earlier base.
-Native updates can be accepted before the rollout log catches up. If the
-helper reports persistence_pending, audit again without --apply; do not repeat
-an accepted mutation merely to wait for its log readback.
+Fresh-request verification checks the stock base, execution block and AGENTS.md
+once each. It verifies construction and loading, not future model behaviour.
+To remove the personal block, remove its marked section from developer_instructions
+and refresh loaded chats; leave the stock base and AGENTS.md in place.
