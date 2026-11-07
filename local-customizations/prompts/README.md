@@ -34,3 +34,5 @@ or a measured latency improvement. Word counts describe prompt text, not API tok
 
 The intent-retention paragraph keeps corrections and rejected interpretations
 explicit, including access, billing, delivery and method requirements.
+Parent-managed multi-agent v2 subagents are skipped by direct chat refreshes;
+their lifecycle and input remain under their parent agent.

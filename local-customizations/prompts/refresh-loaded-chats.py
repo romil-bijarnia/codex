@@ -181,6 +181,10 @@ def main():
         for identifier in loaded['data']:
             thread = client.rpc('thread/read', {
                 'threadId': identifier, 'includeTurns': False})['thread']
+            if thread.get('canAcceptDirectInput') is False:
+                results.append({'thread_id': identifier, 'parent_managed_subagent': True,
+                                'skipped_direct_update': True, 'status_before': thread['status']})
+                continue
             model = thread['model']
             if config.get('model_instructions_file'):
                 base_path = Path(config['model_instructions_file']).expanduser()
