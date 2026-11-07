@@ -1381,6 +1381,10 @@ fn reasoning_effort_for_requests_falls_back_for_missing_or_invalid_override() {
 fn reasoning_effort_for_requests_preserves_non_ultra_and_persistent_behavior() {
     let mut model_info = test_model_info();
     model_info.multi_agent_reasoning_effort = Some(ReasoningEffort::Low);
+    model_info.supported_reasoning_levels = vec![ReasoningEffortPreset {
+        effort: ReasoningEffort::Max,
+        description: "max".to_string(),
+    }];
 
     assert_eq!(
         (
@@ -1393,7 +1397,7 @@ fn reasoning_effort_for_requests_preserves_non_ultra_and_persistent_behavior() {
         ),
         (
             ReasoningEffort::High,
-            ReasoningEffort::Custom("disabled".to_string()),
+            ReasoningEffort::Max,
         )
     );
 }

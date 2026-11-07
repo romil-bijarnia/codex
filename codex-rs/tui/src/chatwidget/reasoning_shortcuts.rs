@@ -117,7 +117,10 @@ impl ChatWidget {
         };
 
         if direction == ReasoningShortcutDirection::Raise
-            && next_effort == ReasoningEffortConfig::Ultra
+            && matches!(
+                next_effort,
+                ReasoningEffortConfig::Ultra | ReasoningEffortConfig::Persistent
+            )
         {
             let model_path = if current_model.starts_with("codex-auto-") {
                 current_model
@@ -125,7 +128,10 @@ impl ChatWidget {
                 format!("All models → {current_model}")
             };
             self.add_info_message(
-                format!("Ultra is available under /model → {model_path} → More reasoning…"),
+                format!(
+                    "{} is available under /model → {model_path} → More reasoning…",
+                    Self::reasoning_effort_label(&next_effort)
+                ),
                 /*hint*/ None,
             );
             return true;
@@ -164,7 +170,7 @@ fn reasoning_choices(preset: &ModelPreset) -> Vec<ReasoningEffortConfig> {
         .iter()
         .map(|option| option.effort.clone())
         .partition(|effort| !ChatWidget::is_advanced_reasoning_effort(effort));
-    advanced_choices.sort_by_key(|effort| matches!(effort, ReasoningEffortConfig::Ultra));
+    advanced_choices.sort_by_key(ChatWidget::advanced_reasoning_effort_order);
     choices.extend(advanced_choices);
     if choices.is_empty() {
         choices.push(preset.default_reasoning_effort.clone());

@@ -47,6 +47,9 @@ fn resolve_reasoning_effort(
             model.default_reasoning_effort.clone()
         });
     };
+    if effort == ReasoningEffort::Persistent.as_str() {
+        return Ok(ReasoningEffort::Persistent);
+    }
     let supported = if model.supported_reasoning_efforts.is_empty() {
         (model.default_reasoning_effort.as_str() == effort)
             .then_some(&model.default_reasoning_effort)

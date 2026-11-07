@@ -18,6 +18,11 @@ fn resolves_ultra_using_model_override_and_supported_fallbacks() {
         (vec![High, XHigh, Ultra], None, XHigh),
         (vec![High, XHigh, Ultra], Some(Ultra), XHigh),
         (vec![High, XHigh, Ultra], Some(Low), XHigh),
+        (
+            vec![High, XHigh, Ultra, ReasoningEffort::Persistent],
+            Some(ReasoningEffort::Persistent),
+            XHigh,
+        ),
         (vec![], None, Medium),
     ] {
         let mut model = test_model(/*spec*/ None);
@@ -35,7 +40,7 @@ fn resolves_ultra_using_model_override_and_supported_fallbacks() {
 
 #[test]
 fn preserves_native_efforts_and_translates_persistent_mode() {
-    let model = test_model(/*spec*/ None);
+    let mut model = test_model(/*spec*/ None);
     for effort in [
         ReasoningEffort::Low,
         ReasoningEffort::Medium,
@@ -45,8 +50,41 @@ fn preserves_native_efforts_and_translates_persistent_mode() {
     ] {
         assert_eq!(model.resolve_reasoning_effort(effort.clone()), effort);
     }
+    model
+        .supported_reasoning_levels
+        .push(ReasoningEffortPreset {
+            effort: ReasoningEffort::Persistent,
+            description: String::new(),
+        });
     assert_eq!(
         model.resolve_reasoning_effort(ReasoningEffort::Persistent),
         ReasoningEffort::Custom("disabled".to_string()),
     );
+}
+
+#[test]
+fn persistent_uses_supported_inference_reasoning_without_a_native_alias() {
+    use ReasoningEffort::High;
+    use ReasoningEffort::Max;
+    use ReasoningEffort::Medium;
+    use ReasoningEffort::Persistent;
+    use ReasoningEffort::Ultra;
+    use ReasoningEffort::XHigh;
+
+    for (supported, expected) in [
+        (vec![High, Max, Ultra], Max),
+        (vec![High, XHigh, Ultra], XHigh),
+        (vec![High, Ultra], High),
+        (vec![], Medium),
+    ] {
+        let mut model = test_model(/*spec*/ None);
+        model.supported_reasoning_levels = supported
+            .into_iter()
+            .map(|effort| ReasoningEffortPreset {
+                effort,
+                description: String::new(),
+            })
+            .collect();
+        assert_eq!(model.resolve_reasoning_effort(Persistent), expected);
+    }
 }

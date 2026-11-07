@@ -13,30 +13,46 @@ impl ModelInfo {
                 .multi_agent_reasoning_effort
                 .as_ref()
                 .filter(|effort| {
-                    *effort != &ReasoningEffort::Ultra
+                    !matches!(effort, ReasoningEffort::Ultra | ReasoningEffort::Persistent)
                         && self
                             .supported_reasoning_levels
                             .iter()
                             .any(|preset| &preset.effort == *effort)
                 })
                 .cloned()
-                .or_else(|| {
-                    self.supported_reasoning_levels
-                        .iter()
-                        .find(|preset| preset.effort == ReasoningEffort::Max)
-                        .or_else(|| {
-                            self.supported_reasoning_levels
-                                .iter()
-                                .rev()
-                                .find(|preset| preset.effort != ReasoningEffort::Ultra)
-                        })
-                        .map(|preset| preset.effort.clone())
-                })
-                .unwrap_or(ReasoningEffort::Medium),
-            // Keep "persistent" in local settings; the Responses API calls it "disabled".
-            ReasoningEffort::Persistent => ReasoningEffort::Custom("disabled".to_string()),
+                .unwrap_or_else(|| self.strongest_inference_reasoning_effort()),
+            ReasoningEffort::Persistent => {
+                if self
+                    .supported_reasoning_levels
+                    .iter()
+                    .any(|preset| preset.effort == ReasoningEffort::Persistent)
+                {
+                    // Preserve the native wire alias for models that advertise it.
+                    ReasoningEffort::Custom("disabled".to_string())
+                } else {
+                    // Keep persistence in session settings and instructions, but
+                    // do not send an unsupported inference effort to the API.
+                    self.strongest_inference_reasoning_effort()
+                }
+            }
             effort => effort,
         }
+    }
+
+    fn strongest_inference_reasoning_effort(&self) -> ReasoningEffort {
+        self.supported_reasoning_levels
+            .iter()
+            .find(|preset| preset.effort == ReasoningEffort::Max)
+            .or_else(|| {
+                self.supported_reasoning_levels.iter().rev().find(|preset| {
+                    !matches!(
+                        preset.effort,
+                        ReasoningEffort::Ultra | ReasoningEffort::Persistent
+                    )
+                })
+            })
+            .map(|preset| preset.effort.clone())
+            .unwrap_or(ReasoningEffort::Medium)
     }
 }
 #[cfg(test)]

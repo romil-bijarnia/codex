@@ -3787,6 +3787,44 @@ async fn model_advanced_reasoning_selection_popup_snapshot() {
 }
 
 #[tokio::test]
+async fn persistent_reasoning_selection_without_catalog_support() {
+    for session_only in [false, true] {
+        let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+        chat.thread_id = Some(ThreadId::new());
+        let mut preset = get_available_model(&chat, "gpt-5.5");
+        preset
+            .supported_reasoning_efforts
+            .retain(|option| option.effort != ReasoningEffortConfig::Persistent);
+        chat.open_advanced_reasoning_popup(preset);
+        let popup = render_bottom_popup(&chat, /*width*/ 100);
+        assert_eq!(popup.matches("Persistent").count(), 1, "{popup}");
+        while rx.try_recv().is_ok() {}
+        chat.handle_key_event(KeyCode::End.into());
+        chat.handle_key_event(if session_only {
+            KeyCode::Char('s').into()
+        } else {
+            KeyCode::Enter.into()
+        });
+        let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+        assert!(
+            events.iter().any(|event| match event {
+                AppEvent::SelectSessionModel {
+                    effort: Some(ReasoningEffortConfig::Persistent),
+                    ..
+                } => session_only,
+                AppEvent::ApplyModelSelection {
+                    effort: Some(ReasoningEffortConfig::Persistent),
+                    ..
+                } => !session_only,
+                _ => false,
+            }),
+            "{events:?}"
+        );
+        assert!(chat.bottom_pane.no_modal_or_popup_active());
+    }
+}
+
+#[tokio::test]
 async fn model_reasoning_selection_popup_applies_custom_effort() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     let custom_effort = ReasoningEffortConfig::Custom("future".to_string());
@@ -4208,7 +4246,7 @@ async fn reasoning_popup_shows_extra_high_with_space() {
 }
 
 #[tokio::test]
-async fn single_reasoning_option_skips_selection() {
+async fn single_inference_reasoning_option_still_offers_persistence() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     let single_effort = vec![ReasoningEffortPreset {
@@ -4240,8 +4278,8 @@ async fn single_reasoning_option_skips_selection() {
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert!(
-        !popup.contains("Select Reasoning Level"),
-        "expected reasoning selection popup to be skipped"
+        popup.contains("Select Reasoning Level") && popup.contains("More reasoning"),
+        "expected the local persistence choice to remain available: {popup}"
     );
 
     let mut events = Vec::new();
@@ -4252,8 +4290,8 @@ async fn single_reasoning_option_skips_selection() {
     assert!(
         events
             .iter()
-            .any(|ev| matches!(ev, AppEvent::ApplyModelSelection { effort: Some(effort), .. } if *effort == ReasoningEffortConfig::High)),
-        "expected reasoning effort to be applied automatically; events: {events:?}"
+            .all(|ev| !matches!(ev, AppEvent::ApplyModelSelection { .. })),
+        "expected explicit selection before changing the effort; events: {events:?}"
     );
 }
 

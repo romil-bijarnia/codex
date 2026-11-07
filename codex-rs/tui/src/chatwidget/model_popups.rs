@@ -470,9 +470,10 @@ impl ChatWidget {
 
     /// Open a popup to choose the standard reasoning effort for the given model.
     ///
-    /// Max and Ultra require an explicit second step so expensive efforts cannot
-    /// be selected accidentally while moving through the normal effort scale.
-    pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
+    /// Advanced reasoning and persistence require an explicit second step so
+    /// they cannot be selected accidentally while moving through the normal scale.
+    pub(crate) fn open_reasoning_popup(&mut self, mut preset: ModelPreset) {
+        Self::include_persistent_choice(&mut preset);
         let default_effort = preset.default_reasoning_effort.clone();
         let supported = &preset.supported_reasoning_efforts;
         let in_plan_mode =
@@ -605,7 +606,7 @@ impl ChatWidget {
                 .iter()
                 .map(Self::reasoning_effort_label)
                 .collect::<Vec<_>>()
-                .join(" and ");
+                .join(", ");
             let verb = if advanced_choices.len() == 1 {
                 "consumes"
             } else {
@@ -643,8 +644,9 @@ impl ChatWidget {
         });
     }
 
-    /// Open the explicit Max/Ultra effort picker for the given model.
-    pub(crate) fn open_advanced_reasoning_popup(&mut self, preset: ModelPreset) {
+    /// Open the explicit advanced reasoning and persistence picker.
+    pub(crate) fn open_advanced_reasoning_popup(&mut self, mut preset: ModelPreset) {
+        Self::include_persistent_choice(&mut preset);
         let mut choices = preset
             .supported_reasoning_efforts
             .iter()
@@ -656,7 +658,7 @@ impl ChatWidget {
         {
             choices.push(preset.default_reasoning_effort.clone());
         }
-        choices.sort_by_key(|effort| matches!(effort, ReasoningEffortConfig::Ultra));
+        choices.sort_by_key(Self::advanced_reasoning_effort_order);
         if choices.is_empty() {
             return;
         }
@@ -675,7 +677,10 @@ impl ChatWidget {
                 ReasoningEffortConfig::Ultra => {
                     "For demanding work using multiple agents · highest usage"
                 }
-                _ => unreachable!("advanced choices are limited to Max and Ultra"),
+                ReasoningEffortConfig::Persistent => {
+                    "Keep working and checking results until finished or stopped"
+                }
+                _ => unreachable!("advanced choices are limited to Max, Ultra and Persistent"),
             };
             let should_prompt_plan_mode_scope = self
                 .should_prompt_plan_mode_reasoning_scope(model_slug.as_str(), Some(effort.clone()));
@@ -712,8 +717,44 @@ impl ChatWidget {
     pub(super) fn is_advanced_reasoning_effort(effort: &ReasoningEffortConfig) -> bool {
         matches!(
             effort,
-            ReasoningEffortConfig::Max | ReasoningEffortConfig::Ultra
+            ReasoningEffortConfig::Max
+                | ReasoningEffortConfig::Ultra
+                | ReasoningEffortConfig::Persistent
         )
+    }
+
+    pub(super) fn advanced_reasoning_effort_order(effort: &ReasoningEffortConfig) -> u8 {
+        match effort {
+            ReasoningEffortConfig::Max => 0,
+            ReasoningEffortConfig::Ultra => 1,
+            ReasoningEffortConfig::Persistent => 2,
+            _ => 0,
+        }
+    }
+
+    fn include_persistent_choice(preset: &mut ModelPreset) {
+        // Persistence is a local execution mode. Its availability must not depend
+        // on a model advertising a dedicated inference reasoning level.
+        if preset.supported_reasoning_efforts.is_empty() {
+            preset
+                .supported_reasoning_efforts
+                .push(codex_protocol::openai_models::ReasoningEffortPreset {
+                    effort: preset.default_reasoning_effort.clone(),
+                    description: String::new(),
+                });
+        }
+        if !preset
+            .supported_reasoning_efforts
+            .iter()
+            .any(|option| option.effort == ReasoningEffortConfig::Persistent)
+        {
+            preset
+                .supported_reasoning_efforts
+                .push(codex_protocol::openai_models::ReasoningEffortPreset {
+                    effort: ReasoningEffortConfig::Persistent,
+                    description: "Keep working until finished or stopped".to_string(),
+                });
+        }
     }
 
     pub(super) fn reasoning_effort_label(effort: &ReasoningEffortConfig) -> String {
