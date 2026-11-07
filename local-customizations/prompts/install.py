@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
-"""Load personal guidance from AGENTS.md with the stock base prompt disabled."""
+"""Restore the selected model's stock base and retain global AGENTS.md."""
 import json
 import os
 from pathlib import Path
 import re
 import tempfile
 import tomllib
-
-BEGIN = '<!-- BEGIN SARA MIGRATED SYSTEM GUIDANCE -->'
-END = '<!-- END SARA MIGRATED SYSTEM GUIDANCE -->'
-
-
-def split_guidance(text):
-    if BEGIN not in text and END not in text:
-        return '', text
-    if text.count(BEGIN) != 1 or text.count(END) != 1:
-        raise ValueError('Malformed Sara guidance markers; no files changed.')
-    before, rest = text.split(BEGIN, 1)
-    guidance, after = rest.split(END, 1)
-    return guidance.strip(), (before + after).strip()
 
 
 def atomic_write(path, text):
@@ -39,59 +26,41 @@ def main():
     codex_home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
     config = codex_home / 'config.toml'
     agents = codex_home / 'AGENTS.md'
-    legacy = codex_home / 'prompts/sara-system.md'
     text = config.read_text() if config.exists() else ''
     parsed = tomllib.loads(text)
-    selected = parsed.get('model_instructions_file')
-    if selected and Path(selected).expanduser().resolve() != legacy.resolve():
-        raise SystemExit('A different base-prompt override is selected; no files changed.')
-    if selected and not legacy.is_file():
-        raise SystemExit('The selected Sara prompt is missing; no files changed.')
 
-    # Replace only the root-level base override, preserving other settings.
+    # Remove only root-level base overrides; model and permission settings stay.
     root_end = re.search(r'^[ \t]*\[', text, re.MULTILINE)
     offset = root_end.start() if root_end else len(text)
     root = re.sub(r'^[ \t]*(?:model_instructions_file|instructions)\s*=.*(?:\n|$)', '',
                   text[:offset], flags=re.MULTILINE)
-    root = 'instructions = ""\n' + root
     updated_config = root + text[offset:]
     expected = dict(parsed)
+    expected.pop('instructions', None)
     expected.pop('model_instructions_file', None)
-    expected['instructions'] = ''
     if tomllib.loads(updated_config) != expected:
-        raise SystemExit('Cannot disable the base prompt without changing other settings; no files changed.')
+        raise SystemExit('Cannot restore stock without changing other settings; no files changed.')
 
+    # Restore the private template only for a new profile, never overwrite edits.
     template = source / 'AGENTS.md'
-    default = template.read_text() if template.is_file() else ''
-    default_guidance, default_personal = split_guidance(default)
-    current = agents.read_text() if agents.exists() else ''
-    guidance, personal = split_guidance(current)
-    old_prompt = legacy.read_text().strip() if legacy.exists() else ''
-    if old_prompt and old_prompt != guidance:
-        guidance = (guidance + '\n\n' + old_prompt).strip()
-    inline_prompt = parsed.get('instructions', '').strip()
-    if inline_prompt and inline_prompt not in guidance:
-        guidance = (guidance + '\n\n' + inline_prompt).strip()
-    guidance = guidance or default_guidance
-    if default_personal.strip() and default_personal.strip() not in personal:
-        personal = (personal.rstrip() + '\n\n' + default_personal.strip()).strip()
-    merged = ((BEGIN + '\n' + guidance + '\n' + END + '\n\n') if guidance else '')
-    merged += personal.strip() + '\n'
-    if not guidance and not personal.strip():
-        raise SystemExit('No instructions found; restore AGENTS.md from private GRID first.')
-    if len(merged.encode()) > 32768:
-        raise SystemExit('Merged instructions exceed the default 32 KiB limit; no files changed.')
+    if agents.exists():
+        personal = agents.read_text()
+    elif template.is_file():
+        personal = template.read_text()
+    else:
+        raise SystemExit('Restore personal AGENTS.md from private GRID first; no files changed.')
+    if not personal.strip() or len(personal.encode()) > 32768:
+        raise SystemExit('AGENTS.md must be nonempty and within 32 KiB; no files changed.')
+    if '<!-- BEGIN SARA MIGRATED SYSTEM GUIDANCE -->' in personal:
+        raise SystemExit('Review the retired copied base block in AGENTS.md before restoring stock; no files changed.')
 
-    # Preserve the guidance before disabling stock and removing the retired file.
-    if current != merged:
-        atomic_write(agents, merged)
+    if not agents.exists():
+        atomic_write(agents, personal)
     if text != updated_config:
         atomic_write(config, updated_config)
-    legacy.unlink(missing_ok=True)
-    print(json.dumps({'agents': str(agents), 'stock_base_prompt': False,
-                      'base_instructions': '', 'model_instructions_file': None,
-                      'legacy_prompt_removed': not legacy.exists(),
-                      'agents_bytes': len(merged.encode()), 'backups_created': False}))
+    print(json.dumps({'agents': str(agents), 'stock_base_prompt': True,
+                      'base_override_removed': True, 'existing_agents_preserved': True,
+                      'agents_bytes': len(personal.encode()), 'backups_created': False}))
 
 
 if __name__ == '__main__':
