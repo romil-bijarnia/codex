@@ -8,6 +8,7 @@
 use super::ChatWidget;
 use super::QueuedUserMessage;
 use super::luna_reserve_return::ReserveReturnModel;
+use super::user_message_for_restore;
 use crate::app_command::AppCommand;
 use crate::backend_banners::BackendBanner;
 use crate::backend_banners::BannerPresentation;
@@ -19,6 +20,7 @@ use crate::bottom_pane::popup_consts::accept_cancel_hint_line;
 use crate::keymap::ListAction;
 use crate::model_catalog::LUNA_RESERVE_MODEL;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
+use codex_features::Feature;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::openai_models::ModelPreset;
@@ -215,6 +217,29 @@ impl ChatWidget {
     pub(crate) fn defer_pending_turn_for_luna_reserve(&mut self) -> bool {
         if !self.waiting_for_luna_reserve() {
             return false;
+        }
+        if self.config.features.enabled(Feature::SteerOnly) {
+            if let Some(prompt) = self.safety_buffering_prompt.take() {
+                self.finalize_turn();
+                self.restore_user_message_to_composer(prompt);
+            }
+            let pending = self
+                .input_queue
+                .pending_steers
+                .drain(..)
+                .collect::<Vec<_>>();
+            for steer in pending.into_iter().rev() {
+                self.restore_user_message_to_composer(user_message_for_restore(
+                    steer.user_message,
+                    &steer.history_record,
+                ));
+            }
+            self.refresh_pending_input_preview();
+            self.add_error_message(
+                "Cannot send during model recovery. Your message remains unsent in the composer."
+                    .to_string(),
+            );
+            return true;
         }
         if self.input_queue.user_turn_pending_start
             && let Some(prompt) = self.safety_buffering_prompt.take()

@@ -1118,7 +1118,13 @@ async fn cli_main(
             return local_commands::run(local_commands::Helper::Visualize, args.args);
         }
         Some(Subcommand::Api(args)) => {
-            return local_commands::run(local_commands::Helper::Api, args.args);
+            let args = root_config_overrides
+                .raw_overrides
+                .into_iter()
+                .flat_map(|value| [std::ffi::OsString::from("-c"), value.into()])
+                .chain(args.args)
+                .collect();
+            return local_commands::run(local_commands::Helper::Api, args);
         }
         None | Some(Subcommand::Agents(_)) => {
             prepend_config_flags(

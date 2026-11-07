@@ -143,6 +143,17 @@ class ViewerTests(unittest.TestCase):
             self.assertEqual(module.main([str(self.source)]), 1)
         self.assertIn('opener failed', errors.getvalue())
 
+    def test_linux_open_uses_default_browser_and_propagates_failure(self):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.object(module, 'ROOT', self.root), patch.object(module.sys, 'platform', 'linux'), patch.object(module.subprocess, 'run') as launch, redirect_stdout(output):
+            self.assertEqual(module.main(['--json', str(self.source)]), 0)
+        result = json.loads(output.getvalue())
+        launch.assert_called_once_with(['xdg-open', result['url']], check=True)
+        self.assertTrue(result['opened'])
+        with patch.object(module, 'ROOT', self.root), patch.object(module.sys, 'platform', 'linux'), patch.object(module.subprocess, 'run', side_effect=OSError('browser failed')), redirect_stderr(errors):
+            self.assertEqual(module.main([str(self.source)]), 1)
+        self.assertIn('browser failed', errors.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

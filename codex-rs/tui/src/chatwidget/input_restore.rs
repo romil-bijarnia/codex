@@ -332,6 +332,22 @@ impl ChatWidget {
     }
 
     pub(crate) fn enqueue_rejected_steer(&mut self) -> bool {
+        if self.config.features.enabled(Feature::SteerOnly) {
+            if self.input_queue.pending_steers.is_empty() {
+                return false;
+            }
+            if self.input_queue.submit_pending_steers_after_interrupt {
+                return true;
+            }
+            // Reviews and compaction cannot accept input. Interrupt them and reuse the
+            // existing acknowledged-interrupt path to submit these instructions immediately.
+            self.input_queue.submit_pending_steers_after_interrupt = true;
+            if !self.submit_op(AppCommand::interrupt()) {
+                self.input_queue.submit_pending_steers_after_interrupt = false;
+                return false;
+            }
+            return true;
+        }
         let Some(pending_steer) = self.input_queue.pending_steers.pop_front() else {
             tracing::warn!(
                 "received active-turn-not-steerable error without a matching pending steer"
@@ -541,8 +557,21 @@ impl ChatWidget {
     }
 
     pub(crate) fn restore_user_message_to_composer(&mut self, user_message: UserMessage) {
+        self.restore_user_message_with_pastes_to_composer(user_message, Vec::new());
+    }
+
+    pub(super) fn restore_user_message_with_pastes_to_composer(
+        &mut self,
+        user_message: UserMessage,
+        pending_pastes: Vec<(String, String)>,
+    ) {
         let draft = self.bottom_pane.composer_draft_snapshot();
-        let pending_pastes = draft.pending_pastes;
+        let mut used_paste_placeholders = HashSet::new();
+        let (user_message, mut pending_pastes) = remap_colliding_paste_placeholders(
+            user_message,
+            pending_pastes,
+            &mut used_paste_placeholders,
+        );
         let draft_message = UserMessage {
             text: draft.text,
             text_elements: draft.text_elements,
@@ -555,6 +584,12 @@ impl ChatWidget {
             || !draft_message.local_images.is_empty()
             || !draft_message.remote_image_urls.is_empty()
         {
+            let (draft_message, draft_pending_pastes) = remap_colliding_paste_placeholders(
+                draft_message,
+                draft.pending_pastes,
+                &mut used_paste_placeholders,
+            );
+            pending_pastes.extend(draft_pending_pastes);
             messages.push(draft_message);
         }
         self.restore_composer_state(Self::composer_state_from_user_message(

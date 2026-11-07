@@ -102,7 +102,7 @@ def make_viewer(source: Path, *, codex_home: Path, viewer_root: Path) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="codex visualize",
-        description="Open a saved, sandboxed visualization in Safari. No server or security-setting changes.",
+        description="Open a saved visualization in your browser. No preview server is needed.",
     )
     parser.add_argument("fragment", type=Path, help="path to the visualization HTML fragment")
     parser.add_argument("--no-open", action="store_true", help="create the viewer without opening a browser")
@@ -113,15 +113,17 @@ def main(argv=None) -> int:
         result = make_viewer(args.fragment, codex_home=home, viewer_root=ROOT / "viewers")
         result["opened"] = False
         if not args.no_open:
-            if sys.platform != "darwin":
-                raise ValueError("Automatic opening is configured for macOS; use --no-open on other platforms")
-            # Do not assume the user's .html file association is a browser.
-            subprocess.run(["/usr/bin/open", "-b", "com.apple.Safari", result["viewer"]], check=True)
+            if sys.platform == "darwin":
+                subprocess.run(["/usr/bin/open", "-b", "com.apple.Safari", result["viewer"]], check=True)
+            elif sys.platform.startswith("linux"):
+                subprocess.run(["xdg-open", result["url"]], check=True)
+            else:
+                raise ValueError("Use --no-open on this platform")
             result["opened"] = True
         if args.json:
             print(json.dumps(result))
         else:
-            print("Opened visualization in Safari." if result["opened"] else "Saved browser viewer.")
+            print("Opened visualization in your browser." if result["opened"] else "Saved browser viewer.")
             print(result["url"])
             print("Saved locally; no preview server is needed.")
         return 0

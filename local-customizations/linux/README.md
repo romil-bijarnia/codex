@@ -60,3 +60,6 @@ launch: EL2 appeared without a Full Access flash, without an activation receipt
 or a model request. The kernel bridge was verified separately earlier. This
 source snapshot also preserves current doctor repairs; saving source does not
 claim that every later edit is already in the running executable.
+
+The restored steering implementation and CLI helper repairs are documented in
+[cli-repairs.md](cli-repairs.md), including the portable GRID build and verification workflow.

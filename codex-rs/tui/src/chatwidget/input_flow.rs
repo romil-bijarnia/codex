@@ -60,15 +60,18 @@ impl ChatWidget {
                     return;
                 }
                 self.app_event_tx.send(AppEvent::FollowTranscript);
-                let should_submit_now = self.is_session_configured()
-                    && !self.is_plan_streaming_in_tui()
-                    && !self.input_queue.submissions_paused()
-                    && !self.input_queue.rate_limit_recovery_pending
-                    && (!self.input_queue.user_turn_pending_start
-                        || self.turn_lifecycle.agent_turn_running);
+                let steer_only = self.config.features.enabled(Feature::SteerOnly);
+                let should_submit_now = steer_only
+                    || (self.is_session_configured()
+                        && !self.is_plan_streaming_in_tui()
+                        && !self.input_queue.submissions_paused()
+                        && !self.input_queue.rate_limit_recovery_pending
+                        && (!self.input_queue.user_turn_pending_start
+                            || self.turn_lifecycle.agent_turn_running));
                 if should_submit_now {
                     if self.only_user_shell_commands_running()
                         && !user_message.text.starts_with('!')
+                        && !steer_only
                     {
                         self.queue_user_message(user_message);
                         return;
@@ -176,6 +179,52 @@ impl ChatWidget {
         if self.has_misalignment_policy_violation() {
             return false;
         }
+        if self.config.features.enabled(Feature::SteerOnly) {
+            return match action {
+                QueuedInputAction::ParseSlash => {
+                    self.submit_queued_slash_prompt(QueuedUserMessage {
+                        user_message,
+                        prepared_images: None,
+                        action,
+                        delivery: MessageDelivery::Unsent,
+                        pending_pastes,
+                        source,
+                    });
+                    true
+                }
+                QueuedInputAction::RunShell => {
+                    self.submit_queued_shell_prompt(user_message);
+                    true
+                }
+                QueuedInputAction::Plain | QueuedInputAction::Literal => {
+                    if self.steer_only_submission_is_blocked(&user_message) {
+                        self.restore_unsent_steer_only_submission(user_message, pending_pastes);
+                        return false;
+                    }
+                    // Literal submissions retain collapsed pastes so a hidden `!`
+                    // never becomes a shell command. Expand the payload while
+                    // retaining that literal policy, including if sending is blocked.
+                    let mut user_message = user_message;
+                    (user_message.text, user_message.text_elements) =
+                        crate::bottom_pane::ChatComposer::expand_pending_pastes(
+                            &user_message.text,
+                            user_message.text_elements,
+                            &pending_pastes,
+                        );
+                    self.submit_user_message_with_history_and_shell_escape_policy(
+                        user_message,
+                        UserMessageHistoryRecord::UserMessageText,
+                        if action == QueuedInputAction::Literal {
+                            ShellEscapePolicy::Disallow
+                        } else {
+                            ShellEscapePolicy::Allow
+                        },
+                        source,
+                    )
+                    .0
+                }
+            };
+        }
         let should_run_now = self.is_session_configured()
             && !self.is_user_turn_pending_or_running()
             && !self.input_queue.submissions_paused()
@@ -243,6 +292,24 @@ impl ChatWidget {
 
     /// If idle and there are queued inputs, submit exactly one to start the next turn.
     pub(crate) fn maybe_send_next_queued_input(&mut self) -> bool {
+        if self.config.features.enabled(Feature::SteerOnly) {
+            // Old saved input stays editable; enabling steer-only must not launch it later.
+            let mut messages = Vec::new();
+            while let Some((message, history)) = self.pop_next_queued_user_message() {
+                messages.push((
+                    user_message_for_restore(message.user_message, &history),
+                    message.pending_pastes,
+                ));
+            }
+            if !messages.is_empty() {
+                for (message, pending_pastes) in messages.into_iter().rev() {
+                    self.restore_user_message_with_pastes_to_composer(message, pending_pastes);
+                }
+                self.input_queue.recovered_queue = false;
+                self.refresh_pending_input_preview();
+            }
+            return false;
+        }
         if !self.is_session_configured()
             || self.fork_in_progress
             || self.has_misalignment_policy_violation()
@@ -410,7 +477,8 @@ impl ChatWidget {
             return;
         }
         self.set_collaboration_mask_from_user_action(collaboration_mode);
-        let should_queue = self.is_plan_streaming_in_tui();
+        let should_queue =
+            !self.config.features.enabled(Feature::SteerOnly) && self.is_plan_streaming_in_tui();
         let user_message = UserMessage {
             text,
             local_images: Vec::new(),
