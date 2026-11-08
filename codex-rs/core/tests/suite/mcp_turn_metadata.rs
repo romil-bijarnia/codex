@@ -48,6 +48,7 @@ use core_test_support::apps_test_server::SEARCH_CALENDAR_NAMESPACE;
 use core_test_support::apps_test_server::recorded_apps_tool_call_by_call_id;
 use core_test_support::apps_test_server::recorded_apps_tool_calls;
 use core_test_support::apps_test_server::search_capable_apps_builder;
+use core_test_support::apps_test_server::set_default_app_approval_mode_and_reviewer;
 use core_test_support::responses::assert_root_turn;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
@@ -403,32 +404,6 @@ fn set_calendar_approval_mode(config: &mut Config, approval_mode: AppToolApprova
     let user_config = toml::from_str(&format!(
         r#"
 [apps.calendar]
-default_tools_approval_mode = "{approval_mode}"
-"#
-    ))
-    .expect("apps config should parse");
-    config.config_layer_stack = config
-        .config_layer_stack
-        .with_user_config(&user_config_path, user_config)
-        .expect("apps user config should be valid");
-}
-
-fn set_default_app_approval_mode_and_reviewer(
-    config: &mut Config,
-    approval_mode: AppToolApproval,
-    default_approvals_reviewer: ApprovalsReviewer,
-) {
-    let approval_mode = match approval_mode {
-        AppToolApproval::Auto => "auto",
-        AppToolApproval::Prompt => "prompt",
-        AppToolApproval::Writes => "writes",
-        AppToolApproval::Approve => "approve",
-    };
-    let user_config_path = config.codex_home.join("config.toml").abs();
-    let user_config = toml::from_str(&format!(
-        r#"
-[apps._default]
-approvals_reviewer = "{default_approvals_reviewer}"
 default_tools_approval_mode = "{approval_mode}"
 "#
     ))
@@ -1075,7 +1050,7 @@ default_tools_approval_mode = "{selected_link_mode}"
             "Link identifier for the calendar resource.".to_string()
         };
         let tool = json!({
-            "name": "calendar_create_event",
+            "name": "calendar.create_event",
             "description": "Create a calendar event.",
             "annotations": { "readOnlyHint": false },
             "inputSchema": {
@@ -1094,7 +1069,7 @@ default_tools_approval_mode = "{selected_link_mode}"
                 "connector_name": "Calendar",
                 "_codex_apps": {
                     "connector_id": "calendar",
-                    "resource_uri": "connector://calendar/tools/calendar_create_event",
+                    "resource_uri": "connector://calendar/tools/create_event",
                     "contains_mcp_source": true,
                     "requires_explicit_link_id": requires_explicit_link_id
                 }
@@ -1188,6 +1163,7 @@ default_tools_approval_mode = "{selected_link_mode}"
         matches!(&event, EventMsg::ElicitationRequest(_)),
         expected_prompt
     );
+    let mut approval_tool_name = None;
     if let EventMsg::ElicitationRequest(request) = event {
         let ElicitationRequest::Form {
             meta: Some(meta), ..
@@ -1195,6 +1171,8 @@ default_tools_approval_mode = "{selected_link_mode}"
         else {
             panic!("expected a native MCP tool approval with metadata");
         };
+        approval_tool_name = Some(meta["tool_name"].clone());
+        assert_eq!(meta["tool_annotations"]["readOnlyHint"], json!(false));
         assert_eq!(
             (
                 meta.get("link_id").and_then(Value::as_str),
@@ -1218,10 +1196,11 @@ default_tools_approval_mode = "{selected_link_mode}"
         .await;
     }
     assert_eq!(mock.requests().len(), 2);
-    assert_eq!(
-        recorded_apps_tool_call_by_call_id(&server, call_id).await["params"]["arguments"],
-        calendar_args
-    );
+    let tool_call = recorded_apps_tool_call_by_call_id(&server, call_id).await;
+    if let Some(tool_name) = approval_tool_name {
+        assert_eq!(tool_name, tool_call["params"]["name"]);
+    }
+    assert_eq!(tool_call["params"]["arguments"], calendar_args);
     assert_eq!(completed_links, vec![expected_link_id.map(str::to_string)]);
     Ok(())
 }

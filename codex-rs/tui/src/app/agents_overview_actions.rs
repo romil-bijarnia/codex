@@ -84,7 +84,7 @@ async fn run_lifecycle_modal<T>(
                     }
                     tui::TuiEvent::Key(_) | tui::TuiEvent::Paste(_) | tui::TuiEvent::FocusLost | tui::TuiEvent::Mouse(_) => {}
                     tui::TuiEvent::Draw | tui::TuiEvent::Resize(_) | tui::TuiEvent::Resume | tui::TuiEvent::FocusGained => {
-                        app.expire_pending_key_chord();
+                        app.expire_pending_key_chord(tui);
                         app.render_chat_widget_frame(tui, screen_size)?;
                     }
                 }
@@ -190,6 +190,7 @@ impl App {
             .threads
             .get(&thread_id)
             .and_then(Option::as_ref)
+            .or_else(|| self.agents_overview.search_matches.get(&thread_id))
         else {
             return;
         };
@@ -208,7 +209,7 @@ impl App {
             ),
             AgentsOverviewAction::Delete => (
                 format!("Permanently delete “{name}”?"),
-                "This stops any running work in this task and its child agents, then permanently deletes their history. This cannot be undone.",
+                "Tasks with saved side chats stay intact. Otherwise, deleting this task stops its running work and permanently deletes its history and its child agents’ history.",
                 "Permanently delete task and child agents",
             ),
         };
@@ -235,6 +236,36 @@ impl App {
             ],
             ..SelectionViewParams::confirmation()
         });
+    }
+
+    pub(super) fn known_thread_subtree(&self, thread_id: ThreadId) -> HashSet<ThreadId> {
+        let mut removed = HashSet::from([thread_id]);
+        loop {
+            let previous_len = removed.len();
+            for (id, thread) in &self.agents_overview.threads {
+                let Some(thread) = thread else { continue };
+                let parent = thread
+                    .parent_thread_id
+                    .as_deref()
+                    .and_then(|id| ThreadId::from_string(id).ok())
+                    .or(match &thread.source {
+                        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                            parent_thread_id,
+                            ..
+                        }) => Some(*parent_thread_id),
+                        _ => None,
+                    });
+                if thread.session_id == thread_id.to_string()
+                    || parent.is_some_and(|parent| removed.contains(&parent))
+                {
+                    removed.insert(*id);
+                }
+            }
+            if removed.len() == previous_len {
+                break;
+            }
+        }
+        removed
     }
 
     pub(super) async fn run_agents_overview_action(
@@ -339,32 +370,7 @@ impl App {
         }
         if result.is_ok() {
             // Invalidate cached details for the displayed group, without inferring child outcomes.
-            let mut removed = HashSet::from([thread_id]);
-            loop {
-                let previous_len = removed.len();
-                for (id, thread) in &self.agents_overview.threads {
-                    let Some(thread) = thread else { continue };
-                    let parent = thread
-                        .parent_thread_id
-                        .as_deref()
-                        .and_then(|id| ThreadId::from_string(id).ok())
-                        .or(match &thread.source {
-                            SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
-                                parent_thread_id,
-                                ..
-                            }) => Some(*parent_thread_id),
-                            _ => None,
-                        });
-                    if thread.session_id == thread_id.to_string()
-                        || parent.is_some_and(|parent| removed.contains(&parent))
-                    {
-                        removed.insert(*id);
-                    }
-                }
-                if removed.len() == previous_len {
-                    break;
-                }
-            }
+            let mut removed = self.known_thread_subtree(thread_id);
             if let Some(primary) = self.primary_thread_id
                 && removes_primary
             {

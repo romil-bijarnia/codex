@@ -64,31 +64,41 @@ impl App {
     }
 
     pub(super) fn refresh_mcp_startup_expected_servers_from_config(&mut self) {
-        if self
+        let configured_servers = self.config.mcp_servers.get();
+        let is_subagent = self
             .current_displayed_thread_id()
             .zip(self.primary_thread_id)
             .is_some_and(|(thread_id, primary_thread_id)| {
                 self.agent_navigation.is_parent_owned(thread_id)
                     || (thread_id != primary_thread_id
                         && !self.side_threads.contains_key(&thread_id))
-            })
-        {
-            // Subagents can defer cached servers indefinitely, so only servers
-            // that actually report startup should keep their status running.
-            self.chat_widget
-                .set_mcp_startup_expected_servers(std::iter::empty());
+            });
+        if is_subagent || !matches!(self.app_server_target, crate::AppServerTarget::Embedded) {
+            // Shared app servers only send startup updates after subscription and may
+            // have different configured servers. Subagents can start deferred servers
+            // individually. In both cases, wait only for the startups we observe.
+            self.chat_widget.track_reported_mcp_startup_servers();
             return;
         }
 
-        let enabled_config_mcp_servers: Vec<String> = self
-            .config
-            .mcp_servers
-            .get()
+        let enabled_servers = configured_servers
             .iter()
-            .filter_map(|(name, server)| server.enabled.then_some(name.clone()))
-            .collect();
-        self.chat_widget
-            .set_mcp_startup_expected_servers(enabled_config_mcp_servers);
+            .filter(|(_, server)| server.enabled);
+        // Plugins can contribute lazy servers outside the explicit configuration.
+        if self
+            .config
+            .features
+            .enabled(codex_features::Feature::McpLazyStdioStartup)
+        {
+            self.chat_widget.set_initial_mcp_startup_expected_servers(
+                enabled_servers
+                    .filter(|(_, server)| !server.can_defer_stdio_startup())
+                    .map(|(name, _)| name.clone()),
+            );
+        } else {
+            self.chat_widget
+                .set_mcp_startup_expected_servers(enabled_servers.map(|(name, _)| name.clone()));
+        }
     }
 
     pub(super) async fn handle_app_server_event(
@@ -630,9 +640,10 @@ impl App {
             return;
         }
         if let ServerRequest::DynamicToolCall { request_id, params } = &request {
+            let tui_tool = params.namespace.as_deref() == Some(crate::dynamic_tools::NAMESPACE);
+            // Another client may own this request on a shared server.
             if self.dynamic_tool_tasks.contains_key(request_id)
-                || (params.namespace.as_deref() != Some(crate::dynamic_tools::NAMESPACE)
-                    && !app_server_client.uses_embedded_app_server())
+                || (!tui_tool && !app_server_client.uses_embedded_app_server())
             {
                 return;
             }
@@ -643,7 +654,7 @@ impl App {
                     app_server_client.thread_tool_transport(),
                     crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(_)
                 );
-            if app_server_client.uses_embedded_app_server()
+            if !tui_tool
                 || requires_mcp
                 || codex_protocol::ThreadId::from_string(&params.thread_id)
                     .is_ok_and(|thread_id| self.abandoned_side_threads.contains(&thread_id))
@@ -651,7 +662,7 @@ impl App {
                 let response = crate::dynamic_tools::failure_response(if requires_mcp {
                     "TUI task tools require the approval-gated MCP server"
                 } else {
-                    "TUI dynamic tools require an active external task"
+                    "TUI dynamic tools require an active task in the TUI namespace"
                 });
                 self.app_event_tx.send(AppEvent::DynamicToolCallCompleted {
                     request_id: request_id.clone(),

@@ -338,54 +338,70 @@ impl ResponsesWebsocketConnection {
                 if tx_event.is_closed() {
                     return;
                 }
+                let Some(mut ws_stream) = guard.take() else {
+                    let _ = tx_event
+                        .send(Err(ApiError::Stream(
+                            "websocket connection is closed".to_string(),
+                        )))
+                        .await;
+                    return;
+                };
                 let mut completion = None;
                 let result = {
-                    let Some(ws_stream) = guard.as_mut() else {
-                        let _ = tx_event
-                            .send(Err(ApiError::Stream(
-                                "websocket connection is closed".to_string(),
-                            )))
-                            .await;
-                        return;
-                    };
+                    let response = run_websocket_response_stream(
+                        &mut ws_stream,
+                        tx_event.clone(),
+                        request_text,
+                        idle_timeout,
+                        telemetry,
+                        turn_state.as_deref(),
+                        &timing_log_context,
+                        interrupt.clone(),
+                        &mut completion,
+                    );
+                    tokio::pin!(response);
 
                     tokio::select! {
                         biased;
-                        result = run_websocket_response_stream(
-                            ws_stream,
-                            tx_event.clone(),
-                            request_text,
-                            idle_timeout,
-                            telemetry,
-                            turn_state.as_deref(),
-                            &timing_log_context,
-                            interrupt.clone(),
-                            &mut completion,
-                        ) => result,
+                        result = &mut response => result,
                         () = &mut interrupt_timeout => Err(ApiError::Stream(
                             "timed out draining interrupted response".into(),
                         )),
-                        _ = tx_event.closed() => Err(ApiError::Stream(
-                            "response event consumer dropped".to_string(),
-                        )),
+                        () = tx_event.closed() => {
+                            // Release the lock so later requests can open a new connection
+                            // while this task finishes cleanup on the detached socket.
+                            drop(guard);
+                            if matches!(
+                                interrupt.clone().now_or_never(),
+                                Some(ResponseInterrupt::Cancel { .. })
+                            ) {
+                                tokio::select! {
+                                    _ = &mut response => {}
+                                    () = &mut interrupt_timeout => {}
+                                }
+                            }
+                            return;
+                        }
                     }
                 };
 
                 if let Err(err) = result {
                     // A terminal stream error should reach the caller immediately. Waiting for a
                     // graceful close handshake here can stall indefinitely and mask the error.
-                    let failed_stream = guard.take();
                     drop(guard);
-                    drop(failed_stream);
+                    drop(ws_stream);
                     // Failed cancellation retires the socket while preserving any received
                     // completion and its usage for the abandoned classifier's cleanup.
                     let event = completion.map_or_else(|| Err(err), Ok);
                     let _ = tx_event.send(event).await;
-                } else if let Some(completed) = completion {
-                    // The handshake is finished. Consumer backpressure must not let the
-                    // interruption deadline discard completion or its usage accounting.
-                    drop(guard);
-                    let _ = tx_event.send(Ok(completed)).await;
+                } else {
+                    *guard = Some(ws_stream);
+                    if let Some(completed) = completion {
+                        // The handshake is finished. Consumer backpressure must not let the
+                        // interruption deadline discard completion or its usage accounting.
+                        drop(guard);
+                        let _ = tx_event.send(Ok(completed)).await;
+                    }
                 }
             }
             .instrument(current_span),
@@ -752,6 +768,18 @@ struct InterruptAcknowledgement {
     response_id: String,
 }
 
+fn is_websocket_receive_failure(
+    response: &Result<Option<Result<Message, WsError>>, ApiError>,
+) -> bool {
+    match response {
+        Ok(Some(Ok(message))) => match message {
+            Message::Text(_) | Message::Ping(_) | Message::Pong(_) => false,
+            Message::Binary(_) | Message::Close(_) | Message::Frame(_) => true,
+        },
+        Ok(Some(Err(_))) | Ok(None) | Err(_) => true,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_websocket_response_stream(
     ws_stream: &mut WsStream,
@@ -811,8 +839,11 @@ async fn run_websocket_response_stream(
                 continue;
             }
         };
-        if let Some(t) = telemetry.as_ref() {
-            t.on_ws_event(&response, poll_start.elapsed());
+        let poll_duration = poll_start.elapsed();
+        if let Some(telemetry) = &telemetry
+            && is_websocket_receive_failure(&response)
+        {
+            telemetry.on_ws_receive_failure(poll_duration);
         }
         let message = match response {
             Ok(Some(Ok(msg))) => msg,
@@ -831,14 +862,21 @@ async fn run_websocket_response_stream(
 
         match message {
             Message::Text(text) => {
-                if let Some(wrapped_error) = parse_wrapped_websocket_error_event(&text)
+                let event = serde_json::from_str::<ResponsesStreamEvent>(&text);
+                let kind = event.as_ref().ok().map(ResponsesStreamEvent::kind);
+                if let Some(t) = telemetry.as_ref() {
+                    t.on_ws_text_event(&text, kind, poll_duration);
+                }
+                // A wrapped error can still be valid when an unrelated stream field is malformed.
+                if matches!(kind, Some("error") | None)
+                    && let Some(wrapped_error) = parse_wrapped_websocket_error_event(&text)
                     && let Some(error) =
                         map_wrapped_websocket_error_event(wrapped_error, text.to_string())
                 {
                     return Err(error);
                 }
 
-                let event = match serde_json::from_str::<ResponsesStreamEvent>(&text) {
+                let event = match event {
                     Ok(event) => event,
                     Err(err) => {
                         debug!("failed to parse websocket event: {err}, data: {text}");
@@ -925,11 +963,7 @@ async fn run_websocket_response_stream(
                     last_server_model = Some(model);
                 }
                 for metadata_event in metadata_events {
-                    if tx_event.send(Ok(metadata_event)).await.is_err() {
-                        return Err(ApiError::Stream(
-                            "response event consumer dropped".to_string(),
-                        ));
-                    }
+                    let _ = tx_event.send(Ok(metadata_event)).await;
                 }
                 match event {
                     Ok(Some(event)) => {
@@ -1105,6 +1139,9 @@ mod tests {
             include: vec!["reasoning.encrypted_content".to_string()],
             service_tier: Some("priority".to_string()),
             prompt_cache_key: Some("cache-key".to_string()),
+            prompt_cache_options: Some(crate::PromptCacheOptions {
+                ttl: codex_protocol::turn_input::PromptCacheTtl::TwelveHours,
+            }),
             text: None,
             access_programs: Some(
                 codex_protocol::turn_input::CyberAccessProgram::DaybreakBlue.into(),

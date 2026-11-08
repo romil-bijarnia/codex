@@ -706,6 +706,8 @@ pub struct RealtimeAudioToml {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ToolsToml {
+    /// Client provider preference when the model does not select a provider.
+    pub client_search_provider: Option<codex_protocol::openai_models::WebSearchProvider>,
     #[serde(
         default,
         deserialize_with = "deserialize_optional_web_search_tool_config"
@@ -843,6 +845,16 @@ pub fn effective_sandbox_mode(
         SandboxMode::ReadOnly
     } else {
         mode
+    }
+}
+
+impl TryFrom<toml::Value> for ConfigToml {
+    type Error = toml::de::Error;
+
+    // Keep the generated TOML deserializer in this crate, shared by all callers.
+    #[inline(never)]
+    fn try_from(value: toml::Value) -> Result<Self, Self::Error> {
+        value.try_into()
     }
 }
 

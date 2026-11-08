@@ -1,6 +1,9 @@
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use codex_app_server_protocol::ImageReference as V2ImageReference;
+use codex_app_server_protocol::ThreadGuardianAssessment;
+use codex_app_server_protocol::ThreadGuardianReviewParams;
+use codex_app_server_protocol::ThreadGuardianReviewResponse;
 use codex_app_server_protocol::ThreadItem;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::models::ContentItem;
@@ -77,7 +80,6 @@ fn validate_response_item_image_urls(items: &[ResponseItem]) -> Result<(), JSONR
 
 #[derive(Clone)]
 pub(crate) struct TurnRequestProcessor {
-    auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
     outgoing: Arc<OutgoingMessageSender>,
     analytics_events_client: AnalyticsEventsClient,
@@ -136,7 +138,6 @@ struct ThreadSettingsBuildParams {
 impl TurnRequestProcessor {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        auth_manager: Arc<AuthManager>,
         thread_manager: Arc<ThreadManager>,
         outgoing: Arc<OutgoingMessageSender>,
         analytics_events_client: AnalyticsEventsClient,
@@ -149,7 +150,6 @@ impl TurnRequestProcessor {
         turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
     ) -> Self {
         Self {
-            auth_manager,
             thread_manager,
             outgoing,
             analytics_events_client,
@@ -179,6 +179,54 @@ impl TurnRequestProcessor {
         )
         .await
         .map(|response| Some(response.into()))
+    }
+
+    pub(crate) async fn thread_guardian_review(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: ThreadGuardianReviewParams,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let (thread_id, thread) = self.load_thread(&params.thread_id).await?;
+        self.ensure_direct_input_allowed(request_id, thread.as_ref())
+            .await?;
+        self.config_manager
+            .check_thread_model_provider(thread.config().await.as_ref())
+            .await
+            .map_err(|error| config_load_error(&error))?;
+        match self
+            .ensure_conversation_listener(
+                thread_id,
+                request_id.connection_id,
+                /*raw_events_enabled*/ false,
+            )
+            .await?
+        {
+            EnsureConversationListenerResult::Attached => {}
+            EnsureConversationListenerResult::ConnectionClosed => return Ok(None),
+        }
+        let result =
+            thread
+                .guardian_review(cancellation)
+                .await
+                .map_err(|err| match err.details() {
+                    CodexErrorDetails::InvalidRequest(message) => invalid_request(message.clone()),
+                    _ => internal_error(format!("Guardian review failed: {err}")),
+                })?;
+        Ok(Some(
+            ThreadGuardianReviewResponse {
+                call_id: result.call_id,
+                assessment: result
+                    .assessment
+                    .map(|assessment| ThreadGuardianAssessment {
+                        outcome: assessment.outcome,
+                        risk_level: assessment.risk_level.into(),
+                        user_authorization: assessment.user_authorization.into(),
+                        rationale: assessment.rationale,
+                    }),
+            }
+            .into(),
+        ))
     }
 
     pub(crate) async fn thread_inject_items(
@@ -338,7 +386,7 @@ impl TurnRequestProcessor {
         self.ensure_direct_input_allowed(request_id, thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
+            .check_thread_model_provider(thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
         let (review_request, display_text) = Self::review_request_from_target(params.target)?;
@@ -508,7 +556,7 @@ impl TurnRequestProcessor {
         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
+            .check_thread_model_provider(thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
         if let Some(tool_output) = &params.tool_output {
@@ -643,11 +691,12 @@ impl TurnRequestProcessor {
                     .on_start(TurnStartOptions {
                         turn_trigger: params.turn_trigger,
                         parent_turn_id: params.parent_turn_id,
-                        initiating_agent_path: None,
                         root_turn_id: params.root_turn_id,
                         final_output_json_schema: params.output_schema,
                         service_tier: params.service_tier_for_turn,
+                        prompt_cache_ttl: None,
                         cyber_access_program: params.cyber_access_program.map(Into::into),
+                        ..Default::default()
                     })
                     .with_additional_context(additional_context)
                     .with_responses_metadata(params.responsesapi_client_metadata)
@@ -664,6 +713,11 @@ impl TurnRequestProcessor {
                 error
             })?;
         let (turn_id, root_turn_id, started) = match submission {
+            TurnInputSubmission::Accepted => {
+                return Err(internal_error(
+                    "user input unexpectedly returned agent acceptance".to_string(),
+                ));
+            }
             TurnInputSubmission::Started {
                 turn_id,
                 root_turn_id,
@@ -688,7 +742,6 @@ impl TurnRequestProcessor {
             if config_snapshot.is_primary_environment_configured() {
                 codex_memories_write::start_memories_startup_task(
                     Arc::clone(&self.thread_manager),
-                    Arc::clone(&self.auth_manager),
                     thread_id,
                     Arc::clone(&thread),
                     thread.config().await,
@@ -881,6 +934,7 @@ impl TurnRequestProcessor {
                     runtime_workspace_roots: runtime_workspace_roots.clone(),
                     approval_policy,
                     approvals_reviewer,
+                    requested_approvals_reviewer: None,
                     sandbox_policy: sandbox_policy.clone(),
                     permission_profile: permission_profile.clone(),
                     active_permission_profile: active_permission_profile.clone(),
@@ -1037,7 +1091,7 @@ impl TurnRequestProcessor {
         self.ensure_direct_input_allowed(request_id, thread.as_ref())
             .await?;
         self.config_manager
-            .check_thread_model_provider_for_input(thread.config().await.as_ref())
+            .check_thread_model_provider(thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
 

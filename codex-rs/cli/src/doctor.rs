@@ -41,6 +41,7 @@ use codex_core::config::ConfigOverrides;
 use codex_core::config::LoaderOverrides;
 use codex_core::config::find_codex_home;
 use codex_features::FEATURES;
+use codex_features::Feature;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
@@ -1543,6 +1544,7 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
     let mut details = Vec::new();
     let mut transport_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut disabled = 0usize;
+    let mut invalid_config = Vec::new();
     let mut missing_env = Vec::new();
     let mut unreachable_required_http = Vec::new();
     let mut unreachable_optional_http = Vec::new();
@@ -1566,43 +1568,44 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
                 }
                 let command_is_empty = command.trim().is_empty();
                 if command_is_empty {
-                    missing_env.push(format!("{name}: stdio command is empty"));
+                    invalid_config.push(format!("{name}: stdio command is empty"));
                 }
                 if server.is_local_environment() {
                     let host_native_cwd = cwd.as_ref().map(|cwd| Path::new(cwd.as_str()));
                     if let Some(cwd) = host_native_cwd
                         && !cwd.exists()
                     {
-                        missing_env.push(format!("{name}: cwd does not exist ({})", cwd.display()));
+                        invalid_config
+                            .push(format!("{name}: cwd does not exist ({})", cwd.display()));
                     }
                     if !command_is_empty
                         && let Err(err) =
                             stdio_command_resolves(command, host_native_cwd, env.as_ref())
                     {
-                        missing_env.push(format!(
+                        invalid_config.push(format!(
                             "{name}: stdio command {command:?} is not resolvable ({err})"
                         ));
                     }
                 } else {
                     match cwd {
                         Some(cwd) if cwd.to_inferred_path_uri().is_none() => {
-                            missing_env
+                            invalid_config
                                 .push(format!("{name}: remote stdio cwd is not absolute ({cwd})"));
                         }
-                        None => missing_env
+                        None => invalid_config
                             .push(format!("{name}: remote stdio requires an explicit cwd")),
                         Some(_) => {}
                     }
                 }
                 if let Some(env) = env {
                     for key in env.keys().filter(|key| key.trim().is_empty()) {
-                        missing_env.push(format!("{name}: empty env key {key}"));
+                        invalid_config.push(format!("{name}: empty env key {key}"));
                     }
                 }
                 for env_var in env_vars {
                     if env_var.is_remote_source() {
                         if server.is_local_environment() {
-                            missing_env.push(format!(
+                            invalid_config.push(format!(
                                 "{name}: env_vars entry `{}` uses source `remote`, which requires remote MCP stdio",
                                 env_var.name()
                             ));
@@ -1655,7 +1658,25 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
     for (transport, count) in transport_counts {
         details.push(format!("{transport} servers: {count}"));
     }
-    details.extend(missing_env.iter().cloned());
+    let mut hints = Vec::new();
+    if !invalid_config.is_empty() {
+        hints.push("Correct the listed MCP server configuration errors.");
+    }
+    if !missing_env.is_empty() {
+        hints.push("Set the missing MCP env vars.");
+    }
+    if !unreachable_required_http.is_empty() || !unreachable_optional_http.is_empty() {
+        hints.push("Check that the MCP server is running and its URL is reachable.");
+    }
+    let required_missing = servers.iter().any(|(name, server)| {
+        server.required
+            && invalid_config
+                .iter()
+                .chain(&missing_env)
+                .any(|detail| detail.starts_with(&format!("{name}:")))
+    });
+    details.extend(invalid_config);
+    details.extend(missing_env);
     details.extend(
         unreachable_required_http
             .iter()
@@ -1667,15 +1688,9 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
             .map(|detail| format!("optional reachability failed: {detail}")),
     );
 
-    let required_missing = servers.iter().any(|(name, server)| {
-        server.required
-            && missing_env
-                .iter()
-                .any(|missing| missing.starts_with(&format!("{name}:")))
-    });
     let status = if required_missing || !unreachable_required_http.is_empty() {
         CheckStatus::Fail
-    } else if !missing_env.is_empty() || !unreachable_optional_http.is_empty() {
+    } else if !hints.is_empty() {
         CheckStatus::Warning
     } else {
         CheckStatus::Ok
@@ -1688,7 +1703,8 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
 
     let mut check = DoctorCheck::new("mcp.config", "mcp", status, summary).details(details);
     if status != CheckStatus::Ok {
-        check = check.remediation("Set the missing MCP env vars or disable the affected server.");
+        hints.push("Alternatively, disable the affected server.");
+        check = check.remediation(hints.join(" "));
     }
     check
 }
@@ -1895,6 +1911,7 @@ fn terminal_name(info: &TerminalInfo) -> &'static str {
     match info.name {
         TerminalName::AppleTerminal => "Apple Terminal",
         TerminalName::Ghostty => "Ghostty",
+        TerminalName::Rex => "Rex",
         TerminalName::Iterm2 => "iTerm2",
         TerminalName::WarpTerminal => "Warp",
         TerminalName::VsCode => "VS Code",
@@ -2330,14 +2347,38 @@ async fn websocket_reachability_check(
         provider.websocket_connect_timeout().as_millis()
     ));
 
-    let runtime_provider = create_model_provider(provider.clone(), auth_manager);
-    let auth = runtime_provider.auth().await;
-    details.push(format!(
-        "auth mode: {}",
-        auth.as_ref().map(auth_mode_name).unwrap_or("none")
-    ));
-
-    let (api_provider, api_auth) = match runtime_provider.api_provider_and_auth().await {
+    let setup = async {
+        let runtime_auth = if config.features.enabled(Feature::RuntimeAgentInstances)
+            && let Some(credentials) = &auth_manager
+        {
+            let installation_id = codex_core::resolve_installation_id(&config.codex_home).await?;
+            codex_core::build_runtime_auth_manager(
+                config,
+                Arc::clone(credentials),
+                &installation_id,
+            )
+            .map(|runtime| (runtime, config.runtime_auth_mode))
+        } else {
+            None
+        };
+        let runtime_provider = match auth_manager {
+            Some(credentials) => codex_model_provider::ProviderAuthContext {
+                credentials,
+                runtime_auth,
+            }
+            .model_provider(provider.clone()),
+            None => create_model_provider(provider.clone(), /*auth_manager*/ None),
+        };
+        codex_model_provider::resolve_request(
+            runtime_provider.as_ref(),
+            /*scope*/ None,
+            Some(&config.workspace_routing_context()),
+            config.http_client_factory(),
+        )
+        .await
+    }
+    .await;
+    let setup = match setup {
         Ok(setup) => setup,
         Err(err) => {
             return websocket_probe_warning(
@@ -2347,6 +2388,11 @@ async fn websocket_reachability_check(
             );
         }
     };
+    details.push(format!(
+        "auth mode: {}",
+        setup.auth.as_ref().map(auth_mode_name).unwrap_or("none")
+    ));
+    let api_provider = setup.api_provider;
     match api_provider.websocket_url_for_path("responses") {
         Ok(url) => {
             details.push(format!("endpoint: {url}"));
@@ -2370,8 +2416,8 @@ async fn websocket_reachability_check(
         OPENAI_BETA_HEADER,
         HeaderValue::from_static(RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE),
     );
-    let client = ResponsesWebsocketClient::new(api_provider, api_auth);
-    let http_client_factory = config.http_client_factory();
+    let client = ResponsesWebsocketClient::new(api_provider, setup.api_auth);
+    let http_client_factory = setup.http_client_factory;
     match tokio::time::timeout(
         provider.websocket_connect_timeout(),
         client.probe_handshake(
@@ -2472,6 +2518,7 @@ fn websocket_error_detail(err: &ApiError) -> String {
         | ApiError::ContextWindowExceeded
         | ApiError::QuotaExceeded
         | ApiError::UsageNotIncluded
+        | ApiError::SessionBudgetExceeded
         | ApiError::FlexUnavailable
         | ApiError::ServerOverloaded { .. }
         | ApiError::PolicyCapacityUnavailable { .. } => format!("handshake error: {err}"),
@@ -2482,6 +2529,9 @@ fn websocket_error_detail(err: &ApiError) -> String {
         ApiError::RateLimit(_) => "handshake error: rate limit: [redacted]".to_string(),
         ApiError::InvalidRequest { .. } => {
             "handshake error: invalid request: [redacted]".to_string()
+        }
+        ApiError::InvalidAudioInput { .. } => {
+            "handshake error: invalid audio input: [redacted]".to_string()
         }
         ApiError::ModelNotFound { .. } => {
             "handshake error: model not found: [redacted]".to_string()
@@ -3304,6 +3354,7 @@ mod tests {
             ApiError::Stream(message()),
             ApiError::ResponseIncomplete(Box::new(
                 codex_protocol::error::ResponseIncompleteError {
+                    partial_output: vec![],
                     reason: message(),
                     response_id: Some(message()),
                     token_usage: None,
@@ -3319,6 +3370,10 @@ mod tests {
             },
             ApiError::RateLimit(message()),
             ApiError::InvalidRequest { message: message() },
+            ApiError::InvalidAudioInput {
+                message: message(),
+                per_recording: true,
+            },
             ApiError::ModelNotFound {
                 message: message(),
                 status: Some(http::StatusCode::NOT_FOUND),
@@ -3346,6 +3401,7 @@ mod tests {
                 "handshake error: rate limit exceeded: [redacted]",
                 "handshake error: rate limit: [redacted]",
                 "handshake error: invalid request: [redacted]",
+                "handshake error: invalid audio input: [redacted]",
                 "handshake error: model not found: [redacted]",
                 "handshake error: invalid prompt: [redacted]",
                 "handshake error: cyber policy: [redacted]",
@@ -3608,6 +3664,7 @@ mod tests {
 
         assert_eq!(check.status, CheckStatus::Warning);
         assert_eq!(check.summary, "MCP configuration has optional issues");
+        insta::assert_snapshot!(check.remediation.unwrap(), @"Check that the MCP server is running and its URL is reachable. Alternatively, disable the affected server.");
         assert!(
             check
                 .details
@@ -3638,6 +3695,23 @@ mod tests {
         assert!(check.details.iter().any(|detail| {
             detail.contains("optional forwarded env var CODEX_DOCTOR_OPTIONAL_FORWARD_847153D1")
         }));
+    }
+
+    #[tokio::test]
+    async fn mcp_check_reports_both_missing_token_and_unreachable_url() {
+        let server = toml::from_str(
+            r#"
+                url = "http://127.0.0.1:9/mcp"
+                bearer_token_env_var = "CODEX_DOCTOR_MISSING_MCP_TOKEN"
+                required = true
+            "#,
+        )
+        .expect("required MCP config");
+        let check =
+            mcp_check_from_servers(&HashMap::from([("required".to_string(), server)])).await;
+
+        assert_eq!(check.status, CheckStatus::Fail);
+        insta::assert_snapshot!(check.remediation.unwrap(), @"Set the missing MCP env vars. Check that the MCP server is running and its URL is reachable. Alternatively, disable the affected server.");
     }
 
     #[tokio::test]
@@ -4215,6 +4289,7 @@ mod tests {
             check.summary,
             "MCP configuration has failing required inputs or reachability"
         );
+        insta::assert_snapshot!(check.remediation.unwrap(), @"Correct the listed MCP server configuration errors. Alternatively, disable the affected server.");
         assert!(check.details.iter().any(|detail| {
             detail.contains(
                 "required: stdio command \"definitely-missing-codex-doctor-mcp\" is not resolvable",

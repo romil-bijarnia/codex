@@ -65,6 +65,7 @@ async fn history_fixture(
         })];
         for item in 0..*count {
             events.push(EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: turn_id.clone(),
                 started_at_ms: None,
@@ -300,7 +301,6 @@ async fn history_hydration_archived_retry_uses_first_attempt_runtime_settings() 
                     config: &app.config,
                     local_settings: &app.local_settings,
                 },
-                &AppServerTarget::Embedded,
                 &target,
                 action,
                 initial,

@@ -1,8 +1,15 @@
 # Local CLI customizations
 
-This branch preserves the installed Codex CLI 0.166.0 customizations on top of
-official release commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`.
-The upstream `main` branch is left separate; this is not an update to a newer CLI.
+This branch preserves the personal CLI customizations and merges upstream `main`
+through `4e4767ffa7` (8 November 2026). The local build is identified as
+`0.169.0-dev.20261109+romil`; it is an upstream-main development build, not an
+official 0.169.0 release. The original 0.166.0 snapshot is historical.
+
+The Linux package is built with Rust 1.95.0 and includes newly built `codex`,
+`codex-exec-server` and `codex-code-mode-host` executables. The reproducible build
+and focused terminal checks live in GRID under `extras/linux-el2-owner-control/`.
+The installer selects the verified package for new launches without restarting
+active conversations or replacing their running backend.
 
 Included:
 - The permission-status footer source patch, its snapshot, and the release lockfile correction.
