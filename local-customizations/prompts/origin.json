@@ -3,8 +3,8 @@
   "source_model": "gpt-6.1-sol",
   "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "stock_words": 3320,
-  "compact_sha256": "4c6926f5bf6cc4853612722e59ba115ddf5250b5193ad7248f49ad8946432653",
-  "compact_words": 776,
+  "compact_sha256": "ffa3f01127549e47c08945458f5ef9a245036f89a3b349f075654fa31a53c6d1",
+  "compact_words": 883,
   "prior_added_execution_block_words": 328,
   "mode": "compact global base replacement",
   "stock_updates": "require deliberate review; not automatically copied into the compact file",
@@ -35,5 +35,6 @@
     "model capabilities",
     "available skills and connectors"
   ],
-  "intent_retention_update": "Interpret follow-ups in context, incorporate corrections, discard rejected interpretations, and check the technical route against the actual requirements."
+  "intent_retention_update": "Interpret follow-ups in context, incorporate corrections, discard rejected interpretations, and check the technical route against the actual requirements.",
+  "task_continuity_update": "Criticism and failure reports steer the authorised project; they do not cancel it. Preserve recovered systems and explicit restrictions while continuing the remaining work."
 }

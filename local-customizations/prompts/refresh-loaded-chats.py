@@ -118,7 +118,14 @@ def discover_socket():
 
 def history_state(path):
     instructions, agents, execution_rules = None, '', ''
-    for line in Path(path).open():
+    try:
+        history = Path(path).open()
+    except FileNotFoundError:
+        # A loaded thread may not have a persisted rollout yet. Its update can
+        # still be accepted in memory; keep readback pending rather than claiming
+        # persistence or preventing every other loaded chat from updating.
+        return None, '', ''
+    for line in history:
         item = json.loads(line)
         payload = item.get('payload', {})
         if item.get('type') == 'session_meta':
@@ -221,7 +228,8 @@ def main():
                     'Keep applicable project instructions and all current task constraints.\n\n'
                     + personal + '\n</INSTRUCTIONS>'))
             record = {'thread_id': identifier, 'model': model,
-                      'updates_needed': len(items), 'status_before': thread['status']}
+                      'updates_needed': len(items), 'status_before': thread['status'],
+                      'history_file_missing_before': not Path(thread['path']).exists()}
             if items and args.apply:
                 client.rpc('thread/inject_items', {'threadId': identifier, 'items': items})
                 record['native_update_accepted'] = True

@@ -1,4 +1,4 @@
-The operating base is `compact-base.md`, a 776-word stock-derived replacement
+The operating base is `compact-base.md`, a 883-word stock-derived replacement
 starting with the approved operator role: Romil sets the outcome and boundaries;
 Sara owns approach, implementation, verification and delivery. The previous
 3,320-word Sol base and separate 328-word execution block are no longer stacked.
@@ -36,3 +36,8 @@ The intent-retention paragraph keeps corrections and rejected interpretations
 explicit, including access, billing, delivery and method requirements.
 Parent-managed multi-agent v2 subagents are skipped by direct chat refreshes;
 their lifecycle and input remain under their parent agent.
+
+Criticism, frustration and failure reports do not cancel an authorised project.
+The base and personal template explicitly retain the goal, require corrective
+work after mistakes, and distinguish a deployment/reboot restriction from a
+stop on diagnosis or source work. Genuine stop/wait instructions remain binding.
