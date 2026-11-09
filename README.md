@@ -1,3 +1,7 @@
+Personal customizations now live in the standalone [patch-only repository](https://github.com/romil-bijarnia/codex-customizations).
+Use `codex update` from that kit for automated development updates. This fork is
+retained as historical source, not the ongoing update mechanism.
+
 This fork preserves the installed 0.166.0 CLI and its [local customizations](local-customizations/README.md). The `romil-cli` branch contains the customized source; the official upstream remains `openai/codex`.
 
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
