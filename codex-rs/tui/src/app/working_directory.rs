@@ -73,13 +73,9 @@ impl App {
         let source_thread_id = transition.source_thread_id;
         let source_cwd = &transition.source_cwd;
         let checkout = &transition.checkout;
-        let mode = transition.mode;
-        if self.reconnect.offline
-            || (mode == crate::app_event::ManagedWorktreeMode::Fork
-                && self.chat_widget.has_misalignment_policy_violation())
-        {
+        if self.reconnect.offline {
             self.chat_widget.add_error_message(format!(
-                "Cannot continue into the new worktree while the session is offline or blocked by a policy warning. An unused checkout was created at {}; remove it with `git worktree remove <checkout-path>` from the source repository.",
+                "Cannot continue into the new worktree while the session is offline. An unused checkout was created at {}; remove it with `git worktree remove <checkout-path>` from the source repository.",
                 checkout.root.display()
             ));
             return Ok(());

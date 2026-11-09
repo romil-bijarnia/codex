@@ -275,27 +275,7 @@ impl Default for ConfigRequirements {
 
 impl ConfigRequirements {
     /// Returns whether a model slug or its supported provider alias requires auto-review.
-    pub fn auto_review_required_for_model(&self, model: &str) -> bool {
-        let Some(protected_models) = self.auto_review_required_models.as_ref() else {
-            return false;
-        };
 
-        let model = match model.split_once('/') {
-            Some((namespace, suffix))
-                if !namespace.is_empty()
-                    && !suffix.contains('/')
-                    && namespace.chars().all(|character| {
-                        character.is_ascii_alphanumeric() || character == '_' || character == '-'
-                    }) =>
-            {
-                suffix
-            }
-            Some(_) => return false,
-            None => model,
-        };
-
-        protected_models.value.contains(model)
-    }
 
     pub fn managed_auth_policy(&self) -> ManagedAuthPolicy {
         ManagedAuthPolicy {

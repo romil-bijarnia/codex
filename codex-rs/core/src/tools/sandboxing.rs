@@ -324,39 +324,7 @@ pub(crate) fn managed_network_for_sandbox_permissions(
     }
 }
 
-pub(crate) trait Approvable<Req> {
-    /// Return per-request sandbox permissions for first-attempt sandbox
-    /// selection. Most tools use the ambient sandbox policy unchanged.
-    fn sandbox_permissions(&self, _req: &Req) -> SandboxPermissions {
-        SandboxPermissions::UseDefault
-    }
 
-    fn should_bypass_approval(&self, policy: AskForApproval, already_approved: bool) -> bool {
-        if already_approved {
-            // We do not ask one more time
-            return true;
-        }
-        matches!(policy, AskForApproval::Never)
-    }
-
-    /// Return `Some(_)` to specify a custom exec approval requirement, or `None`
-    /// to fall back to policy-based default.
-    fn exec_approval_requirement(&self, _req: &Req) -> Option<ExecApprovalRequirement> {
-        None
-    }
-
-    /// Decide we can request an approval for no-sandbox execution.
-    fn wants_no_sandbox_approval(&self, policy: AskForApproval) -> bool {
-        match policy {
-            AskForApproval::UnlessTrusted => true,
-            AskForApproval::Never => false,
-            AskForApproval::OnRequest => false,
-            AskForApproval::Granular(granular_config) => granular_config.sandbox_approval,
-        }
-    }
-
-    fn approval_action(&self, req: &Req, call_id: &str) -> std::io::Result<ApprovalAction>;
-}
 
 pub(crate) trait Sandboxable {
     fn sandbox_preference(&self) -> SandboxablePreference;
@@ -379,7 +347,7 @@ pub(crate) enum ToolError {
     Codex(CodexErr),
 }
 
-pub(crate) trait ToolRuntime<Req, Out>: Approvable<Req> + Sandboxable {
+pub(crate) trait ToolRuntime<Req, Out>: Sandboxable {
     fn turn_environment<'a>(&self, req: &'a Req) -> &'a TurnEnvironment;
 
     fn uses_executor_managed_process_sandbox(&self, _req: &Req) -> bool {

@@ -59,7 +59,6 @@ pub(crate) struct ExecutionMetadata<'a> {
     pub(crate) model: &'a str,
     pub(crate) reasoning_effort: Option<ReasoningEffortConfig>,
     pub(crate) node_repl_disabled: bool,
-    pub(crate) auto_review_enabled: bool,
     pub(crate) node_repl_auto_review_required: bool,
 }
 
@@ -69,16 +68,11 @@ impl<'a> ExecutionMetadata<'a> {
             model: settings.model_info.slug.as_str(),
             reasoning_effort: settings.effective_reasoning_effort(),
             node_repl_disabled: settings.model_info.node_repl_disabled,
-            auto_review_enabled: crate::guardian::routes_approval_policy_to_guardian(
-                settings.approval_policy(),
-                settings.approvals_reviewer(),
-            ),
             node_repl_auto_review_required: settings.model_info.computer_use_review_required(),
         }
     }
 
     pub(crate) fn apply_to(&self, metadata: &mut CodexResponsesMetadata) {
-        metadata.auto_review_enabled = Some(self.auto_review_enabled);
         metadata.node_repl_auto_review_required = Some(self.node_repl_auto_review_required);
         metadata.node_repl_disabled = Some(self.node_repl_disabled);
         metadata
@@ -174,7 +168,6 @@ pub(crate) struct TurnMetadataState {
     // TODO(anp): Derive this cached tag from TurnEnvironment::sandbox_context
     // so metadata reflects the selected environment's backend.
     pub(crate) sandbox_tags: SandboxTags,
-    auto_review_enabled: bool,
     node_repl_auto_review_required: bool,
     node_repl_disabled: bool,
     enriched_workspaces: RwLock<Option<BTreeMap<String, TurnMetadataWorkspace>>>,
@@ -230,7 +223,6 @@ impl TurnMetadataState {
         permission_profile: &PermissionProfile,
         windows_sandbox_selection: impl Into<WindowsSandboxSelection>,
         enforce_managed_network: bool,
-        auto_review_enabled: bool,
         model_info: &ModelInfo,
     ) -> Self {
         let sandbox_tags = SandboxTags::new(
@@ -259,7 +251,6 @@ impl TurnMetadataState {
             turn_trigger: OnceLock::new(),
             turn_id,
             sandbox_tags,
-            auto_review_enabled,
             node_repl_auto_review_required: model_info.computer_use_review_required(),
             node_repl_disabled: model_info.node_repl_disabled,
             enriched_workspaces: RwLock::new(None),
@@ -495,7 +486,6 @@ impl TurnMetadataState {
             subagent_kind: self.subagent_kind.clone(),
             thread_source: self.thread_source.clone(),
             turn_trigger: self.turn_trigger.get().cloned(),
-            auto_review_enabled: Some(self.auto_review_enabled),
             node_repl_auto_review_required: Some(self.node_repl_auto_review_required),
             node_repl_disabled: Some(self.node_repl_disabled),
             workspaces: self.current_workspaces(),

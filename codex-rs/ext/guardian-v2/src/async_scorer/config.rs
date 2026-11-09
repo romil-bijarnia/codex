@@ -88,9 +88,8 @@ impl GuardianV2Config {
     pub(super) fn policy_for_model(
         &self,
         model: Option<&codex_protocol::openai_models::ModelInfo>,
-        requirements: &codex_config::ConfigRequirements,
     ) -> GuardianModelPolicy {
-        self.policy.resolve(model, requirements)
+        self.policy.resolve(model)
     }
 
     pub(crate) fn with_model_defaults(

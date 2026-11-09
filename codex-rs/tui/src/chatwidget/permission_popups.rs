@@ -122,17 +122,12 @@ impl ChatWidget {
                         name: APPROVE_FOR_ME_LABEL.to_string(),
                         description: Some(AUTO_REVIEW_DESCRIPTION.to_string()),
                         is_current: current_review_policy == ApprovalsReviewer::AutoReview
-                            && (Self::preset_matches_current(
+                            && Self::preset_matches_current(
                                 current_approval,
                                 &current_permission_profile,
                                 self.config.cwd.as_path(),
                                 &preset,
-                            ) || (current_approval == AskForApproval::OnRequest
-                                && self
-                                    .config
-                                    .config_layer_stack
-                                    .requirements()
-                                    .auto_review_required_for_model(self.current_model()))),
+                            ),
                         actions: self.permission_mode_actions(
                             &preset,
                             APPROVE_FOR_ME_LABEL.to_string(),

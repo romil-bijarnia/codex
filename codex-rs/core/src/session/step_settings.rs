@@ -151,7 +151,6 @@ impl ResolvedStepSettings {
         // check inherited approval values against the supplied managed allow-lists.
         // Sharing these checks would also make ordinary settings updates stricter
         // after a requirements refresh.
-        self.selected.validate(constraints)?;
         constraints
             .requirements
             .approval_policy
@@ -290,51 +289,10 @@ impl StepSettings {
                 .can_set(&approvals_reviewer)?;
             next.approvals_reviewer = approvals_reviewer;
         }
-        if !constraints.trusted_guardian_reviewer
-            && self.collaboration_mode.model() != next.collaboration_mode.model()
-            && constraints
-                .requirements
-                .auto_review_required_for_model(next.collaboration_mode.model())
-            && update.approvals_reviewer.is_none()
-        {
-            constraints
-                .requirements
-                .approvals_reviewer
-                .can_set(&ApprovalsReviewer::AutoReview)?;
-            next.approvals_reviewer = ApprovalsReviewer::AutoReview;
-        }
-        next.validate(constraints)?;
         Ok(next)
     }
 
-    /// Checks directly constructed settings or rechecks changed constraints.
-    pub(super) fn validate(
-        &self,
-        constraints: &StepSettingsConstraints<'_>,
-    ) -> ConstraintResult<()> {
-        if constraints.trusted_guardian_reviewer {
-            return Ok(());
-        }
 
-        let model = self.collaboration_mode.model();
-        if !constraints
-            .requirements
-            .auto_review_required_for_model(model)
-        {
-            return Ok(());
-        }
-
-        if self.approvals_reviewer == ApprovalsReviewer::AutoReview
-            && !constraints.has_full_disk_write_access
-            && constraints.guardian_approval_enabled
-        {
-            return Ok(());
-        }
-
-        Err(ConstraintError::AutoReviewRequired {
-            model: model.to_string(),
-        })
-    }
 }
 
 #[cfg(test)]

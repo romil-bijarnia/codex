@@ -58,7 +58,6 @@ pub(crate) const THREAD_SOURCE_KEY: &str = "thread_source";
 pub(crate) const TURN_TRIGGER_KEY: &str = "turn_trigger";
 pub(crate) const SANDBOX_KEY: &str = "sandbox";
 pub(crate) const SANDBOX_MODE_KEY: &str = "sandbox_mode";
-pub(crate) const AUTO_REVIEW_ENABLED_KEY: &str = "auto_review_enabled";
 pub(crate) const NODE_REPL_AUTO_REVIEW_REQUIRED_KEY: &str = "node_repl_auto_review_required";
 pub(crate) const NODE_REPL_DISABLED_KEY: &str = "node_repl_disabled";
 pub(crate) const WORKSPACES_KEY: &str = "workspaces";
@@ -100,7 +99,6 @@ const RESERVED_METADATA_KEYS: &[&str] = &[
     TURN_TRIGGER_KEY,
     SANDBOX_KEY,
     SANDBOX_MODE_KEY,
-    AUTO_REVIEW_ENABLED_KEY,
     NODE_REPL_AUTO_REVIEW_REQUIRED_KEY,
     NODE_REPL_DISABLED_KEY,
     WORKSPACES_KEY,
@@ -262,7 +260,6 @@ pub struct CodexResponsesMetadata {
     pub(crate) turn_trigger: Option<String>,
     pub(crate) sandbox: Option<String>,
     pub(crate) sandbox_mode: Option<String>,
-    pub(crate) auto_review_enabled: Option<bool>,
     pub(crate) node_repl_auto_review_required: Option<bool>,
     pub(crate) node_repl_disabled: Option<bool>,
     pub(crate) workspaces: BTreeMap<String, TurnMetadataWorkspace>,
@@ -310,7 +307,6 @@ impl CodexResponsesMetadata {
             turn_trigger: None,
             sandbox: None,
             sandbox_mode: None,
-            auto_review_enabled: None,
             node_repl_auto_review_required: None,
             node_repl_disabled: None,
             workspaces: BTreeMap::new(),
@@ -453,7 +449,6 @@ impl CodexResponsesMetadata {
             turn_trigger: self.turn_trigger.as_deref(),
             sandbox: self.sandbox.as_deref(),
             sandbox_mode: self.sandbox_mode.as_deref(),
-            auto_review_enabled: self.auto_review_enabled,
             node_repl_auto_review_required: self.node_repl_auto_review_required,
             node_repl_disabled: self.node_repl_disabled,
             workspaces: non_empty_workspaces(&self.workspaces),
@@ -597,8 +592,6 @@ struct CodexTurnMetadataPayload<'a> {
     sandbox: Option<&'a str>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sandbox_mode: Option<&'a str>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    auto_review_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     node_repl_auto_review_required: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

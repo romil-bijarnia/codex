@@ -1,5 +1,3 @@
-This fork preserves the installed 0.166.0 CLI and its [local customizations](local-customizations/README.md). The `romil-cli` branch contains the customized source; the official upstream remains `openai/codex`.
-
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />

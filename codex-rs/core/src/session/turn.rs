@@ -17,7 +17,6 @@ use crate::connectors;
 use crate::context::ContextualUserFragment;
 use crate::context::UserVerificationNotice;
 use crate::context_manager::rejected_audio;
-use crate::cyber_access_program;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::feedback_tags;
 use crate::hook_runtime::drain_async_hook_results;
@@ -1316,7 +1315,7 @@ async fn build_skills_and_plugins(
         turn_context,
         cancellation_token,
         &mentioned_skills,
-        Some(sess.mcp_elicitation_reviewer()),
+        None,
     )
     .await;
 
@@ -1613,10 +1612,7 @@ async fn maybe_run_previous_model_inline_compact(
     // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
     // Combining the previous model with the current turn's program can produce a pair
     // that the server rejects.
-    previous_model_turn_context.cyber_access_program = cyber_access_program::for_provider(
-        &previous_model_turn_context.config,
-        previous_turn_settings.cyber_access_program,
-    );
+    previous_model_turn_context.cyber_access_program = previous_turn_settings.cyber_access_program;
     let previous_model_turn_context = Arc::new(previous_model_turn_context);
 
     let reason = if should_compact_for_comp_hash_change {
@@ -2973,24 +2969,10 @@ async fn try_run_sampling_request(
         run_model_request_hooks(&sess, &step_context, &hooks, PreModelRequest).await;
     }
     let sampling_timing_guard = turn_context.turn_timing_state.begin_sampling();
-    let mut response_id_for_assessment = None;
     let mut answer_moderation: Option<codex_protocol::protocol::TargetedAnswerModeration> = None;
-    let mut pending_assessment: Option<codex_api::GuardianAssessment> = None;
     let mut response_completed = false;
     let mut request_token_usage: Option<codex_protocol::protocol::TokenUsage> = None;
     let mut includes_reasoning = step_context.settings.model_info.use_responses_lite;
-    // Catalog policies can enable adaptive review independently of the legacy scorer flag.
-    // Capture evidence whenever Guardian is available; the reviewer resolves the policy.
-    let assessment_authorization = if turn_context
-        .config
-        .features
-        .enabled(Feature::GuardianApproval)
-    {
-        Some(crate::guardian::ScoreAuthorization::for_session(&sess, &Default::default()).await)
-    } else {
-        None
-    };
-    let mut resampling = crate::guardian::ResponseResampling::new(&sess);
     let mut stream_request = async |prompt: &Prompt| {
         client_session
             .stream(
@@ -3062,10 +3044,7 @@ async fn try_run_sampling_request(
     let mut active_item_is_streaming_to_client = false;
     let receiving_span = trace_span!("receiving_stream");
     let outcome: CodexResult<SamplingRequestResult> = loop {
-        if response_completed && resampling.accepted_output.is_empty() {
-            if resampling.update_usage_boundary {
-                sess.state.lock().await.history.reset_last_usage_boundary();
-            }
+        if response_completed {
             break Ok(SamplingRequestResult {
                 needs_follow_up,
                 mailbox_preempted: *draining_for_mailbox,
@@ -3089,8 +3068,8 @@ async fn try_run_sampling_request(
         );
 
         let receive_started = Instant::now();
-        let event = resampling
-            .next(&mut stream)
+        let event = stream
+            .next()
             .instrument(trace_span!(parent: &handle_responses, "receiving"))
             .or_cancel(&preempt)
             .or_cancel(&cancellation_token)
@@ -3170,9 +3149,6 @@ async fn try_run_sampling_request(
         };
 
         record_turn_ttft_metric(&turn_context, &event).await;
-        let Some(event) = resampling.filter(event, &step_context.tool_router) else {
-            continue;
-        };
         sess.services
             .session_telemetry
             .record_responses(&handle_responses, &event);
@@ -3180,7 +3156,6 @@ async fn try_run_sampling_request(
         match event {
             ResponseEvent::Created { response_id } => {
                 answer_moderation = None;
-                response_id_for_assessment.clone_from(&response_id);
                 if let Some(response_id) = response_id {
                     turn_context
                         .extension_data
@@ -3194,18 +3169,6 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputItemDone(mut item) => {
-                // Serving emits one final value immediately before this item's completion.
-                // After this handoff, the invocation/cell owns it independently of the stream.
-                let assessment = pending_assessment
-                    .take()
-                    .filter(|value| item.id().is_some_and(|id| id.as_str() == value.item_id))
-                    .zip(assessment_authorization.as_ref())
-                    .map(|(value, authorization)| {
-                        Arc::new(crate::guardian::ServingAssessment {
-                            requires_review: value.requires_review,
-                            authorization: authorization.clone(),
-                        })
-                    });
                 if item.id().is_none_or(|id| id.is_empty())
                     && let Some(active_item) = &active_item
                 {
@@ -3271,10 +3234,7 @@ async fn try_run_sampling_request(
                     continue;
                 }
 
-                let mut tool_runtime = tool_runtime.clone();
-                if assessment.is_some() {
-                    Arc::make_mut(&mut tool_runtime.step_context).serving_assessment = assessment;
-                }
+                let tool_runtime = tool_runtime.clone();
                 let mut ctx = HandleOutputCtx {
                     sess: sess.clone(),
                     step_context: Arc::clone(&step_context),
@@ -3489,11 +3449,6 @@ async fn try_run_sampling_request(
                 sess.emit_turn_moderation_metadata(&turn_context, metadata)
                     .await;
             }
-            ResponseEvent::GuardianAssessment(assessment) => {
-                if response_id_for_assessment.as_deref() == Some(assessment.response_id.as_str()) {
-                    pending_assessment = Some(assessment);
-                }
-            }
             ResponseEvent::SafetyBuffering(buffering) => {
                 sess.send_event(
                     &turn_context,
@@ -3572,13 +3527,9 @@ async fn try_run_sampling_request(
                         &turn_context,
                         &step_context.settings,
                         token_usage.as_ref(),
-                        if resampling.retry_pending {
-                            super::TokenUsageContext::SpendingOnly
-                        } else {
-                            super::TokenUsageContext::Sampling {
-                                includes_reasoning,
-                                input_item_count,
-                            }
+                        super::TokenUsageContext::Sampling {
+                            includes_reasoning,
+                            input_item_count,
                         },
                     )
                     .await;
@@ -3586,20 +3537,6 @@ async fn try_run_sampling_request(
                 should_emit_turn_diff = true;
                 if let Err(err) = budget_result {
                     break Err(err);
-                }
-                if resampling.retry_pending {
-                    response_completed = false;
-                    response_id_for_assessment = None;
-                    pending_assessment = None;
-                    includes_reasoning = step_context.settings.model_info.use_responses_lite;
-                    stream = match resampling
-                        .retry(stream_request(&prompt), &cancellation_token)
-                        .await
-                    {
-                        Ok(stream) => stream,
-                        Err(error) => break Err(error),
-                    };
-                    continue;
                 }
                 if let Some(false) = end_turn {
                     needs_follow_up = true;

@@ -225,7 +225,6 @@ impl App {
             Err(error) => return self.working_directory_error(error),
         };
         let can_continue = !self.reconnect.offline
-            && !self.chat_widget.has_misalignment_policy_violation()
             && !crate::uses_remote_workspace_or_environment(
                 &self.app_server_target,
                 self.environment_manager.as_ref(),

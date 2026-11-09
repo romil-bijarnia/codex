@@ -95,10 +95,7 @@ impl GuardianV2Extension {
             return;
         }
         let parent_model = input.thread_store.get::<ModelInfo>();
-        let policy = guardian_config.policy_for_model(
-            parent_model.as_deref(),
-            config.config_layer_stack.requirements(),
-        );
+        let policy = guardian_config.policy_for_model(parent_model.as_deref());
         if !policy.scoring_enabled() {
             input.thread_store.remove::<GuardianV2Enabled>();
         }
@@ -241,18 +238,7 @@ impl GuardianV2Extension {
             score_progress.invalidate(tool_call_index);
             return;
         }
-        // Keep live mandatory review gates without replacing the captured instructions.
-        let mut permitted = policy.clone();
-        thread
-            .config()
-            .await
-            .config_layer_stack
-            .requirements()
-            .constrain_guardian_policy(
-                &mut permitted,
-                parent_model.as_ref().map(|model| model.slug.as_str()),
-            );
-        if !scores_tool(&permitted, input.tool_name, input.payload, scope) {
+        if !scores_tool(&policy, input.tool_name, input.payload, scope) {
             score_progress.invalidate(tool_call_index);
             score_progress.clear_score();
             return;

@@ -63,10 +63,7 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                     return;
                 }
             };
-            let policy = guardian_config.policy_for_model(
-                model.as_deref(),
-                input.config.config_layer_stack.requirements(),
-            );
+            let policy = guardian_config.policy_for_model(model.as_deref());
             let scoring_enabled = policy.scoring_enabled();
             let sampler_config =
                 super::startup::sampler_config(&input, self.thread_manager.upgrade()).await;
@@ -188,9 +185,6 @@ pub fn install(
         thread_manager,
     });
     registry.thread_lifecycle_contributor(extension.clone());
-    registry.approval_review_contributor(Arc::new(super::approval::GuardianApprovalReviewer {
-        thread_manager: extension.thread_manager.clone(),
-    }));
     registry.skill_invocation_contributor(extension.clone());
     registry.tool_lifecycle_contributor(extension);
 }

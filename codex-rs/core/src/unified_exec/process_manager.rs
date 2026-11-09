@@ -916,79 +916,6 @@ impl UnifiedExecProcessManager {
         }
         // Serialize writes and polls on the original terminal.
         let _interaction_guard = locked_process.interaction_lock().lock_owned().await;
-        // A queued write must observe strict review enabled while it was waiting.
-        let strict_auto_review = context.step_context.turn.strict_auto_review_enabled();
-        let approval = {
-            let store = self.process_store.lock().await;
-            let entry = store
-                .processes
-                .get(&process_id)
-                .filter(|entry| Arc::ptr_eq(&entry.process, locked_process))
-                .ok_or(UnifiedExecError::UnknownProcessId { process_id })?;
-            entry.stdin_approval(context, request.input, strict_auto_review)?
-        };
-        if let Some((approval, approval_reason)) = approval {
-            let unreviewable_input_error = || {
-                UnifiedExecError::StdinApproval(ToolError::Rejected(
-                    "terminal input and permission details are too large to review safely; use a smaller input or start a new terminal with fewer grants".to_string(),
-                ))
-            };
-            let mut reviewed = codex_guardian_reviewer::guardian_approval_request_to_json(
-                &approval
-                    .clone()
-                    .into_guardian_request(/*exec_command_cwd_convention*/ None)
-                    .map_err(|err| {
-                        UnifiedExecError::StdinApproval(ToolError::Rejected(err.to_string()))
-                    })?,
-            )
-            .map_err(|_| unreviewable_input_error())?;
-            // Launch context uses Guardian's normal request budget, not the stdin limit.
-            if let Some(fields) = reviewed.as_object_mut() {
-                fields.remove("original_command");
-            }
-            let reviewed =
-                serde_json::to_string_pretty(&reviewed).map_err(|_| unreviewable_input_error())?;
-            // Bound the input and permission details plus their reason, including
-            // JSON escaping. Reject, never execute an unreviewed tail.
-            let oversized =
-                reviewed.len().saturating_add(approval_reason.len()) > MAX_STDIN_APPROVAL_BYTES;
-            let size_check_result = if oversized {
-                "over_limit"
-            } else {
-                "within_limit"
-            };
-            let input_kind = if request.input.chars().all(char::is_control) {
-                "control"
-            } else {
-                "text"
-            };
-            context.step_context.session_telemetry.counter(
-                "codex.unified_exec.stdin_review.size_check",
-                /*inc*/ 1,
-                &[("result", size_check_result), ("input_kind", input_kind)],
-            );
-            if oversized {
-                return Err(unreviewable_input_error());
-            }
-            let approval_context = ApprovalContext {
-                exec_requirement: None,
-                review_context: GuardianReviewContext::from(&context.step_context),
-                cancellation_token: Some(context.cancellation_token.clone()),
-                call_id: context.call_id.clone(),
-                tool_name: ToolName::plain("write_stdin"),
-                strict_auto_review,
-                approval_reason: Some(approval_reason),
-                retry_reason: None,
-                network_approval_context: None,
-            };
-            context
-                .session
-                .request_approval(approval, approval_context)
-                .await
-                .result
-                .map_err(UnifiedExecError::StdinApproval)?;
-        }
-
         // Revalidate the identity after approval: a removed process ID can be reused.
         let PreparedProcessHandles {
             process,
@@ -1516,9 +1443,6 @@ impl UnifiedExecProcessManager {
         let shell_snapshot = shell_snapshot_request(prepared, context);
         let mut orchestrator = ToolOrchestrator::new();
         let mut runtime = UnifiedExecRuntime::new(self);
-        let exec_approval_requirement = prepared
-            .approval_requirement(&context.session, &context.step_context)
-            .await;
         let req = UnifiedExecToolRequest {
             prepared,
             process_id: request.process_id,
@@ -1527,7 +1451,6 @@ impl UnifiedExecProcessManager {
             shell_snapshot,
             explicit_env_overrides,
             network: request.network.clone(),
-            exec_approval_requirement,
         };
         let tool_ctx = ToolCtx {
             session: context.session.clone(),

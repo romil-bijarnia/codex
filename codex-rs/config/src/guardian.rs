@@ -9,7 +9,6 @@ use codex_protocol::openai_models::GuardianReviewMode;
 use codex_protocol::openai_models::GuardianUnscoredAction;
 use codex_protocol::openai_models::ModelInfo;
 
-use crate::ConfigRequirements;
 
 /// Load-boundary adapter for configuration that predates model-owned policies.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,11 +59,7 @@ impl GuardianPolicyLoader {
         }
     }
 
-    pub fn resolve(
-        &self,
-        model: Option<&ModelInfo>,
-        requirements: &ConfigRequirements,
-    ) -> GuardianModelPolicy {
+    pub fn resolve(&self, model: Option<&ModelInfo>) -> GuardianModelPolicy {
         let catalog = model.and_then(|model| model.guardian.as_ref());
         let mut policy = catalog.cloned().unwrap_or_else(|| self.default.clone());
         if catalog.is_none()
@@ -79,28 +74,7 @@ impl GuardianPolicyLoader {
         if self.scoring_disabled && catalog.is_none() {
             policy.disable_scoring();
         }
-        requirements.constrain_guardian_policy(&mut policy, model.map(|model| model.slug.as_str()));
         policy
-    }
-}
-
-impl ConfigRequirements {
-    /// Applies the supplied administrator requirements to an already resolved model policy.
-    /// The reviewer allowlist applies even when model metadata is unavailable.
-    pub fn constrain_guardian_policy(&self, policy: &mut GuardianModelPolicy, model: Option<&str>) {
-        if [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview]
-            .iter()
-            .any(|reviewer| self.approvals_reviewer.can_set(reviewer).is_err())
-        {
-            policy.disable_scoring();
-        } else if model.is_some_and(|model| self.auto_review_required_for_model(model)) {
-            let computer_use = policy.computer_use;
-            let initial_cua_call = policy.allows_initial_cua_call();
-            policy.disable_scoring();
-            if initial_cua_call {
-                policy.computer_use = computer_use;
-            }
-        }
     }
 }
 

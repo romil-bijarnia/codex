@@ -260,10 +260,7 @@ impl Session {
                 .and_then(|instructions| instructions.end.as_deref()),
         ));
         world_state.add_section(AgentsMdState::new(step_context.loaded_agents_md.as_deref()));
-        let exec_policy = self
-            .services
-            .exec_policy
-            .current_for_prefix_rules(turn_context.allow_prefix_rules());
+        let exec_policy = self.services.exec_policy.current();
         let approval_context =
             ApprovalPromptContext::new(settings.approvals_reviewer(), model_messages);
         if turn_context.config.include_permissions_instructions {

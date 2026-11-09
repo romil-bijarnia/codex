@@ -33,20 +33,6 @@ impl ChatWidget {
             self.request_permission_profiles();
             return true;
         };
-        let server_requirements = codex_config::ConfigRequirements {
-            auto_review_required_models: discovery
-                .requirements
-                .as_ref()
-                .and_then(|requirements| requirements.auto_review.as_ref())
-                .and_then(|auto_review| auto_review.required_on_models.as_ref())
-                .map(|models| {
-                    codex_config::Sourced::new(
-                        models.iter().cloned().collect(),
-                        codex_config::RequirementSource::Unknown,
-                    )
-                }),
-            ..Default::default()
-        };
         let current_approval =
             AskForApproval::from(self.config.permissions.approval_policy.value());
         let active_profile = self.config.permissions.active_permission_profile();
@@ -70,8 +56,6 @@ impl ChatWidget {
                         Some(reviewer.into()),
                     )
                     .is_some()
-                    || (server_requirements.auto_review_required_for_model(self.current_model())
-                        && reviewer != ApprovalsReviewer::AutoReview)
                 {
                     continue;
                 }

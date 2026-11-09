@@ -18,7 +18,6 @@ use codex_api::ApiError;
 use codex_api::ResponseEvent;
 use codex_api::ResponsesApiRequest;
 use codex_api::TransportError;
-use codex_core::cyber_access_program;
 use codex_extension_api::ExtensionMetrics;
 use codex_login::AuthOwner;
 use codex_login::UnauthorizedRecovery;
@@ -243,23 +242,7 @@ impl SamplingExecution {
             {
                 return Err(account_changed_error());
             }
-            // Omitted programs need no auth lookup, which can refresh credentials.
-            self.request.access_programs = match self.cyber_access_program {
-                None => None,
-                Some(program) => {
-                    let auth = tokio::select! {
-                        biased;
-                        _ = &mut owner_changed => return Err(account_changed_error()),
-                                auth = self.config.provider.auth() => auth,
-                    };
-                    cyber_access_program::for_auth(
-                        auth.as_ref(),
-                        Some(program),
-                        self.config.api_key_cyber_access_programs,
-                    )
-                    .map_err(LunaSamplerError::Provider)?
-                }
-            };
+            self.request.access_programs = self.cyber_access_program.map(Into::into);
             ensure_account_owner()?;
             self.request.service_tier = if lease.request_kind == RequestMode::GuardianClassifier {
                 None

@@ -6,7 +6,6 @@ use super::ExecCommandWorkdirArgs;
 use super::ResolvedCommand;
 use super::get_command;
 use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
-use crate::exec_policy::ExecApprovalRequest;
 use crate::exec_policy::prompt_is_rejected_by_policy;
 use crate::function_tool::FunctionCallError;
 use crate::sandboxing::SandboxPermissions;
@@ -60,66 +59,9 @@ pub(crate) struct PreparedExecCommand {
 }
 
 impl PreparedExecCommand {
-    pub(crate) async fn approval_requirement(
-        &self,
-        session: &Session,
-        step: &StepContext,
-    ) -> ExecApprovalRequirement {
-        let environment = &self.turn_environment;
-        let session_shell = session.user_shell();
-        let configured_shell = environment.shell.as_ref().unwrap_or(session_shell.as_ref());
-        // Legacy executors omit the platform. Unknown reported platforms use the
-        // more conservative Windows rules rather than silently weakening checks.
-        let command_platform = match environment.executor_platform_os.as_deref() {
-            Some("linux" | "macos") => DangerousCommandPlatform::Posix,
-            Some("windows") | Some(_) => DangerousCommandPlatform::Windows,
-            None => DangerousCommandPlatform::host(),
-        };
-        session
-            .services
-            .exec_policy
-            .create_exec_approval_requirement_for_shell(
-                ExecApprovalRequest {
-                    command: &self.resolved.command,
-                    approval_policy: step.settings.approval_policy(),
-                    permission_profile: environment.permission_profile().clone(),
-                    environment_policy: environment.config().exec_policy.as_ref(),
-                    windows_sandbox_level: windows_sandbox_level_for_legacy_checks(
-                        environment.config().windows_sandbox_type,
-                        environment.config().windows_sandbox_level,
-                    ),
-                    sandbox_permissions: if self.permissions.permissions_preapproved {
-                        SandboxPermissions::UseDefault
-                    } else {
-                        self.permissions.sandbox_permissions
-                    },
-                    prefix_rule: self.prefix_rule.clone(),
-                    allow_prefix_rules: step.turn.allow_prefix_rules(),
-                },
-                configured_shell,
-                command_platform,
-            )
-            .await
-    }
 
-    pub(crate) fn approval_action(
-        &self,
-        call_id: &str,
-        requirement: &ExecApprovalRequirement,
-    ) -> ApprovalAction {
-        ApprovalAction::ExecCommand {
-            id: call_id.to_owned(),
-            environment_id: self.turn_environment.selection.environment_id.clone(),
-            command: self.resolved.command.clone(),
-            hook_command: self.hook_command.clone(),
-            cwd: self.cwd.clone(),
-            sandbox_permissions: self.permissions.sandbox_permissions,
-            additional_permissions: self.permissions.additional_permissions.clone(),
-            justification: self.justification.clone(),
-            tty: self.tty,
-            proposed_execpolicy_amendment: requirement.proposed_execpolicy_amendment().cloned(),
-        }
-    }
+
+
 }
 
 pub(crate) struct ParsedExecCommand<'a> {

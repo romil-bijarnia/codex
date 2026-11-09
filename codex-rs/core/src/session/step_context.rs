@@ -27,8 +27,6 @@ use tokio_util::sync::CancellationToken;
 pub(crate) struct StepContext {
     /// Input prefix captured for this normal inference attempt, acknowledged with its output.
     pub(crate) sampled_through_sequence: Option<u64>,
-    /// Final serving value for this invocation; retained by its code cell across waits.
-    pub(crate) serving_assessment: Option<Arc<crate::guardian::ServingAssessment>>,
     pub(crate) turn: Arc<TurnContext>,
     /// Preempts this request and yields its code-mode observations when user input arrives.
     pub(crate) preempt: Option<CancellationToken>,

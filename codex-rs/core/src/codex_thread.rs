@@ -995,22 +995,7 @@ impl CodexThread {
     }
 
     /// Review the final injected tool call without executing it.
-    pub async fn guardian_review(
-        &self,
-        cancellation: &CancellationToken,
-    ) -> CodexResult<crate::guardian_review::GuardianReviewResult> {
-        if self.session.active_turn.lock().await.is_some() {
-            return Err(CodexErr::InvalidRequest("thread has an active turn".into()));
-        }
-        let history = self.session.clone_history().await;
-        let tool_call = history.raw_items().next_back().cloned().ok_or_else(|| {
-            CodexErr::InvalidRequest(
-                "expected a final plaintext exec_command, apply_patch, request_permissions, or MCP call"
-                    .into(),
-            )
-        })?;
-        crate::guardian::review_tool_call(&self.session, history, &tool_call, cancellation).await
-    }
+
 
     /// Record raw Responses API items without starting a new turn.
     pub async fn inject_response_items(&self, items: Vec<ResponseItem>) -> CodexResult<()> {
@@ -1087,14 +1072,7 @@ impl CodexThread {
         !self.io.tx_sub.is_closed()
     }
 
-    pub async fn guardian_trunk_rollout_path(&self) -> Option<PathBuf> {
-        self.session
-            .guardian_review_session()?
-            .trunk()
-            .await?
-            .rollout_path()
-            .await
-    }
+
 
     pub async fn load_history(
         &self,

@@ -3,11 +3,9 @@ use super::token_budget::has_explicit_settings;
 use super::token_budget::resolve_token_budget;
 use super::*;
 use crate::config::TokenBudgetConfig;
-use crate::cyber_access_program;
 use crate::environment_selection::EnvironmentAttachment;
 use crate::environment_selection::EnvironmentConfigOrigin;
 use crate::environment_selection::TurnEnvironmentSnapshot;
-use crate::exec_policy::AllowPrefixRules;
 use crate::shell_snapshot::ShellSnapshot;
 use crate::shell_snapshot::ShellSnapshotFile;
 use crate::shell_snapshot::ShellSnapshotSandbox;
@@ -29,7 +27,6 @@ use codex_protocol::ThreadId;
 use codex_protocol::config_types::ShellEnvironmentPolicy;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::openai_models::CatalogModel;
-use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 use codex_protocol::openai_models::ModelOrigin;
 use codex_protocol::protocol::EnvironmentConfig;
 use codex_protocol::protocol::EnvironmentConfigState;
@@ -729,26 +726,6 @@ impl TurnContext {
         self.config.permissions.approval_policy.value()
     }
 
-    /// Legacy: returns the frozen initial-turn prefix-rule policy.
-    /// Step-scoped consumers should use their captured `StepContext::settings`.
-    pub(crate) fn allow_prefix_rules(&self) -> AllowPrefixRules {
-        let ignore_rules = self
-            .config
-            .config_layer_stack
-            .requirements_toml()
-            .auto_review
-            .as_ref()
-            .and_then(|auto_review| auto_review.ignore_rules.as_ref())
-            .is_some_and(|models| models.contains(&self.model_info().slug));
-        if self.model_info().model_specialty.as_deref() == Some(MODEL_SPECIALTY_CYBER)
-            || ignore_rules
-        {
-            AllowPrefixRules::IgnoreForCyberModel
-        } else {
-            AllowPrefixRules::Honor
-        }
-    }
-
     pub(crate) async fn plugin_metrics_operation_for_command(
         &self,
         command: &[String],
@@ -1121,10 +1098,6 @@ impl Session {
         let permission_profile = environments.permission_profile_or_else(|| {
             per_turn_config.permissions.effective_permission_profile()
         });
-        let auto_review_enabled = crate::guardian::routes_approval_policy_to_guardian(
-            per_turn_config.permissions.approval_policy.value(),
-            per_turn_config.approvals_reviewer,
-        );
         let windows_sandbox_selection = environments
             .primary()
             .map(TurnEnvironment::windows_sandbox_selection_for_turn_metadata)
@@ -1148,7 +1121,6 @@ impl Session {
             &permission_profile,
             windows_sandbox_selection,
             network.is_some(),
-            auto_review_enabled,
             model_info,
         ));
         turn_metadata_state
@@ -1487,8 +1459,7 @@ impl Session {
 
         turn_context.final_output_json_schema = options.final_output_json_schema;
         turn_context.prompt_cache_ttl = options.prompt_cache_ttl;
-        turn_context.cyber_access_program =
-            cyber_access_program::for_provider(&turn_context.config, options.cyber_access_program);
+        turn_context.cyber_access_program = options.cyber_access_program;
         // Tool observers retain this turn's selection even after a later turn starts.
         if let Some(program) = turn_context.cyber_access_program {
             turn_context.extension_data.insert(program);

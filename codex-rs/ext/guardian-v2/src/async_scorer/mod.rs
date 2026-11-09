@@ -1,5 +1,4 @@
 mod action;
-mod approval;
 mod authorization;
 mod classification;
 mod config;

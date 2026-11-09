@@ -857,45 +857,6 @@ impl ToolRegistry {
             Ok(environments) => environments,
             Err(err) => return Err(fail_before_execution(&invocation, err).await),
         };
-        match apply_pre_tool_use(tool.as_ref(), &mut invocation).await {
-            Ok(()) => {}
-            Err(PreToolUseError::Blocked(message)) => {
-                if tool.is_builtin_control_tool() {
-                    let mut analytics = ControlToolCallGuard::new(&invocation);
-                    analytics.finish(ControlToolCallStatus::Rejected);
-                }
-                let err = FunctionCallError::RespondToModel(message);
-                dispatch_trace.record_failed(&err);
-                notify_tool_finish_if_unclaimed(
-                    &invocation,
-                    call_state.as_deref(),
-                    ToolCallOutcome::Blocked,
-                )
-                .await;
-                return Err(err);
-            }
-            Err(PreToolUseError::Failed(err)) => {
-                return Err(fail_before_execution(&invocation, err).await);
-            }
-            Err(PreToolUseError::Cancelled(err)) => return Err(err),
-        }
-
-        if let Some(assessment) = &invocation.step_context.serving_assessment {
-            let mut assessment = assessment.as_ref().clone();
-            match crate::guardian::tool_permission_context(&invocation) {
-                Ok(permissions) => assessment.authorization.permissions = permissions,
-                Err(_) => assessment.requires_review = true,
-            }
-            Arc::make_mut(&mut invocation.step_context).serving_assessment =
-                Some(Arc::new(assessment));
-        }
-
-        if registered_tool.native_review == NativeReview::Required
-            && let Err(err) = super::review_native_tool_call(&invocation).await
-        {
-            return Err(fail_before_execution(&invocation, err).await);
-        }
-
         let invocation_guard = reservation.activate(&invocation);
         if tool.mcp_server_name().is_none() {
             notify_tool_start(&invocation, /*mcp_tool*/ None)
@@ -1080,55 +1041,6 @@ async fn handle_any_tool(
         .await?;
     }
     Ok(result)
-}
-
-pub(crate) enum PreToolUseError {
-    Blocked(String),
-    Failed(FunctionCallError),
-    Cancelled(FunctionCallError),
-}
-
-pub(crate) async fn apply_pre_tool_use(
-    tool: &dyn CoreToolRuntime,
-    invocation: &mut ToolInvocation,
-) -> Result<(), PreToolUseError> {
-    let Some(payload) = tool.pre_tool_use_payload(invocation) else {
-        return Ok(());
-    };
-    let cwd = tool
-        .pre_tool_use_cwd(invocation)
-        .map_err(PreToolUseError::Failed)?;
-    let outcome = run_pre_tool_use_hooks(
-        &invocation.session,
-        &invocation.step_context,
-        invocation.call_id.clone(),
-        &payload.tool_name,
-        &payload.tool_input,
-        cwd,
-        &invocation.environments.hook_ids(),
-    )
-    .or_cancel_tool(&invocation.cancellation_token)
-    .await
-    .map_err(PreToolUseError::Cancelled)?;
-
-    match outcome {
-        PreToolUseHookResult::Blocked(reason) => Err(PreToolUseError::Blocked(reason)),
-        PreToolUseHookResult::Continue {
-            updated_input: None,
-        } => Ok(()),
-        PreToolUseHookResult::Continue {
-            updated_input: Some(input),
-        } => {
-            let mut updated = tool
-                .with_updated_hook_input(invocation.clone(), input)
-                .map_err(PreToolUseError::Failed)?;
-            if updated.payload != invocation.payload {
-                Arc::make_mut(&mut updated.step_context).serving_assessment = None;
-            }
-            *invocation = updated;
-            Ok(())
-        }
-    }
 }
 
 fn function_hook_tool_name(invocation: &ToolInvocation) -> HookToolName {

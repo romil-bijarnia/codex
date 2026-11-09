@@ -8,7 +8,6 @@ use crate::exec::ExecCapturePolicy;
 use crate::exec::ExecExpiration;
 use crate::guardian::GUARDIAN_REVIEW_TIMEOUT;
 use crate::guardian::GuardianNetworkAccessTrigger;
-use crate::guardian::routes_approval_policy_to_guardian;
 use crate::plugins::metrics::sidecar_for_command;
 use crate::sandboxing::ExecOptions;
 use crate::sandboxing::ExecServerEnvConfig;
@@ -25,9 +24,6 @@ use crate::tools::runtimes::RuntimePathPrepends;
 use crate::tools::runtimes::exec_env_for_sandbox_permissions;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::tools::runtimes::prepare_powershell_command_for_windows_sandbox;
-use crate::tools::sandboxing::Approvable;
-use crate::tools::sandboxing::ApprovalAction;
-use crate::tools::sandboxing::ExecApprovalRequirement;
 use crate::tools::sandboxing::SandboxAttempt;
 use crate::tools::sandboxing::Sandboxable;
 use crate::tools::sandboxing::ToolCtx;
@@ -80,7 +76,6 @@ pub struct UnifiedExecRequest<'a> {
     pub shell_snapshot: Option<codex_exec_server::ShellSnapshotRequest>,
     pub explicit_env_overrides: HashMap<String, String>,
     pub network: Option<NetworkProxy>,
-    pub exec_approval_requirement: ExecApprovalRequirement,
 }
 
 /// Cache key for approval decisions that can be reused across equivalent
@@ -158,28 +153,7 @@ impl Sandboxable for UnifiedExecRuntime<'_> {
     }
 }
 
-impl Approvable<UnifiedExecRequest<'_>> for UnifiedExecRuntime<'_> {
-    fn approval_action(
-        &self,
-        req: &UnifiedExecRequest<'_>,
-        call_id: &str,
-    ) -> std::io::Result<ApprovalAction> {
-        Ok(req
-            .prepared
-            .approval_action(call_id, &req.exec_approval_requirement))
-    }
 
-    fn exec_approval_requirement(
-        &self,
-        req: &UnifiedExecRequest<'_>,
-    ) -> Option<ExecApprovalRequirement> {
-        Some(req.exec_approval_requirement.clone())
-    }
-
-    fn sandbox_permissions(&self, req: &UnifiedExecRequest<'_>) -> SandboxPermissions {
-        req.prepared.permissions.sandbox_permissions
-    }
-}
 
 impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExecRuntime<'a> {
     fn turn_environment<'b>(&self, req: &'b UnifiedExecRequest<'_>) -> &'b TurnEnvironment {
@@ -338,27 +312,6 @@ impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExec
                     &launch.proxy,
                 )
                 .await;
-                if routes_approval_policy_to_guardian(
-                    ctx.step_context.settings.approval_policy(),
-                    ctx.step_context.settings.approvals_reviewer(),
-                ) && network
-                    .remote_policy_decider(launch.proxy.allow_local_binding)
-                    .is_some()
-                {
-                    let timeout = ctx
-                        .session
-                        .hooks()
-                        .max_permission_request_timeout()
-                        .saturating_add(GUARDIAN_REVIEW_TIMEOUT)
-                        .saturating_add(REMOTE_NETWORK_POLICY_DECISION_MARGIN);
-                    launch.policy_decision_timeout_ms =
-                        Some(u64::try_from(timeout.as_millis()).map_err(|_| {
-                            ToolError::Rejected(
-                                "remote network policy decision timeout exceeds protocol limit"
-                                    .to_string(),
-                            )
-                        })?);
-                }
                 (env, None, launch.proxy.enabled.then_some(launch))
             }
             Some(network) => {

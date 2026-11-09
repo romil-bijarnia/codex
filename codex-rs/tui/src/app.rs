@@ -243,7 +243,6 @@ mod input;
 mod link_hover;
 mod loaded_threads;
 mod managed_worktree_creation;
-mod misalignment_policy;
 mod model_defaults;
 mod new_session;
 mod quick_dials;

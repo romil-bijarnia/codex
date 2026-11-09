@@ -246,18 +246,6 @@ impl FeedbackRequestProcessor {
                         attachment_filename_override: None,
                     });
                 }
-                if let Ok(conversation) = self.thread_manager.get_thread(thread.thread_id).await
-                    && let Some(guardian_rollout_path) =
-                        conversation.guardian_trunk_rollout_path().await
-                    && seen_attachment_paths.insert(guardian_rollout_path.clone())
-                {
-                    let filename = auto_review_rollout_filename(thread.thread_id);
-                    thread.guardian_rollout_filename = Some(filename.clone());
-                    attachment_paths.push(FeedbackAttachmentPath {
-                        path: guardian_rollout_path,
-                        attachment_filename_override: Some(filename),
-                    });
-                }
             }
             if let Some(mut index) = feedback_index {
                 if save_path.is_some() {

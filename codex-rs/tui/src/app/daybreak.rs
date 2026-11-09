@@ -1,8 +1,8 @@
-//! Persist the user's Daybreak selection for the active thread and new threads.
+//! Select Daybreak Blue at Extra high for this thread without changing launch defaults.
 
 use super::*;
-use crate::app_server_session::ThreadSettingsOwner;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::turn_input::CyberAccessProgram;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct DaybreakReturnSelection {
@@ -67,13 +67,8 @@ impl App {
         {
             return true;
         }
-        if app_server.thread_params_mode().settings_owner() == ThreadSettingsOwner::Server {
-            self.select_session_model(app_server, model.clone(), effort.clone(), None)
-                .await;
-        } else {
-            self.apply_default_model_selection(app_server, model.clone(), effort.clone())
-                .await;
-        }
+        self.select_session_model(app_server, model.clone(), effort.clone(), None)
+            .await;
         self.chat_widget.current_model() == model
             && self.chat_widget.effective_reasoning_effort() == effort
     }
@@ -125,34 +120,23 @@ impl App {
                 }
             }
         };
-        let switch_to_sol = enabled
-            && crate::daybreak::program_for_turn(
-                &self.chat_widget.model_catalog().models,
-                self.chat_widget.current_model(),
-                self.chat_widget.daybreak_account_eligible(),
-                /*enabled*/ true,
-            )
-            .is_err();
-        if switch_to_sol {
+        if enabled {
             let supported = self.chat_widget.model_catalog().models.iter().any(|model| {
                 model.model == "gpt-6-sol"
                     && model
                         .available_access_programs
                         .as_ref()
-                        .and_then(codex_protocol::openai_models::ModelAccessPrograms::daybreak)
-                        .is_some()
-                    && return_selection.as_ref().is_some_and(|selection| {
-                        selection.effort.as_ref().is_none_or(|effort| {
-                            model
-                                .supported_reasoning_efforts
-                                .iter()
-                                .any(|option| &option.effort == effort)
+                        .is_some_and(|programs| {
+                            programs.cyber.contains(&CyberAccessProgram::DaybreakBlue)
                         })
-                    })
+                    && model
+                        .supported_reasoning_efforts
+                        .iter()
+                        .any(|option| option.effort == ReasoningEffort::XHigh)
             });
             if !supported || self.chat_widget.restrict_model_picker_to_luna_reserve() {
                 self.chat_widget.add_error_message(
-                    "Daybreak requires GPT-6-Sol with your current reasoning level, but that combination is unavailable. Your model and Daybreak setting were not changed.".into(),
+                    "Daybreak defaults require GPT-6-Sol with Daybreak Blue and Extra high reasoning, but that combination is unavailable. Your model and Daybreak setting were not changed.".into(),
                 );
                 return;
             }
@@ -174,19 +158,13 @@ impl App {
                 return;
             }
         }
-        if switch_to_sol
+        if enabled
             && !self
-                .apply_daybreak_model(
-                    app_server,
-                    "gpt-6-sol".into(),
-                    return_selection
-                        .as_ref()
-                        .and_then(|selection| selection.effort.clone()),
-                )
+                .apply_daybreak_model(app_server, "gpt-6-sol".into(), Some(ReasoningEffort::XHigh))
                 .await
         {
             self.chat_widget.add_error_message(
-                "Could not switch to GPT-6-Sol at the current reasoning level; Daybreak was not enabled.".into(),
+                "Could not switch to GPT-6-Sol at Extra high reasoning; Daybreak was not enabled.".into(),
             );
             return;
         }
@@ -194,7 +172,7 @@ impl App {
             .save_daybreak_preference(app_server, thread_id, enabled)
             .await
         {
-            if switch_to_sol
+            if enabled
                 && let Some(selection) = return_selection
                 && self
                     .apply_daybreak_model(app_server, selection.model, selection.effort)
@@ -288,44 +266,6 @@ impl App {
             }
         }
         self.refresh_status_line();
-        let edits = vec![crate::config_update::replace_config_value(
-            "daybreak",
-            serde_json::json!(enabled),
-        )];
-        match self
-            .persist_model_defaults(
-                app_server.request_handle(),
-                edits,
-                "default Daybreak preference",
-            )
-            .await
-        {
-            Ok(()) => match crate::config_update::read_effective_config(
-                app_server.request_handle(),
-                self.chat_widget
-                    .config_ref()
-                    .cwd
-                    .to_string_lossy()
-                    .into_owned(),
-            )
-            .await
-            {
-                Ok(response) => {
-                    self.config.daybreak_enabled = response
-                        .config
-                        .additional
-                        .get("daybreak")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false)
-                }
-                Err(error) => self.chat_widget.add_error_message(format!(
-                    "Failed to read the default Daybreak preference: {error}"
-                )),
-            },
-            Err(error) => self.chat_widget.add_error_message(format!(
-                "Failed to save the default Daybreak preference: {error}"
-            )),
-        }
         self.chat_widget.add_info_message(
             format!(
                 "Daybreak {}. Applies to new turns.",

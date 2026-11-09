@@ -324,22 +324,11 @@ impl MessageProcessor {
         // affect per-thread behavior, but they must not move newly started,
         // resumed, or forked threads to a different persistence backend/root.
         let sqlite = config.sqlite_config().clone();
-        let guardian_v3_enabled = config.features.enabled(Feature::GuardianV3);
         let thread_store = ThreadStoreBuilder::from_config(config.as_ref(), state_db.clone())
             .with_additional_cleanup(move |thread_ids| {
                 let sqlite = sqlite.clone();
                 Box::pin(async move {
                     crate::delete_agent_message_boards(&sqlite, &thread_ids).await?;
-                    if guardian_v3_enabled {
-                        let boards = thread_ids.into_iter().map(Into::into).collect::<Vec<_>>();
-                        codex_guardian_v3::delete_local_boards(&sqlite, &boards)
-                            .await
-                            .map_err(|err| ThreadStoreError::Internal {
-                                message: format!(
-                                    "failed to delete Guardian evidence boards: {err}"
-                                ),
-                            })?;
-                    }
                     Ok(())
                 })
             })
@@ -1067,7 +1056,6 @@ impl MessageProcessor {
             | ClientRequest::ThreadDelete { .. }
             | ClientRequest::ThreadArchive { .. } => (Some(self.turn_admission.admit()?), false),
             ClientRequest::ThreadSample { .. }
-            | ClientRequest::ThreadGuardianReview { .. }
             | ClientRequest::TurnStart { .. }
             | ClientRequest::TurnSteer { .. }
             | ClientRequest::ReviewStart { .. }
@@ -1753,20 +1741,6 @@ impl MessageProcessor {
                         client_version.clone(),
                     )
                     .await
-            }
-            ClientRequest::ThreadGuardianReview { params, .. } => {
-                let cancellation = &request_context.cancellation;
-                let review =
-                    self.turn_processor
-                        .thread_guardian_review(&request_id, params, cancellation);
-                tokio::pin!(review);
-                tokio::select! {
-                    result = &mut review => result,
-                    _ = session.disconnect.cancelled() => {
-                        cancellation.cancel();
-                        review.await
-                    }
-                }
             }
             ClientRequest::ThreadInjectItems { params, .. } => {
                 self.turn_processor

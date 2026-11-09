@@ -100,12 +100,6 @@ impl ChatWidget {
                 } else {
                     self.anchor_realtime_transcripts_before_turn(&notification.turn.id);
                 }
-                if replay_kind.is_none() {
-                    self.clear_misalignment_for_new_turn(
-                        &notification.turn.id,
-                        MisalignmentTurnSource::ServerNotification,
-                    );
-                }
                 self.turn_lifecycle.last_turn_id = Some(notification.turn.id);
                 self.last_non_retry_error = None;
                 if !matches!(replay_kind, Some(ReplayKind::ResumeInitialMessages)) {
@@ -237,20 +231,10 @@ impl ChatWidget {
                         notification.turn_id.clone(),
                         notification.error.message.clone(),
                     ));
-                    if !from_replay
-                        && notification.error.codex_error_info
-                            == Some(AppServerCodexErrorInfo::MisalignmentPolicyViolation)
-                    {
-                        self.on_misalignment_error(
-                            Some(notification.turn_id),
-                            notification.error.misalignment,
-                        );
-                    } else {
-                        self.handle_non_retry_error(
-                            notification.error.message,
-                            notification.error.codex_error_info,
-                        );
-                    }
+                    self.handle_non_retry_error(
+                        notification.error.message,
+                        notification.error.codex_error_info,
+                    );
                 }
             }
             ServerNotification::SkillsChanged(_) => {
@@ -528,16 +512,7 @@ impl ChatWidget {
                     .error
                     .or_else(|| recourse.as_mut()?.deferred_error.take());
                 if let Some(error) = error {
-                    if replay_kind.is_none()
-                        && error.codex_error_info
-                            == Some(AppServerCodexErrorInfo::MisalignmentPolicyViolation)
-                    {
-                        self.on_misalignment_error(
-                            Some(notification.turn.id.clone()),
-                            error.misalignment,
-                        );
-                        self.last_non_retry_error = None;
-                    } else if safety_recourse::render_failure(self, recourse, &error) {
+                    if safety_recourse::render_failure(self, recourse, &error) {
                         self.last_non_retry_error = None;
                     } else if self.last_non_retry_error.as_ref()
                         == Some(&(notification.turn.id.clone(), error.message.clone()))
@@ -561,9 +536,7 @@ impl ChatWidget {
             }
             TurnStatus::InProgress => {}
         }
-        if let Some(drafts) = question_drafts
-            && !self.has_misalignment_policy_violation()
-        {
+        if let Some(drafts) = question_drafts {
             // Interruption can restore queued input into the composer during finalization.
             self.bottom_pane.append_question_drafts(&drafts);
             self.refresh_pending_input_preview();

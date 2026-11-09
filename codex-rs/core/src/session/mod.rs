@@ -320,7 +320,6 @@ use self::turn_context::TurnContext;
 mod rollout_reconstruction_tests;
 
 use crate::exec_policy::ExecPolicyUpdateError;
-use crate::guardian::GuardianReviewSessionManager;
 use crate::mcp::McpEnvironmentScope;
 use crate::mcp::McpManager;
 use crate::mcp::McpThreadIdentity;
@@ -345,7 +344,6 @@ use crate::tools::ApprovalContext;
 use crate::tools::handlers::PreparedPermissionRequest;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::network_approval::build_blocked_request_observer;
-use crate::tools::network_approval::build_network_policy_decider;
 #[cfg(test)]
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::sandboxing::ApprovalStore;
@@ -833,40 +831,8 @@ impl Session {
             .unwrap_or(config.approvals_reviewer);
         let trusted_guardian_reviewer = crate::guardian::is_basic_session_source(&session_source)
             && !matches!(conversation_history, InitialHistory::Resumed(_));
-        if config
-            .config_layer_stack
-            .requirements()
-            .auto_review_required_for_model(&model)
-            && !trusted_guardian_reviewer
-        {
-            let permission_profile = config.permissions.effective_permission_profile();
-            if permission_profile.enforcement() != SandboxEnforcement::External
-                && permission_profile.network_sandbox_policy().is_enabled()
-                && {
-                    let file_system = permission_profile.file_system_sandbox_policy();
-                    file_system.has_full_disk_write_access()
-                        // Preserve the legacy fallback for writable URIs that cannot be projected locally.
-                        && file_system.entries.iter().all(|entry| entry.legacy_writable_path().is_ok())
-                }
-            {
-                let config = Arc::make_mut(&mut config);
-                let permission_profile = PermissionProfile::workspace_write();
-                config
-                    .permissions
-                    .set_permission_profile(permission_profile.clone())
-                    .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
-                if let Some(network) = config.permissions.network.as_ref() {
-                    config.permissions.network = Some(
-                        network
-                            .recompute_for_permission_profile(&permission_profile)
-                            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?,
-                    );
-                }
-            }
-        }
         let reviewer = crate::config::resolve_guardian_reviewer(
             requested_approvals_reviewer,
-            (!trusted_guardian_reviewer).then_some(model.as_str()),
             config.config_layer_stack.requirements(),
         )
         .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
@@ -2655,13 +2621,6 @@ impl Session {
             ));
     }
 
-    /// Returns the reviewer pool installed by the Guardian extension.
-    pub(crate) fn guardian_review_session(&self) -> Option<Arc<GuardianReviewSessionManager>> {
-        self.services
-            .thread_extension_data
-            .get::<GuardianReviewSessionManager>()
-    }
-
     pub(crate) async fn is_private_guardian_reviewer(&self) -> bool {
         self.state
             .lock()
@@ -3519,77 +3478,9 @@ impl Session {
             | AskForApproval::Granular(_) => {}
         }
 
-        let action = request.approval_action(&call_id, &turn_context.sub_id);
         let requested_permissions = request.permissions;
         let sandbox_context = environment.sandbox_context(/*additional_permissions*/ None);
         let context = sandbox_context.policy_context();
-        {
-            let approval_context = ApprovalContext {
-                exec_requirement: None,
-                review_context: crate::guardian::GuardianReviewContext::from(step_context),
-                cancellation_token: Some(cancellation_token.clone()),
-                call_id: call_id.clone(),
-                tool_name: ToolName::plain("request_permissions"),
-                strict_auto_review: false,
-                approval_reason: None,
-                retry_reason: None,
-                network_approval_context: None,
-            };
-            let decision = tokio::select! {
-                biased;
-                _ = cancellation_token.cancelled() => return None,
-                decision = self.request_guardian_approval(
-                    action,
-                    &approval_context,
-                ) => decision,
-            };
-            if let Some(decision) = decision {
-                let (permissions, scope) = match decision {
-                    ReviewDecision::Approved
-                    | ReviewDecision::ApprovedExecpolicyAmendment { .. }
-                    | ReviewDecision::NetworkPolicyAmendment {
-                        network_policy_amendment:
-                            NetworkPolicyAmendment {
-                                action: NetworkPolicyRuleAction::Allow,
-                                ..
-                            },
-                    } => (requested_permissions.clone(), PermissionGrantScope::Turn),
-                    ReviewDecision::ApprovedForSession => {
-                        (requested_permissions.clone(), PermissionGrantScope::Session)
-                    }
-                    ReviewDecision::ApprovedMcpPolicyAmendment
-                    | ReviewDecision::NetworkPolicyAmendment {
-                        network_policy_amendment:
-                            NetworkPolicyAmendment {
-                                action: NetworkPolicyRuleAction::Deny,
-                                ..
-                            },
-                    }
-                    | ReviewDecision::Abort
-                    | ReviewDecision::Denied { .. }
-                    | ReviewDecision::TimedOut => (
-                        RequestPermissionProfile::default(),
-                        PermissionGrantScope::Turn,
-                    ),
-                };
-                let response = RequestPermissionsResponse {
-                    permissions,
-                    scope,
-                    strict_auto_review: false,
-                };
-                let response = Self::normalize_request_permissions_response(
-                    requested_permissions,
-                    response,
-                    &context,
-                );
-                self.record_granted_request_permissions_for_turn(
-                    &response,
-                    &environment.selection.environment_id,
-                    turn_context,
-                );
-                return Some(response);
-            }
-        }
 
         let _elicitation = self.services.elicitations.register();
         let (tx_response, rx_response) = oneshot::channel();
@@ -4550,7 +4441,6 @@ impl Session {
         let (executor_hook_sources, mcp, tool_router, extension_data) = prepared_tools??;
         Ok(Arc::new(StepContext {
             sampled_through_sequence: None,
-            serving_assessment: None,
             preempt: turn_context
                 .config
                 .features

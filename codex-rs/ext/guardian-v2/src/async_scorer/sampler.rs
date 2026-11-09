@@ -19,7 +19,6 @@ use codex_api::Reasoning;
 use codex_api::ReasoningContext;
 use codex_api::ResponsesApiRequest;
 use codex_context_fragments::RenderedFragment;
-use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ExtensionMetrics;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
@@ -47,10 +46,6 @@ const MAX_CONCURRENT_REQUESTS: usize = 16;
 pub struct LunaSamplerConfig {
     /// Provider and credentials selected for the owning thread.
     pub provider: SharedModelProvider,
-    /// Provider and feature policy shared with ordinary model requests.
-    pub api_key_cyber_access_programs: ApiKeyCyberAccessPrograms,
-    /// False when the parent host confines its explicit program to that thread.
-    pub inherit_parent_cyber_access_program: bool,
     /// Routing scope and retained configuration layers for the owning thread.
     pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
@@ -252,9 +247,7 @@ impl LunaSampler {
         execution::SamplingExecution {
             auth_owner,
             cyber_access_program: codex_guardian_reviewer::guardian_cyber_access_program(
-                request
-                    .cyber_access_program
-                    .filter(|_| self.config.inherit_parent_cyber_access_program),
+                request.cyber_access_program,
             ),
             config: Arc::clone(&self.config),
             connections: Arc::clone(&self.connections),

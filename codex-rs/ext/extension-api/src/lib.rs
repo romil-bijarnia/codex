@@ -127,7 +127,6 @@ pub use user_instructions::UserInstructionsProvider;
 pub use contributors::ToolDispatchInput;
 
 mod model_request;
-pub use model_request::GuardianAssessment;
 pub use model_request::ModelRequestContributor;
 pub use model_request::ModelRequestInput;
 pub use model_request::ModelRequestKind;

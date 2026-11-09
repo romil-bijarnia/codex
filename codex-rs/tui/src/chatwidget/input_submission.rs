@@ -5,29 +5,6 @@ use codex_app_server_protocol::ImageReference;
 use codex_utils_path_uri::LegacyAppPathString;
 
 impl ChatWidget {
-    pub(super) fn steer_only_submission_is_blocked(&self, message: &UserMessage) -> bool {
-        self.config.features.enabled(Feature::SteerOnly)
-            && (self.input_queue.rate_limit_recovery_pending
-                || self.input_queue.submissions_paused()
-                || self.pending_image_submission.is_some()
-                || self.safety_recourse.is_some()
-                || !self.is_session_configured()
-                || ((!message.local_images.is_empty() || !message.remote_image_urls.is_empty())
-                    && !self.current_model_supports_images()))
-    }
-
-    pub(super) fn restore_unsent_steer_only_submission(
-        &mut self,
-        message: UserMessage,
-        pending_pastes: Vec<(String, String)>,
-    ) {
-        self.restore_user_message_with_pastes_to_composer(message, pending_pastes);
-        self.add_error_message(
-            "Cannot send yet. Your message remains unsent in the composer; press Enter when ready."
-                .to_string(),
-        );
-    }
-
     pub(crate) fn set_task_mentions_enabled(&mut self, enabled: bool) {
         self.bottom_pane.set_task_mentions_enabled(enabled);
     }
@@ -180,17 +157,7 @@ impl ChatWidget {
         prepared_images: Option<Vec<UserInput>>,
     ) -> (bool, Option<AppCommand>) {
         self.bottom_pane.dismiss_composer_sparkle();
-        if self.has_misalignment_policy_violation() {
-            return (false, None);
-        }
         self.empty_state_animation.borrow_mut().dismiss();
-        if self.steer_only_submission_is_blocked(&user_message) {
-            self.restore_unsent_steer_only_submission(
-                user_message_for_restore(user_message, &history_record),
-                Vec::new(),
-            );
-            return (false, None);
-        }
         if self.input_queue.rate_limit_recovery_pending
             || self.pending_image_submission.is_some()
             || self.safety_recourse.is_some()

@@ -128,7 +128,6 @@ use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::context::BaseInstructionsFragment;
 use crate::context::ContextualUserFragment;
-use crate::cyber_access_program;
 use crate::feedback_tags;
 use crate::responses_metadata::CodexResponsesMetadata;
 use crate::responses_metadata::subagent_header_value;
@@ -308,9 +307,6 @@ pub struct ModelClient {
     restored_history: bool,
     request_contributors: Vec<Arc<dyn codex_extension_api::ModelRequestContributor>>,
     executed_tool_calls: Option<ExecutedToolCalls>,
-    // Resolved once when the session is created, like other session feature flags.
-    api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
-    required_cyber_access_programs: Option<Arc<cyber_access_program::RequiredCyberAccessPrograms>>,
 }
 
 /// A turn-scoped streaming session created from a [`ModelClient`].
@@ -645,9 +641,6 @@ impl ModelClient {
             restored_history: false,
             request_contributors,
             executed_tool_calls: None,
-            api_key_cyber_access_programs:
-                cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider,
-            required_cyber_access_programs: None,
         }
     }
 
@@ -673,35 +666,12 @@ impl ModelClient {
         session_id_override: Option<String>,
         event_sender: Sender<ProtocolEvent>,
         codex_responses_headers: Option<Arc<CodexResponsesHeaders>>,
-        api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
-        required_cyber_access_programs: Option<
-            Arc<cyber_access_program::RequiredCyberAccessPrograms>,
-        >,
     ) -> Self {
         self.prompt_cache_key_policy = prompt_cache_key;
         self.session_id_override = session_id_override;
         self.event_sender = Some(event_sender);
         self.codex_responses_headers = codex_responses_headers;
-        self.api_key_cyber_access_programs = api_key_cyber_access_programs;
-        self.required_cyber_access_programs = required_cyber_access_programs;
         self
-    }
-
-    pub(crate) fn validate_required_cyber_access_program(
-        &self,
-        programs: Option<codex_api::AccessPrograms>,
-    ) -> Result<()> {
-        if let Some(required) = &self.required_cyber_access_programs
-            && !required
-                .allowed
-                .iter()
-                .any(|program| programs == Some((*program).into()))
-        {
-            return Err(CodexErr::InvalidRequest(
-                "this thread requires an allowed explicit access program".into(),
-            ));
-        }
-        Ok(())
     }
 
     pub(crate) fn prompt_cache_key_policy(&self) -> PromptCacheKey {
@@ -814,7 +784,6 @@ impl ModelClient {
         headers: Option<&ApiHeaderMap>,
         call_setup: Option<&CurrentClientSetup>,
     ) -> Result<CurrentClientSetup> {
-        self.validate_required_cyber_access_program(/*programs*/ None)?;
         // Realtime uses the OpenAI-compatible API protocol independently of the inference transport.
         let mut info = ModelProviderInfo {
             name: OPENAI_PROVIDER_NAME.to_owned(),
@@ -1012,8 +981,6 @@ impl ModelClient {
         if raw_memories.is_empty() {
             return Ok(Vec::new());
         }
-        self.validate_required_cyber_access_program(/*programs*/ None)?;
-
         let client_setup = self
             .current_client_setup(ClientRouting::ConfiguredProvider)
             .await?;
@@ -2053,13 +2020,7 @@ impl ResponsesHttpExecutor<'_> {
                     .extra_headers
                     .insert(X_CODEX_ROUTING_HINT_HEADER, header_value);
             }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
-                prompt.cyber_access_program,
-                self.client.api_key_cyber_access_programs,
-            )?;
-            self.client
-                .validate_required_cyber_access_program(request.access_programs)?;
+            request.access_programs = prompt.cyber_access_program.map(Into::into);
             self.client
                 .prepare_response_items_for_request(&mut request.input);
             let request_session_telemetry =
@@ -2227,13 +2188,7 @@ impl ModelClientSession {
             if is_guardian_reviewer(&responses_headers) {
                 request.service_tier = None;
             }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
-                prompt.cyber_access_program,
-                self.client.api_key_cyber_access_programs,
-            )?;
-            self.client
-                .validate_required_cyber_access_program(request.access_programs)?;
+            request.access_programs = prompt.cyber_access_program.map(Into::into);
             let mut websocket_metadata = responses_metadata.clone();
             websocket_metadata.routing_hint = self.client.build_routing_hint_header(
                 client_setup.auth.as_ref(),

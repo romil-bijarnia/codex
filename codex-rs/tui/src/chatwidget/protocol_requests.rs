@@ -11,10 +11,6 @@ impl ChatWidget {
         request: ServerRequest,
         replay_kind: Option<ReplayKind>,
     ) {
-        if self.has_misalignment_policy_violation() {
-            return;
-        }
-
         let id = request.id().to_string();
         match request {
             ServerRequest::CommandExecutionRequestApproval { params, .. } => {

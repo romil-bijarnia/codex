@@ -12,7 +12,6 @@ use crate::network_policy::NetworkPolicyRequest;
 use crate::network_policy::NetworkPolicyRequestArgs;
 use crate::network_policy::NetworkProtocol;
 use crate::network_policy::emit_block_decision_audit_event;
-use crate::network_policy::evaluate_host_policy;
 use crate::policy::normalize_host;
 use crate::reasons::REASON_METHOD_NOT_ALLOWED;
 use crate::reasons::REASON_MITM_REQUIRED;
@@ -319,57 +318,8 @@ async fn handle_socks5_tcp(
         return Err(policy_denied_error(REASON_METHOD_NOT_ALLOWED, &details).into());
     }
 
-    let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
-        protocol: NetworkProtocol::Socks5Tcp,
-        host: host.clone(),
-        port,
-        environment_id,
-        client_addr: client.clone(),
-        method: None,
-        command: None,
-        exec_policy_hint: None,
-    });
-
-    match evaluate_host_policy(&app_state, policy_decider.as_ref(), &request).await {
-        Ok(NetworkDecision::Deny {
-            reason,
-            source,
-            decision,
-        }) => {
-            let details = PolicyDecisionDetails {
-                decision,
-                reason: &reason,
-                source,
-                protocol: NetworkProtocol::Socks5Tcp,
-                host: &host,
-                port,
-            };
-            let _ = app_state
-                .record_blocked(BlockedRequest::new(BlockedRequestArgs {
-                    host: host.clone(),
-                    reason: reason.clone(),
-                    client: client.clone(),
-                    method: None,
-                    mode: None,
-                    protocol: "socks5".to_string(),
-                    decision: Some(details.decision.as_str().to_string()),
-                    source: Some(details.source.as_str().to_string()),
-                    port: Some(port),
-                }))
-                .await;
-            let client = client.as_deref().unwrap_or_default();
-            warn!("SOCKS blocked (client={client}, host={host}, reason={reason})");
-            return Err(policy_denied_error(&reason, &details).into());
-        }
-        Ok(NetworkDecision::Allow) => {
-            let client = client.as_deref().unwrap_or_default();
-            info!("SOCKS allowed (client={client}, host={host}, port={port})");
-        }
-        Err(err) => {
-            error!("failed to evaluate host: {err}");
-            return Err(io::Error::other("proxy error").into());
-        }
-    }
+    let client_label = client.as_deref().unwrap_or_default();
+    info!("SOCKS allowed (client={client_label}, host={host}, port={port})");
 
     let mitm_state = match app_state.mitm_state().await {
         Ok(state) => state,
@@ -766,57 +716,11 @@ async fn inspect_socks5_udp(
         }
     }
 
-    let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
-        protocol: NetworkProtocol::Socks5Udp,
-        host: host.clone(),
-        port,
-        environment_id,
-        client_addr: client.clone(),
-        method: None,
-        command: None,
-        exec_policy_hint: None,
-    });
+    Ok(RelayResponse {
+        maybe_payload: Some(payload),
+        extensions,
+    })
 
-    match evaluate_host_policy(&state, policy_decider.as_ref(), &request).await {
-        Ok(NetworkDecision::Deny {
-            reason,
-            source,
-            decision,
-        }) => {
-            let details = PolicyDecisionDetails {
-                decision,
-                reason: &reason,
-                source,
-                protocol: NetworkProtocol::Socks5Udp,
-                host: &host,
-                port,
-            };
-            let _ = state
-                .record_blocked(BlockedRequest::new(BlockedRequestArgs {
-                    host: host.clone(),
-                    reason: reason.clone(),
-                    client: client.clone(),
-                    method: None,
-                    mode: None,
-                    protocol: "socks5-udp".to_string(),
-                    decision: Some(details.decision.as_str().to_string()),
-                    source: Some(details.source.as_str().to_string()),
-                    port: Some(port),
-                }))
-                .await;
-            let client = client.as_deref().unwrap_or_default();
-            warn!("SOCKS UDP blocked (client={client}, host={host}, reason={reason})");
-            Err(policy_denied_error(&reason, &details))
-        }
-        Ok(NetworkDecision::Allow) => Ok(RelayResponse {
-            maybe_payload: Some(payload),
-            extensions,
-        }),
-        Err(err) => {
-            error!("failed to evaluate UDP host: {err}");
-            Err(io::Error::other("proxy error"))
-        }
-    }
 }
 
 fn emit_socks_block_decision_audit_event(

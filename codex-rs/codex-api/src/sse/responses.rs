@@ -5,7 +5,6 @@ use crate::common::SafetyBuffering;
 use crate::common::SafetyBufferingTreatment;
 use crate::error::ApiError;
 use crate::error::parse_terminal_provider_error;
-use crate::guardian_assessment::parse_guardian_assessment;
 use crate::rate_limits::parse_all_rate_limits;
 use crate::safety_buffering::treatment_from_headers;
 use crate::telemetry::SseTelemetry;
@@ -165,7 +164,6 @@ pub struct ResponsesStreamEvent {
     pub(crate) headers: Option<Value>,
     metadata: Option<Value>,
     response: Option<Value>,
-    response_id: Option<Value>,
     error: Option<Value>,
     item: Option<Value>,
     item_id: Option<String>,
@@ -227,21 +225,12 @@ impl ResponsesStreamEvent {
         &self,
         safety_buffering: Option<SafetyBuffering>,
     ) -> Vec<ResponseEvent> {
-        let guardian = if self.kind() == "response.metadata" {
-            parse_guardian_assessment(
-                self.response_id.as_ref().and_then(Value::as_str),
-                self.metadata.as_ref(),
-            )
-        } else {
-            None
-        };
         [
             self.model_verifications()
                 .map(ResponseEvent::ModelVerifications),
             self.turn_moderation_metadata()
                 .map(ResponseEvent::TurnModerationMetadata),
             safety_buffering.map(ResponseEvent::SafetyBuffering),
-            guardian.map(ResponseEvent::GuardianAssessment),
         ]
         .into_iter()
         .flatten()

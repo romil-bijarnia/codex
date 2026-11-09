@@ -102,7 +102,6 @@ pub(crate) struct Session {
     pub(super) mcp_refresh: McpRefresh,
     /// Non-owning lookup for approval data retained by running MCP invocations.
     pub(crate) mcp_tool_approval_metadata: std::sync::Mutex<McpToolApprovalMetadataMap>,
-    pub(super) mcp_elicitation_reviewer_handle: OnceLock<codex_mcp::ElicitationReviewerHandle>,
     pub(super) mcp_elicitation_lifecycle_handle: OnceLock<codex_mcp::ElicitationLifecycle>,
     pub(super) mcp_prewarm_tx: async_channel::Sender<()>,
     pub(super) mcp_prewarm_shutdown: CancellationToken,
@@ -404,8 +403,6 @@ impl SessionConfiguration {
         &self,
         environments: &[TurnEnvironmentSelection],
     ) -> ConstraintResult<()> {
-        self.step_settings
-            .validate(&self.step_settings_constraints(environments))?;
         super::environment::validate_environment_configs(
             environments,
             &self.original_config_do_not_use.features,
@@ -603,24 +600,6 @@ impl SessionConfiguration {
         {
             Arc::make_mut(&mut next_configuration.original_config_do_not_use)
                 .requested_approvals_reviewer = Some(reviewer);
-        }
-        if !next_configuration.trusted_guardian_reviewer
-            && updates.step_settings.approvals_reviewer.is_none()
-            && self.step_settings.collaboration_mode.model()
-                != next_configuration.step_settings.collaboration_mode.model()
-        {
-            let reviewer = crate::config::resolve_guardian_reviewer(
-                next_configuration
-                    .original_config_do_not_use
-                    .requested_approvals_reviewer
-                    .unwrap_or(self.step_settings.approvals_reviewer),
-                Some(next_configuration.step_settings.collaboration_mode.model()),
-                next_configuration
-                    .original_config_do_not_use
-                    .config_layer_stack
-                    .requirements(),
-            )?;
-            Arc::make_mut(&mut next_configuration.step_settings).approvals_reviewer = reviewer;
         }
         Ok(next_configuration)
     }
@@ -1030,8 +1009,6 @@ impl Session {
                 ));
             }
         };
-        let required_cyber_access_programs =
-            thread_extension_init.get::<crate::cyber_access_program::RequiredCyberAccessPrograms>();
         let inherited_session_id = thread_extension_init
             .remove::<InheritedSessionId>()
             .map(|inherited| inherited.0);
@@ -1172,13 +1149,6 @@ impl Session {
             thread_id.to_string(),
             thread_extension_init,
         );
-        if let Some(required) = &required_cyber_access_programs {
-            thread_extension_data.insert(
-                crate::cyber_access_program::RequiredCyberAccessProgramsSnapshot(Arc::clone(
-                    required,
-                )),
-            );
-        }
         thread_extension_data.insert(crate::context::GuardianReviewEvidence::default());
         crate::model_search::SearchOwner::restore(&thread_extension_data, &initial_history);
         // Kick off independent async setup tasks in parallel to reduce startup latency.
@@ -1710,25 +1680,6 @@ impl Session {
             let managed_network_requirements_enabled =
                 config.managed_network_requirements_enabled();
             let network_approval = Arc::new(NetworkApprovalService::default());
-            // The managed proxy can call back into core for allowlist-miss decisions.
-            let network_policy_decider_session = if managed_network_requirements_configured {
-                config
-                    .permissions
-                    .network
-                    .as_ref()
-                    .map(|_| Arc::new(RwLock::new(std::sync::Weak::<Session>::new())))
-            } else {
-                None
-            };
-            let network_policy_decider =
-                network_policy_decider_session
-                    .as_ref()
-                    .map(|network_policy_decider_session| {
-                        build_network_policy_decider(
-                            Arc::clone(&network_approval),
-                            Arc::clone(network_policy_decider_session),
-                        )
-                    });
             let (network_proxy, session_network_proxy) = if let Some(spec) = config
                 .permissions
                 .network
@@ -1741,7 +1692,7 @@ impl Session {
                     current_exec_policy.as_ref(),
                     config.permissions.permission_profile(),
                     config.effective_local_windows_sandbox_type(),
-                    network_policy_decider.as_ref().map(Arc::clone),
+                    None,
                     Some(build_blocked_request_observer(Arc::clone(&network_approval))),
                     managed_network_requirements_configured,
                     network_proxy_audit_metadata.clone(),
@@ -1954,8 +1905,6 @@ impl Session {
                 .or(fork_cache_key),
                 tx_event.clone(),
                 codex_responses_headers,
-                crate::cyber_access_program::ApiKeyCyberAccessPrograms::from_config(&config),
-                required_cyber_access_programs,
             );
             // Once tracing starts, startup cleanup must own the session before the next await.
             let rollout_thread_trace = if matches!(
@@ -2075,7 +2024,6 @@ impl Session {
                 multi_agent_version,
                 mcp_refresh: McpRefresh::new(),
                 mcp_tool_approval_metadata: Default::default(),
-                mcp_elicitation_reviewer_handle: OnceLock::new(),
                 mcp_elicitation_lifecycle_handle: OnceLock::new(),
                 mcp_prewarm_tx,
                 mcp_prewarm_shutdown: CancellationToken::new(),
@@ -2106,10 +2054,6 @@ impl Session {
                     super::handlers::shutdown_session_runtime(&sess).await;
                 }
                 return Err(err.into());
-            }
-            if let Some(network_policy_decider_session) = network_policy_decider_session {
-                let mut guard = network_policy_decider_session.write().await;
-                *guard = Arc::downgrade(&sess);
             }
             // Dispatch the SessionConfiguredEvent first and then report any errors.
             let thread_config = sess

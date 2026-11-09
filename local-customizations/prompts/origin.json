@@ -3,31 +3,32 @@
   "source_model": "gpt-6.1-sol",
   "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "stock_words": 3320,
-  "compact_sha256": "a195b9c7fa4cb35a37bfd0b6dfc3868c31b61de01ad98dca8295e527e2a77647",
-  "compact_words": 902,
+  "compact_sha256": "239bf6d424b43295b35be228027e4cc73962d2c0ad5ca27251595d97de37d186",
+  "compact_words": 561,
   "prior_added_execution_block_words": 328,
   "mode": "compact global base replacement",
   "stock_updates": "require deliberate review; not automatically copied into the compact file",
   "retained_in_base": [
-    "operator role",
-    "outcome ownership",
+    "autonomous outcome ownership",
+    "discussion versus execution",
     "task and method constraints",
-    "authorisation scope",
-    "investigation before questions",
-    "obstacle handling",
-    "bounded verification",
-    "honest reporting",
-    "progress and task continuity",
+    "existing authorisations and consequential decisions",
+    "evidence before assumptions",
+    "targeted low-overhead work",
+    "bounded delegation and integration",
+    "natural clarification and proportionate error correction",
+    "preservation and task continuity",
+    "meaningful verification",
+    "concise progress and delivery",
     "skills and tool procedure",
-    "safe shell/text handling",
-    "formatting, PR and delivery guidance"
+    "source preservation"
   ],
   "retained_in_AGENTS": [
     "voice and explanation preferences",
-    "standing owner and messaging authorisation",
-    "account handling",
+    "standing proactive delegation instruction",
+    "no backups without request",
     "repository preservation",
-    "machine capabilities and limitations"
+    "machine procedure routing"
   ],
   "runtime_owned": [
     "tool schemas",
@@ -36,6 +37,7 @@
     "available skills and connectors"
   ],
   "intent_retention_update": "Interpret follow-ups in context, incorporate corrections, discard rejected interpretations, and check the technical route against the actual requirements.",
-  "task_continuity_update": "Criticism and failure reports steer the authorised project; they do not cancel it. Preserve recovered systems and explicit restrictions while continuing the remaining work.",
-  "agent_question_routing": "Use direct agent messages, not human-input forms, for another agent."
+  "task_continuity_update": "Failure reports steer rather than cancel authorised work; explicit stop and method restrictions remain binding.",
+  "agent_question_routing": "Use direct agent messages, not human-input forms, for another agent.",
+  "autonomy_update": "Choose ordinary actions within authorised scope; delegate independent work under the standing AGENTS.md instruction; avoid approval theatre, repeated apologies and redundant work."
 }

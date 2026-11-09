@@ -40,7 +40,6 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolExecutor;
 use crate::tools::runtimes::apply_patch::ApplyPatchRequest;
 use crate::tools::runtimes::apply_patch::ApplyPatchRuntime;
-use crate::tools::sandboxing::ExecApprovalRequirement;
 use crate::tools::sandboxing::ToolCtx;
 use crate::windows_sandbox::windows_sandbox_level_for_legacy_checks;
 use codex_apply_patch::ApplyPatchAction;
@@ -564,19 +563,12 @@ fn prepare_verified_patch(
         crate::sandboxing::SandboxPermissions::UseDefault,
         additional_permissions,
     );
-    let exec_approval_requirement = apply_patch::patch_approval_requirement(
-        step_context,
-        &turn_environment,
-        &matching,
-        &action,
-    )?;
     let changes = convert_apply_patch_to_protocol(&action);
     Ok(ApplyPatchRequest {
         turn_environment,
         action,
         file_paths,
         changes: Arc::new(changes),
-        exec_approval_requirement,
         additional_permissions: effective_additional_permissions.additional_permissions,
         permissions_preapproved: effective_additional_permissions.permissions_preapproved,
     })
@@ -588,10 +580,7 @@ async fn execute_prepared_patch(
 ) -> Result<String, FunctionCallError> {
     let emitter = ToolEmitter::apply_patch_for_environment(
         request.changes.as_ref().clone(),
-        matches!(
-            request.exec_approval_requirement,
-            ExecApprovalRequirement::Skip { .. }
-        ),
+        true,
         request.turn_environment.selection.environment_id.clone(),
     );
     let event_ctx = ToolEventCtx::new(

@@ -1,43 +1,57 @@
-The operating base is `compact-base.md`, a 902-word stock-derived replacement
-starting with the approved operator role: Romil sets the outcome and boundaries;
-Sara owns approach, implementation, verification and delivery. The previous
-3,320-word Sol base and separate 328-word execution block are no longer stacked.
-AGENTS.md retains personal preferences, standing authorisations and machine facts.
+The operating base is `compact-base.md`, a 561-word maintained replacement.
+Romil sets outcomes and boundaries; Sara owns routine decisions, execution,
+verification and delivery. AGENTS.md retains personal preferences, a standing
+proactive-delegation instruction and repository destinations. The complete
+personal template and machine procedures live in private GRID;
+personal files are not tracked in the public customization repository.
 
-Run `python3 local-customizations/prompts/install.py` to copy the compact source to
-`~/.codex/prompts/sara-system.md` and select it using `model_instructions_file`.
-The installer removes the retired managed execution block from developer_instructions
-while preserving unrelated developer text, the model, permissions, existing
-AGENTS.md and other configuration. It is idempotent and creates no backups.
-The private kit can restore AGENTS.md for a clean profile; existing files are
-never overwritten. The source catalog hash and instruction coverage are recorded
-in `origin.json`. This is a maintained replacement, so future stock changes need
-review rather than being inherited automatically. It applies as the configured
-base when switching models; tool schemas and model capabilities remain runtime-owned.
+Run `python3 local-customizations/prompts/install.py` from an assembled Codex
+source tree, or `python3 instructions/install.py` from the GRID recovery package,
+to select and install `~/.codex/prompts/sara-system.md`. The installer preserves
+unrelated settings, model selection, permissions and existing AGENTS.md. It
+removes only the retired managed execution block, is idempotent and creates no
+backups. Missing AGENTS.md and MACHINE.md can be restored from private templates;
+existing files are not overwritten.
 
-To restore the model's original stock base, run the same installer with `--stock`.
-AGENTS.md remains active, unrelated developer instructions are preserved, and
-the installed compact file is left unselected. No files are deleted for rollback.
+When upgrading an existing profile, reconcile the peer-communication and
+proactive-delegation paragraphs from the private template without replacing
+unrelated instructions, then refresh loaded chats. The standing AGENTS.md rule
+explicitly requests useful independent subagent work, satisfying the runtime's
+user-or-AGENTS delegation condition without a blanket runtime override.
+Small and tightly coupled tasks stay in the parent. Agents receive bounded
+ownership and acceptance criteria; the parent verifies the integrated result.
 
-Run `python3 local-customizations/prompts/refresh-loaded-chats.py --apply` to refresh currently loaded
-chats without starting work turns. Without --apply it audits. The helper reads
-the configured base (compact file, inline override or the model catalog), updates
-it independently of AGENTS.md, and deactivates the retired separate execution block.
-Task identities, goals, project guidance and history are preserved. If saved-log
-readback lags an accepted update, audit again without --apply rather than resending.
-Archived and unloaded histories are not opened by this helper.
+Ordinary clarification updates understanding without apology routines. Actual
+errors get a brief factual correction followed by repair. Discussion remains
+discussion until action is requested; existing task restrictions, stop requests,
+authorisation boundaries and data preservation still apply. The design reduces
+repeated narration and redundant work rather than suppressing useful progress
+or the reporting of actual failures.
 
-Verification checks the exact compact base once, AGENTS.md once, absence of the
-old execution block, installer preservation and rollback, and loaded-chat receipts.
-These are construction and delivery checks, not proof of future model behaviour
-or a measured latency improvement. Word counts describe prompt text, not API tokens.
+Run `python3 instructions/refresh-loaded-chats.py --apply` from the recovery
+package (or the equivalent `local-customizations/prompts/` path) to refresh
+loaded chats without starting turns. Without `--apply`, it audits. The helper
+updates the configured base and AGENTS.md independently and removes retired
+execution guidance. It preserves task identities, goals and project constraints.
+If saved-history readback lags an accepted update, audit again rather than
+repeating the mutation. Archived/unloaded histories are not rewritten, and
+parent-managed subagents are skipped rather than receiving direct updates.
 
-The intent-retention paragraph keeps corrections and rejected interpretations
-explicit, including access, billing, delivery and method requirements.
-Parent-managed multi-agent v2 subagents are skipped by direct chat refreshes;
-their lifecycle and input remain under their parent agent.
+Run the installer with `--stock` to restore the selected model's stock base.
+AGENTS.md and unrelated settings remain; no files are deleted. The maintained
+replacement does not automatically inherit future stock-prompt changes:
+review those deliberately. Tool schemas, permissions and capabilities remain
+runtime-owned. Current content hashes and coverage are recorded in `origin.json`.
 
-Criticism, frustration and failure reports do not cancel an authorised project.
-The base and personal template explicitly retain the goal, require corrective
-work after mistakes, and distinguish a deployment/reboot restriction from a
-stop on diagnosis or source work. Genuine stop/wait instructions remain binding.
+Verification covers installer preservation and idempotency, a fresh rendered
+prompt, loaded-chat receipts and source equality. These establish installation,
+not a behavioural guarantee or measured reduction in model usage. Word counts
+are text measurements, not token accounting. Historical verification files
+refer to their recorded prompt hashes; `autonomy-verification.json` records
+this revision's checks.
+
+The private AGENTS.md template also routes disk discovery through the separately
+installed GRID disk-index extra when its coverage and freshness are adequate.
+The index stores local source data, not authoritative instructions; execution
+and verification still use original files. No index database or indexed content
+is part of this source repository.

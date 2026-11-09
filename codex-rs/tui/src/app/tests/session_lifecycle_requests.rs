@@ -638,6 +638,10 @@ async fn daybreak_command_switches_and_restores_the_model_and_reasoning() -> Res
     });
     let mut sol = original.clone();
     sol.model = "gpt-6-sol".into();
+    sol.supported_reasoning_efforts.push(codex_protocol::openai_models::ReasoningEffortPreset {
+        effort: ReasoningEffort::XHigh,
+        description: "Extra high".into(),
+    });
     sol.available_access_programs = Some(ModelAccessPrograms {
         cyber: vec![
             CyberAccessProgram::Standard,
@@ -655,9 +659,11 @@ async fn daybreak_command_switches_and_restores_the_model_and_reasoning() -> Res
     assert_eq!(app.chat_widget.current_model(), "gpt-6-sol");
     assert_eq!(
         app.chat_widget.effective_reasoning_effort(),
-        original_effort
+        Some(ReasoningEffort::XHigh)
     );
     assert!(daybreak_return_path_for_test(&app, thread_id).is_file());
+    assert!(!app.config.daybreak_enabled);
+    assert!(recorded_params(&_requests, "config/batchWrite").is_empty());
 
     app.persist_daybreak_selection(&mut server, thread_id, false)
         .await;
@@ -739,7 +745,13 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
         })
         .expect("model catalog request");
     let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
-    model.model = app.chat_widget.current_model().to_string();
+    model.model = "gpt-6-sol".into();
+    model.supported_reasoning_efforts.push(codex_protocol::openai_models::ReasoningEffortPreset {
+        effort: ReasoningEffort::XHigh,
+        description: "Extra high".into(),
+    });
+    app.chat_widget.set_model("gpt-6-sol");
+    app.chat_widget.set_reasoning_effort(Some(ReasoningEffort::XHigh));
     model.available_access_programs = Some(ModelAccessPrograms {
         cyber: vec![
             CyberAccessProgram::Standard,
@@ -776,11 +788,8 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
                 .daybreak_enabled,
             Some(enabled)
         );
-        assert_eq!(app.config.daybreak_enabled, enabled);
-        let writes = recorded_params(&requests, "config/batchWrite");
-        let edit = &writes.last().expect("config write")["edits"][0];
-        assert_eq!(edit["keyPath"], "daybreak");
-        assert_eq!(edit["value"], enabled);
+        assert!(!app.config.daybreak_enabled);
+        assert!(recorded_params(&requests, "config/batchWrite").is_empty());
     }
     insta::assert_snapshot!("daybreak_toggle_confirmations", confirmations.join("\n\n"));
 

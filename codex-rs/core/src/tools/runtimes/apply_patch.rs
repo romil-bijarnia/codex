@@ -5,9 +5,7 @@
 //! sandboxing enforced by the explicit filesystem sandbox context.
 use crate::exec::is_likely_sandbox_denied;
 use crate::session::turn_context::TurnEnvironment;
-use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalAction;
-use crate::tools::sandboxing::ExecApprovalRequirement;
 use crate::tools::sandboxing::SandboxAttempt;
 use crate::tools::sandboxing::Sandboxable;
 use crate::tools::sandboxing::ToolCtx;
@@ -24,7 +22,6 @@ use codex_protocol::error::SandboxErr;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::AdditionalPermissionProfile;
-use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::FileChange;
 use codex_sandboxing::SandboxType;
 use codex_sandboxing::SandboxablePreference;
@@ -48,7 +45,6 @@ pub struct ApplyPatchRequest {
     pub action: ApplyPatchAction,
     pub file_paths: Vec<PathUri>,
     pub changes: Arc<std::collections::HashMap<PathBuf, FileChange>>,
-    pub exec_approval_requirement: ExecApprovalRequirement,
     pub additional_permissions: Option<AdditionalPermissionProfile>,
     pub permissions_preapproved: bool,
 }
@@ -126,35 +122,7 @@ impl Sandboxable for ApplyPatchRuntime {
     }
 }
 
-impl Approvable<ApplyPatchRequest> for ApplyPatchRuntime {
-    fn approval_action(
-        &self,
-        req: &ApplyPatchRequest,
-        call_id: &str,
-    ) -> std::io::Result<ApprovalAction> {
-        Ok(req.approval_action(call_id))
-    }
 
-    fn wants_no_sandbox_approval(&self, policy: AskForApproval) -> bool {
-        match policy {
-            AskForApproval::Never => false,
-            AskForApproval::Granular(granular_config) => granular_config.allows_sandbox_approval(),
-            AskForApproval::OnRequest => true,
-            AskForApproval::UnlessTrusted => true,
-        }
-    }
-
-    // apply_patch approvals are decided upstream by assess_patch_safety.
-    //
-    // This override ensures the orchestrator runs the patch approval flow when required instead
-    // of falling back to the global exec approval policy.
-    fn exec_approval_requirement(
-        &self,
-        req: &ApplyPatchRequest,
-    ) -> Option<ExecApprovalRequirement> {
-        Some(req.exec_approval_requirement.clone())
-    }
-}
 
 impl ToolRuntime<ApplyPatchRequest, ApplyPatchRuntimeOutput> for ApplyPatchRuntime {
     fn turn_environment<'a>(&self, req: &'a ApplyPatchRequest) -> &'a TurnEnvironment {

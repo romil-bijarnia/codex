@@ -554,9 +554,7 @@ impl ChatWidget {
         } else {
             self.take_question_drafts()
         };
-        if codex_error_info == Some(AppServerCodexErrorInfo::MisalignmentPolicyViolation) {
-            self.on_misalignment_policy_violation();
-        } else if codex_error_info
+        if codex_error_info
             .as_ref()
             .is_some_and(is_app_server_cyber_policy_error)
         {
@@ -580,9 +578,7 @@ impl ChatWidget {
         } else {
             self.on_error(message);
         }
-        if let Some(drafts) = question_drafts
-            && !self.has_misalignment_policy_violation()
-        {
+        if let Some(drafts) = question_drafts {
             self.bottom_pane.append_question_drafts(&drafts);
             self.refresh_pending_input_preview();
             self.request_redraw();

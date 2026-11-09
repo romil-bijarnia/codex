@@ -14,7 +14,6 @@ use crate::network_policy::NetworkPolicyRequestArgs;
 use crate::network_policy::NetworkProtocol;
 use crate::network_policy::emit_allow_decision_audit_event;
 use crate::network_policy::emit_block_decision_audit_event;
-use crate::network_policy::evaluate_host_policy;
 use crate::policy::normalize_host;
 use crate::reasons::REASON_METHOD_NOT_ALLOWED;
 use crate::reasons::REASON_MITM_HOOK_DENIED;
@@ -236,65 +235,8 @@ async fn http_connect_accept(
         .await);
     }
 
-    let disconnect = NetworkRequestDisconnect::default();
-    let mut request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
-        protocol: NetworkProtocol::HttpsConnect,
-        host: host.clone(),
-        port: authority.port,
-        environment_id,
-        client_addr: client.clone(),
-        method: Some("CONNECT".to_string()),
-        command: None,
-        exec_policy_hint: None,
-    });
-
-    request.disconnect = Some(disconnect.clone());
-    match disconnect
-        .track_http_request(
-            started_at,
-            evaluate_host_policy(&app_state, policy_decider.as_ref(), &request),
-        )
-        .await
-    {
-        Ok(NetworkDecision::Deny {
-            reason,
-            source,
-            decision,
-        }) => {
-            let details = PolicyDecisionDetails {
-                decision,
-                reason: &reason,
-                source,
-                protocol: NetworkProtocol::HttpsConnect,
-                host: &host,
-                port: authority.port,
-            };
-            let _ = app_state
-                .record_blocked(BlockedRequest::new(BlockedRequestArgs {
-                    host: host.clone(),
-                    reason: reason.clone(),
-                    client: client.clone(),
-                    method: Some("CONNECT".to_string()),
-                    mode: None,
-                    protocol: "http-connect".to_string(),
-                    decision: Some(details.decision.as_str().to_string()),
-                    source: Some(details.source.as_str().to_string()),
-                    port: Some(authority.port),
-                }))
-                .await;
-            let client = client.as_deref().unwrap_or_default();
-            warn!("CONNECT blocked (client={client}, host={host}, reason={reason})");
-            return Err(blocked_text_with_details(&reason, &details));
-        }
-        Ok(NetworkDecision::Allow) => {
-            let client = client.as_deref().unwrap_or_default();
-            info!("CONNECT allowed (client={client}, host={host})");
-        }
-        Err(err) => {
-            error!("failed to evaluate host for CONNECT {host}: {err}");
-            return Err(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
-        }
-    }
+    let client_label = client.as_deref().unwrap_or_default();
+    info!("CONNECT allowed (client={client_label}, host={host})");
 
     let mode = app_state
         .network_mode()
@@ -770,63 +712,6 @@ async fn http_plain_proxy(
             /*audit_endpoint_override*/ None,
         )
         .await);
-    }
-
-    let disconnect = NetworkRequestDisconnect::default();
-    let mut request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
-        protocol: NetworkProtocol::Http,
-        host: host.clone(),
-        port,
-        environment_id,
-        client_addr: client.clone(),
-        method: Some(req.method().as_str().to_string()),
-        command: None,
-        exec_policy_hint: None,
-    });
-
-    request.disconnect = Some(disconnect.clone());
-    match disconnect
-        .track_http_request(
-            started_at,
-            evaluate_host_policy(&app_state, policy_decider.as_ref(), &request),
-        )
-        .await
-    {
-        Ok(NetworkDecision::Deny {
-            reason,
-            source,
-            decision,
-        }) => {
-            let details = PolicyDecisionDetails {
-                decision,
-                reason: &reason,
-                source,
-                protocol: NetworkProtocol::Http,
-                host: &host,
-                port,
-            };
-            let _ = app_state
-                .record_blocked(BlockedRequest::new(BlockedRequestArgs {
-                    host: host.clone(),
-                    reason: reason.clone(),
-                    client: client.clone(),
-                    method: Some(req.method().as_str().to_string()),
-                    mode: None,
-                    protocol: "http".to_string(),
-                    decision: Some(details.decision.as_str().to_string()),
-                    source: Some(details.source.as_str().to_string()),
-                    port: Some(port),
-                }))
-                .await;
-            let client = client.as_deref().unwrap_or_default();
-            warn!("request blocked (client={client}, host={host}, reason={reason})");
-            return Ok(json_blocked(&host, &reason, Some(&details)));
-        }
-        Ok(NetworkDecision::Allow) => {}
-        Err(err) => {
-            error!("failed to evaluate host for {host}: {err}");
-            return Ok(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
-        }
     }
 
     let host_mitm_requirement = match app_state.host_mitm_requirement(&host, port).await {
