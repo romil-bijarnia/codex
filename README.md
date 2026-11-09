@@ -1,7 +1,7 @@
 # Personal Codex fork
 
 This is the primary source repository for the custom Codex CLI and launcher:
-`romil-bijarnia/codex`, branch `romil-cli`, forked from `openai/codex`.
+`romil-bijarnia/codex`, branch `main`, forked from `openai/codex`.
 The complete native source is in `codex-rs/`; personal launchers, helpers,
 prompt sources and build tooling are in `local-customizations/`.
 

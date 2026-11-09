@@ -3,7 +3,7 @@
 ## Source of truth
 
 - GitHub fork: https://github.com/romil-bijarnia/codex
-- Working and default branch: `romil-cli`.
+- Working and default branch: `main`.
 - Upstream: https://github.com/openai/codex.git, branch `main`.
 - Local checkout: `$HOME/Work/codex`.
 - Native code, launchers, helpers and prompt sources are ordinary Git files.
@@ -16,8 +16,8 @@ resolve conflicts rather than discarding local changes. Pull the result locally:
 
 ```sh
 cd "$HOME/Work/codex"
-git switch romil-cli
-git pull --ff-only origin romil-cli
+git switch main
+git pull --ff-only origin main
 ```
 
 Or perform the equivalent source update locally, starting with intended work
@@ -27,11 +27,11 @@ committed and a clean working tree:
 git fetch upstream
 git merge upstream/main
 # Resolve any conflicts and run the tests relevant to the changes.
-git push origin romil-cli
+git push origin main
 ```
 
 Edit the real source here, not a separate aggregate patch. Commit and push custom
-changes to `origin/romil-cli`. A successful merge is not proof that behaviour is
+changes to `origin/main`. A successful merge is not proof that behaviour is
 unchanged, so use focused tests appropriate to the actual source change.
 
 ## Building and installation are separate
@@ -42,7 +42,7 @@ requested, it builds an exact source commit and runs the existing package checks
 Do not enable automatic builds merely to save or publish source changes.
 
 The distribution tools live under `local-customizations/distribution/` and now
-target this fork's `romil-cli` branch. Their focused tests are:
+target this fork's `main` branch. Their focused tests are:
 
 ```sh
 python3 -m unittest discover -s local-customizations/distribution/tests -v

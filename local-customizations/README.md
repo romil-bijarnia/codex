@@ -1,6 +1,6 @@
 # Local CLI customizations
 
-The primary source is `romil-bijarnia/codex`, branch `romil-cli`, with
+The primary source is `romil-bijarnia/codex`, branch `main`, with
 `openai/codex` as `upstream`. The native customizations and helpers are ordinary
 tracked source files. The local checkout is `$HOME/Work/codex`.
 
