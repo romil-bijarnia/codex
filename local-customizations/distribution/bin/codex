@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Dispatch the updater; otherwise exec the selected native CLI."""
+import os
+from pathlib import Path
+import sys
+
+root = Path(__file__).resolve().parent.parent
+if sys.argv[1:2] == ['update']:
+    os.execv(sys.executable, [sys.executable, str(root / 'manage.py'), 'update', *sys.argv[2:]])
+if sys.argv[1:2] == ['custom-status']:
+    os.execv(sys.executable, [sys.executable, str(root / 'manage.py'), 'status', *sys.argv[2:]])
+home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+native = home / 'packages/standalone/current/bin/codex'
+if not native.is_file():
+    sys.exit(f'The native Codex package is missing: {native}')
+os.execv(str(native), [str(native), *sys.argv[1:]])

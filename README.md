@@ -1,3 +1,15 @@
+# Personal Codex source fork
+
+This repository keeps the complete Codex source and personal changes as ordinary
+Git commits on `personal`. OpenAI remains the `upstream` remote. Updates are
+normal Git merges, not an aggregate patch applied during packaging.
+
+See [the source workflow](local-customizations/WORKFLOW.md) for updating, building
+and installing. The earlier differences-only package repository is retained on
+its existing `main` branch as historical material; it is not the active workflow.
+
+---
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />

@@ -1,15 +1,15 @@
 # Local CLI customizations
 
-This branch preserves the personal CLI customizations and merges upstream `main`
-through `4e4767ffa7` (8 November 2026). The local build is identified as
-`0.169.0-dev.20261109+romil`; it is an upstream-main development build, not an
-official 0.169.0 release. The original 0.166.0 snapshot is historical.
+The active workflow is a normal source fork on the `personal` branch of
+`romil-bijarnia/codex-customizations`, with `openai/codex` as `upstream`.
+The latest imported package-workflow source was `97cdd01a3ef38ae2381ba2387be1d021a7300c13`;
+upstream was merged through `27fcd7cbedd7efd63fd704bd01a0cfe1d7b85a26` during migration.
+Future source history, rather than this dated note, records subsequent merges.
 
-The Linux package is built with Rust 1.95.0 and includes newly built `codex`,
-`codex-exec-server` and `codex-code-mode-host` executables. The reproducible build
-and focused terminal checks live in GRID under `extras/linux-el2-owner-control/`.
-The installer selects the verified package for new launches without restarting
-active conversations or replacing their running backend.
+Use [WORKFLOW.md](WORKFLOW.md). The build and installer are in `distribution/`;
+they build an exact custom Git commit and retain the working package if checks
+fail. The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,
+not current installation instructions or evidence about the selected Linux build.
 
 Included:
 - The permission-status footer source patch, its snapshot, and the release lockfile correction.

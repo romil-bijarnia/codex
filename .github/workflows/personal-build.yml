@@ -1,0 +1,80 @@
+name: Build personal Codex source
+run-name: Codex source ${{ inputs.source || github.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Exact personal source commit; leave empty to build this branch
+        type: string
+        required: false
+  push:
+    branches: [personal]
+permissions:
+  contents: write
+concurrency:
+  group: codex-personal-source-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_COMMIT: ${{ inputs.source || github.sha }}
+    steps:
+      - name: Validate the source revision
+        shell: bash
+        run: '[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source || github.sha }}
+          fetch-depth: 0
+      - name: Check updater installation safety
+        run: python3 -m unittest discover -s local-customizations/distribution/tests -v
+      - name: Resolve source and check for an existing build
+        id: plan
+        run: python3 local-customizations/distribution/build.py plan --revision "$SOURCE_COMMIT" --out "$RUNNER_TEMP/plan.json"
+      - name: Prepare native build dependencies
+        if: steps.plan.outputs.exists != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev clang cmake libcap-dev libasound2-dev libudev-dev python3-venv
+          # Ephemeral runner only; retain the existing build resource profile.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          available=$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)
+          if [ "$available" -gt 25769803776 ] && sudo fallocate -l 8G "$RUNNER_TEMP/codex-build.swap" && sudo chmod 600 "$RUNNER_TEMP/codex-build.swap" && sudo mkswap "$RUNNER_TEMP/codex-build.swap" && sudo swapon "$RUNNER_TEMP/codex-build.swap"; then
+            echo 'CARGO_BUILD_JOBS=4' >> "$GITHUB_ENV"
+          else
+            echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
+          fi
+          free -h
+          df -h "$RUNNER_TEMP"
+          python3 -m venv .venv
+          .venv/bin/pip install pyte
+      - uses: actions/cache/restore@v4
+        id: cargo_cache
+        if: steps.plan.outputs.exists != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-customizations
+          key: codex-linux-arm64-${{ steps.plan.outputs.commit }}-source
+          restore-keys: codex-linux-arm64-
+      - name: Build, check and publish committed source
+        if: steps.plan.outputs.exists != 'true'
+        run: .venv/bin/python local-customizations/distribution/build.py build --plan "$RUNNER_TEMP/plan.json" --work "$RUNNER_TEMP/codex-build" --out "$RUNNER_TEMP/release" --publish
+      - name: Preserve completed compilation even if a later check fails
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.exists != 'true' && steps.cargo_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/codex-customizations
+          key: ${{ steps.cargo_cache.outputs.cache-primary-key }}
+      - name: Publish failure details without changing any installation
+        if: failure()
+        run: |
+          echo '## Personal Codex source build failed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No installed package was changed. Fix the source or check failure in Git; no patch application or automatic upstream merge was attempted.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,9 @@
+{
+  "schema": 2,
+  "repository": "romil-bijarnia/codex-customizations",
+  "source_branch": "personal",
+  "upstream_repository": "openai/codex",
+  "upstream_branch": "main",
+  "target": "aarch64-unknown-linux-gnu",
+  "resource_target": "aarch64-unknown-linux-musl"
+}
