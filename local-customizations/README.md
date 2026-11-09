@@ -2,7 +2,7 @@
 
 The active workflow is a normal source fork on the `personal` branch of
 `romil-bijarnia/codex-customizations`, with `openai/codex` as `upstream`.
-The latest imported package-workflow source was `97cdd01a3ef38ae2381ba2387be1d021a7300c13`;
+The migration baseline from the package workflow was `97cdd01a3ef38ae2381ba2387be1d021a7300c13`;
 upstream was merged through `27fcd7cbedd7efd63fd704bd01a0cfe1d7b85a26` during migration.
 Future source history, rather than this dated note, records subsequent merges.
 
