@@ -1,12 +1,14 @@
-# Personal Codex source fork
+# Personal Codex fork
 
-This repository keeps the complete Codex source and personal changes as ordinary
-Git commits on `personal`. OpenAI remains the `upstream` remote. Updates are
-normal Git merges, not an aggregate patch applied during packaging.
+This is the primary source repository for the custom Codex CLI and launcher:
+`romil-bijarnia/codex`, branch `romil-cli`, forked from `openai/codex`.
+The complete native source is in `codex-rs/`; personal launchers, helpers,
+prompt sources and build tooling are in `local-customizations/`.
 
-See [the source workflow](local-customizations/WORKFLOW.md) for updating, building
-and installing. The earlier differences-only package repository is retained on
-its existing `main` branch as historical material; it is not the active workflow.
+Use GitHub's **Sync fork** or an ordinary merge from `upstream/main` to bring
+in upstream changes. Syncing updates source only; building and installing the
+CLI are separate, deliberate operations. See [the workflow](local-customizations/WORKFLOW.md).
+The earlier `codex-customizations` repository is historical, not the primary source.
 
 ---
 

@@ -103,7 +103,7 @@ class UpdateTests(unittest.TestCase):
         commit = 'a' * 40
         with patch.object(common, 'api', return_value={'sha': commit}) as api:
             self.assertEqual(build.plan()['source_commit'], commit)
-        api.assert_called_once_with(f"repos/{common.REPO}/commits/personal")
+        api.assert_called_once_with(f"repos/{common.REPO}/commits/{common.CONFIG['source_branch']}")
 
     def test_explicit_revision_is_exact_and_does_not_resolve_remote(self):
         with patch.object(common, 'api') as api:
@@ -134,13 +134,13 @@ class UpdateTests(unittest.TestCase):
         remote = self.home / 'origin.git'
         subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)
         subprocess.run(['git', '-C', str(root), 'remote', 'add', 'origin', str(remote)], check=True)
-        subprocess.run(['git', '-C', str(root), 'push', '-q', 'origin', 'HEAD:personal'], check=True)
+        subprocess.run(['git', '-C', str(root), 'push', '-q', 'origin', f"HEAD:{common.CONFIG['source_branch']}"], check=True)
         worktree = self.home / 'personal-worktree'
-        subprocess.run(['git', '-C', str(root), 'worktree', 'add', '-q', '-b', 'personal', str(worktree)], check=True)
+        subprocess.run(['git', '-C', str(root), 'worktree', 'add', '-q', '-b', common.CONFIG['source_branch'], str(worktree)], check=True)
         self.assertTrue((worktree / '.git').is_file())
         (root / 'native.rs').write_text('next personal source\n')
         expected = self.commit_source(root, 'Next personal source')
-        subprocess.run(['git', '-C', str(root), 'push', '-q', 'origin', 'HEAD:personal'], check=True)
+        subprocess.run(['git', '-C', str(root), 'push', '-q', 'origin', f"HEAD:{common.CONFIG['source_branch']}"], check=True)
         with patch.object(common, 'ROOT', worktree / 'local-customizations/distribution'):
             self.assertEqual(common.source_root(), worktree)
             self.assertTrue(manage.refresh_source())
@@ -151,7 +151,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_refresh_refuses_dirty_source_before_fetching(self):
         with patch.object(manage, 'source_root', return_value=self.home), \
-             patch.object(manage, 'output', side_effect=['personal', ' M native.rs']), \
+             patch.object(manage, 'output', side_effect=[common.CONFIG['source_branch'], ' M native.rs']), \
              patch.object(manage, 'run') as run:
             with self.assertRaisesRegex(RuntimeError, 'uncommitted'):
                 manage.refresh_source()
@@ -233,7 +233,7 @@ class UpdateTests(unittest.TestCase):
         package, _ = self.candidate();(self.packages / 'current').unlink();(self.packages / 'current').symlink_to(package)
         legacy = self.home / 'Work/codex-customizations';(legacy / 'bin').mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', str(legacy)], check=True)
-        subprocess.run(['git', '-C', str(legacy), 'remote', 'add', 'origin', f'https://github.com/{common.REPO}.git'], check=True)
+        subprocess.run(['git', '-C', str(legacy), 'remote', 'add', 'origin', f'https://github.com/{manage.LEGACY_REPO}.git'], check=True)
         legacy_script = legacy / 'bin/codex';shutil.copy2(manage.ROOT / 'bin/codex', legacy_script)
         launcher = self.home / '.local/bin/codex';launcher.parent.mkdir(parents=True);launcher.symlink_to(legacy_script)
         with patch.object(manage, 'platform_check'), contextlib.redirect_stdout(io.StringIO()):

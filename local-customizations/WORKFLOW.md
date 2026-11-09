@@ -1,91 +1,64 @@
-# Source fork workflow
+# Main Codex source workflow
 
 ## Source of truth
 
-- Repository: https://github.com/romil-bijarnia/codex-customizations
-- Active source branch: `personal`.
-- Upstream remote: https://github.com/openai/codex.git, branch `main`.
-- Local checkout on the current Linux machine: `$HOME/Work/codex`.
-- Personal code and helpers are ordinary tracked files, not an applied patch or overlay.
-- The old package-only `main` branch and its releases remain historical. Do not
-  edit that branch expecting changes to enter the source fork automatically.
+- GitHub fork: https://github.com/romil-bijarnia/codex
+- Working and default branch: `romil-cli`.
+- Upstream: https://github.com/openai/codex.git, branch `main`.
+- Local checkout: `$HOME/Work/codex`.
+- Native code, launchers, helpers and prompt sources are ordinary Git files.
+- `codex-customizations` is retained as historical material, not the main source.
 
-The fork retains upstream history and the earlier personal commits. The one-time
-migration imported the exact recorded changes from the package repository,
-then merged upstream using Git. Future changes should be made directly in source.
+## Update from upstream
 
-## Incorporate an upstream update
-
-Start with a clean working tree; commit intended work rather than discarding it.
+Use **Sync fork**, then **Update branch**, on GitHub. Retain personal commits;
+resolve conflicts rather than discarding local changes. Pull the result locally:
 
 ```sh
 cd "$HOME/Work/codex"
-git switch personal
-git pull --ff-only origin personal
-git fetch upstream
-git merge upstream/main
+git switch romil-cli
+git pull --ff-only origin romil-cli
 ```
 
-If Git reports conflicts, resolve them deliberately and run the relevant tests
-before completing and publishing the merge. Do not resolve every conflict by
-choosing all of either side: that would discard custom features or upstream fixes.
-There is no scheduled upstream merge and no agent required for a clean Git merge.
-A clean merge alone does not establish behavioural compatibility.
+Or perform the equivalent source update locally, starting with intended work
+committed and a clean working tree:
 
-Run the focused updater tests before publishing build/installer changes:
+```sh
+git fetch upstream
+git merge upstream/main
+# Resolve any conflicts and run the tests relevant to the changes.
+git push origin romil-cli
+```
+
+Edit the real source here, not a separate aggregate patch. Commit and push custom
+changes to `origin/romil-cli`. A successful merge is not proof that behaviour is
+unchanged, so use focused tests appropriate to the actual source change.
+
+## Building and installation are separate
+
+Syncing or pushing source does not rebuild or replace the installed CLI.
+The optional `personal-build.yml` workflow is manual only. When a build is
+requested, it builds an exact source commit and runs the existing package checks.
+Do not enable automatic builds merely to save or publish source changes.
+
+The distribution tools live under `local-customizations/distribution/` and now
+target this fork's `romil-cli` branch. Their focused tests are:
 
 ```sh
 python3 -m unittest discover -s local-customizations/distribution/tests -v
 ```
 
-Run the affected native project tests when changing Rust behaviour. The package
-build also runs terminal fixtures for defaults, Daybreak, picker display,
-integrations, regression cases and steering. The fixtures use local responses,
-not paid model inference, and do not establish kernel/EL2 activation.
+The current installed launcher/package was deliberately not changed when this
+fork became primary. Its legacy `codex update` entrypoint may still refer to the
+old package workflow; do not use that command as a substitute for Sync fork.
+Switching the installed updater or installing a new native build is a separate
+operation. Read the live package receipt before claiming that saved source is
+already installed. Existing conversations must not be restarted just to publish
+source, and complete package resources must be preserved during any later install.
 
-```sh
-git push origin personal
-```
+## Data and recovery
 
-GitHub Actions builds that exact custom source commit. It does not fetch a newer
-upstream revision behind the branch or apply a stored patch. Build output stays
-in release assets, not Git source history. Imported upstream workflows are
-kept disabled in this repository; only the personal build workflow is enabled.
-When bringing in new upstream workflow files, review their triggers before
-allowing them to run against this personal repository.
-
-## Select a tested build
-
-After the source build succeeds:
-
-```sh
-codex update
-codex custom-status
-```
-
-The updater follows `origin/personal`, not bare `openai/main`. It verifies package
-identity, checksums and required local checks before changing the selected package.
-Existing terminal processes keep their executable. The shared backend rolls over
-only after observed idle time; running conversations are not forcibly restarted.
-Source revision, incorporated upstream revision and the selected package can be
-checked independently with `codex custom-status`.
-
-The build recipe uses an isolated source checkout for any version stamping. Do
-not copy a single executable over the working package: voice and other bundled
-resources require the complete package layout. Do not run the old historical
-macOS installer for the current Linux workflow.
-
-## Files that stay local
-
-Credentials, profiles, chat history, private AGENTS.md, personal databases,
-build caches and generated packages do not belong in this source repository.
-The workflow does not replace those files or create backup copies of them.
-
-## Migration evidence
-
-The source merge through `27fcd7cbedd7efd63fd704bd01a0cfe1d7b85a26` was compared
-against the package repository at `97cdd01a3ef38ae2381ba2387be1d021a7300c13`
-applied to that same upstream revision. Their complete tracked source trees
-matched before distribution tooling and documentation were migrated. This is
-source-preservation evidence, not a claim of a completed native build or live
-hardware verification. Package manifests record build-specific checks.
+Publish source and reusable project tooling, not credentials, private AGENTS.md,
+account sessions, personal databases, caches or generated build products.
+Recovery documentation and installation/configuration templates are in GRID.
+No backup copies or runtime-profile changes are required to update this repository.

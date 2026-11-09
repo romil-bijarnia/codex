@@ -1,20 +1,21 @@
 # Local CLI customizations
 
-The active workflow is a normal source fork on the `personal` branch of
-`romil-bijarnia/codex-customizations`, with `openai/codex` as `upstream`.
-The migration baseline from the package workflow was `97cdd01a3ef38ae2381ba2387be1d021a7300c13`;
-upstream was merged through `27fcd7cbedd7efd63fd704bd01a0cfe1d7b85a26` during migration.
-Future source history, rather than this dated note, records subsequent merges.
+The primary source is `romil-bijarnia/codex`, branch `romil-cli`, with
+`openai/codex` as `upstream`. The native customizations and helpers are ordinary
+tracked source files. The local checkout is `$HOME/Work/codex`.
 
-Use [WORKFLOW.md](WORKFLOW.md). The build and installer are in `distribution/`;
-they build an exact custom Git commit and retain the working package if checks
-fail. The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,
+Use [WORKFLOW.md](WORKFLOW.md). GitHub's Sync fork updates the source; it does
+not compile or install the CLI. Build tooling in `distribution/` is retained
+for deliberate builds, and its workflow is manual rather than push-triggered.
+The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,
 not current installation instructions or evidence about the selected Linux build.
 
 Included:
 - The permission-status footer source patch, its snapshot, and the release lockfile correction.
 - The launcher and immediate idle-chat unloading.
-- Native Linux EL2 selection, saved startup choice, input scrolling and Daybreak behavior.
+- Native Linux EL2 selection without automatic review, saved startup choice, input scrolling and Daybreak behavior.
+- Cyber model selection preserves the current permission profile and reviewer.
+- Structured blue question tools are disabled; necessary questions use ordinary chat text.
 - The native Linux allocator repair and current doctor source fixes.
 - The global AGENTS.md migration and repository-preservation rule.
 - The terminal `codex visualize` command and its tests.

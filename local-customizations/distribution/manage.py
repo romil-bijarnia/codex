@@ -22,6 +22,7 @@ CODEX_HOME = Path(os.environ.get('CODEX_HOME', HOME / '.codex')).expanduser()
 PACKAGES = CODEX_HOME / 'packages/standalone'
 STATE = CODEX_HOME / 'state/codex-customizations'
 STATE_FILE = STATE / 'installed.json'
+LEGACY_REPO = 'romil-bijarnia/codex-customizations'
 
 
 def read_state():
@@ -200,8 +201,8 @@ def install_launcher(replace_legacy=False):
         recognized = False
         if replace_legacy and launcher.is_symlink() and launcher.resolve() == legacy.resolve() and legacy.is_file():
             origin = output(['git', '-C', legacy.parent.parent, 'remote', 'get-url', 'origin'])
-            recognized = (origin in (f'https://github.com/{REPO}', f'https://github.com/{REPO}.git',
-                                     f'git@github.com:{REPO}.git')
+            recognized = (origin in (f'https://github.com/{LEGACY_REPO}', f'https://github.com/{LEGACY_REPO}.git',
+                                     f'git@github.com:{LEGACY_REPO}.git')
                           and legacy.read_bytes() == own.read_bytes())
         if not recognized:
             raise RuntimeError(f'The existing launcher is not the selected personal Codex: {launcher}. '

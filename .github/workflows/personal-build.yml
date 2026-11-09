@@ -7,8 +7,6 @@ on:
         description: Exact personal source commit; leave empty to build this branch
         type: string
         required: false
-  push:
-    branches: [personal]
 permissions:
   contents: write
 concurrency:
