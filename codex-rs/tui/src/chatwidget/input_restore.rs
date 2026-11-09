@@ -360,6 +360,25 @@ impl ChatWidget {
 
     pub(super) fn enqueue_rejected_steer_by_id(&mut self, client_id: Option<&str>) -> bool {
         if self.config.features.enabled(Feature::SteerOnly) {
+            // A newly started cloud submission can be rejected by client ID before
+            // it becomes a pending steer. Keep that text visibly unsent, not queued.
+            if let Some(id) = client_id
+                && !self
+                    .input_queue
+                    .pending_steers
+                    .iter()
+                    .any(|pending| pending.client_id == id)
+            {
+                if let Some((message, history, _source)) = self.take_submitted_message(id) {
+                    self.restore_user_message_to_composer(user_message_for_restore(
+                        message, &history,
+                    ));
+                    self.refresh_pending_input_preview();
+                    self.update_task_running_state();
+                    return true;
+                }
+                return false;
+            }
             if self.input_queue.pending_steers.is_empty() {
                 return false;
             }
