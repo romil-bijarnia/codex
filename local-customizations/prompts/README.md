@@ -2,15 +2,19 @@ The operating base is `compact-base.md`, a 902-word stock-derived replacement
 starting with the approved operator role: Romil sets the outcome and boundaries;
 Sara owns approach, implementation, verification and delivery. The previous
 3,320-word Sol base and separate 328-word execution block are no longer stacked.
-AGENTS.md retains personal preferences, standing authorisations and machine facts.
+AGENTS.md retains personal preferences and delivery destinations, without
+repeating the operating base or blanket permission grants. In the private kit,
+Linux interface procedures live in the sibling MACHINE.md and are read only
+for relevant tasks. The installer restores missing machine notes alongside a
+fresh personal profile without overwriting existing notes.
 
 Run `python3 local-customizations/prompts/install.py` to copy the compact source to
 `~/.codex/prompts/sara-system.md` and select it using `model_instructions_file`.
 The installer removes the retired managed execution block from developer_instructions
 while preserving unrelated developer text, the model, permissions, existing
 AGENTS.md and other configuration. It is idempotent and creates no backups.
-The private kit can restore AGENTS.md for a clean profile; existing files are
-never overwritten. The source catalog hash and instruction coverage are recorded
+The private GRID kit can restore AGENTS.md and MACHINE.md for a clean profile;
+existing files are never overwritten. The source catalog hash and instruction coverage are recorded
 in `origin.json`. This is a maintained replacement, so future stock changes need
 review rather than being inherited automatically. It applies as the configured
 base when switching models; tool schemas and model capabilities remain runtime-owned.
@@ -38,6 +42,19 @@ Parent-managed multi-agent v2 subagents are skipped by direct chat refreshes;
 their lifecycle and input remain under their parent agent.
 
 Criticism, frustration and failure reports do not cancel an authorised project.
-The base and personal template explicitly retain the goal, require corrective
-work after mistakes, and distinguish a deployment/reboot restriction from a
-stop on diagnosis or source work. Genuine stop/wait instructions remain binding.
+The operating base retains the goal, requires corrective work after mistakes,
+and distinguishes a deployment/reboot restriction from a stop on diagnosis or
+source work. These general rules are no longer repeated in AGENTS.md. Genuine
+stop/wait instructions remain binding.
+
+The 9 November AGENTS.md cleanup removes duplicated workflow paragraphs and
+blanket owner/account/contact/root/EL2 permission grants. Personal writing and
+learning preferences, the no-backup rule and repository delivery destinations
+remain. MACHINE.md contains technical procedures and limits, not blanket
+authorisation. The configured Sara base and model settings are unchanged.
+Existing chats retain earlier text in history; new instruction updates replace
+the active AGENTS.md guidance, while a fresh chat starts with less prior text.
+
+The personal AGENTS.md template is 239 words (previously 2,618). The private
+GRID kit and installed profile match. The public fork shares the installer
+changes; personal instruction text remains private, as its .gitignore requires.

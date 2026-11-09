@@ -81,6 +81,10 @@ def main():
     if '<!-- BEGIN SARA MIGRATED SYSTEM GUIDANCE -->' in personal:
         raise SystemExit('Review the retired copied base block in AGENTS.md first; no files changed.')
 
+    machine_source = source / 'MACHINE.md'
+    machine_destination = codex_home / 'MACHINE.md'
+    if machine_source.is_file() and not machine_destination.exists():
+        atomic_write(machine_destination, machine_source.read_text())
     if not agents.exists():
         atomic_write(agents, personal)
     if not args.stock and (not destination.exists() or destination.read_text() != compact):
