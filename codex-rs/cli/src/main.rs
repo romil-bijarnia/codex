@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
@@ -268,6 +269,9 @@ enum DebugSubcommand {
     /// Render the raw model catalog as JSON.
     Models(DebugModelsCommand),
 
+    /// Check the packaged voice helper without opening audio streams or connecting a session.
+    Voice(DebugVoiceCommand),
+
     /// Tooling: helps debug the app server.
     AppServer(DebugAppServerCommand),
 
@@ -317,6 +321,13 @@ struct DebugModelsCommand {
     /// Skip refresh and dump only the bundled catalog shipped with this binary.
     #[arg(long = "bundled", default_value_t = false)]
     bundled: bool,
+}
+
+#[derive(Debug, Parser)]
+struct DebugVoiceCommand {
+    /// Also enumerate input/output devices without opening capture or playback streams.
+    #[arg(long)]
+    list_devices: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -1834,6 +1845,14 @@ async fn dispatch_cli(
                 )?;
                 run_debug_models_command(cmd, root_config_overrides).await?;
             }
+            DebugSubcommand::Voice(cmd) => {
+                reject_remote_mode_for_subcommand(
+                    root_remote.as_deref(),
+                    root_remote_auth_token_env.as_deref(),
+                    "debug voice",
+                )?;
+                run_debug_voice_command(cmd).await?;
+            }
             DebugSubcommand::AppServer(cmd) => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -2225,6 +2244,46 @@ async fn run_debug_models_command(
 
     serde_json::to_writer(std::io::stdout(), &catalog)?;
     println!();
+    Ok(())
+}
+
+async fn run_debug_voice_command(cmd: DebugVoiceCommand) -> anyhow::Result<()> {
+    let package = codex_install_context::InstallContext::current()
+        .package_layout
+        .as_ref()
+        .context("voice diagnostic requires a complete installed Codex package")?;
+    let build_info = codex_build_info::BuildInfo::get();
+    let host = codex_realtime_webrtc::VoiceHost::connect(package, build_info.build_commit())
+        .await
+        .context("voice helper handshake failed")?;
+    let mut host = host
+        .initialize_runtime()
+        .await
+        .context("voice native runtime initialization failed")?;
+    let mut report = serde_json::json!({
+        "schema_version": 1,
+        "source_commit": build_info.build_commit(),
+        "voice_build_commit": build_info.build_commit(),
+        "checks": ["helper-handshake", "runtime-initialization", "clean-shutdown"],
+        "audio_streams_opened": false,
+        "network_session_started": false,
+    });
+    if cmd.list_devices {
+        report["input_devices"] = serde_json::to_value(
+            host.list_devices(codex_realtime_webrtc::AudioDeviceKind::Input)
+                .await
+                .context("voice input device enumeration failed")?,
+        )?;
+        report["output_devices"] = serde_json::to_value(
+            host.list_devices(codex_realtime_webrtc::AudioDeviceKind::Output)
+                .await
+                .context("voice output device enumeration failed")?,
+        )?;
+    }
+    host.close()
+        .await
+        .context("voice helper clean shutdown failed")?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
@@ -3473,6 +3532,35 @@ enabled = true
         };
 
         assert!(cmd.bundled);
+    }
+
+    #[test]
+    fn debug_voice_defaults_to_a_device_free_package_check() {
+        let cli = MultitoolCli::try_parse_from(["codex", "debug", "voice"]).expect("parse");
+
+        let Some(Subcommand::Debug(DebugCommand {
+            subcommand: DebugSubcommand::Voice(cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected debug voice subcommand");
+        };
+
+        assert!(!cmd.list_devices);
+    }
+
+    #[test]
+    fn debug_voice_parses_optional_device_enumeration() {
+        let cli = MultitoolCli::try_parse_from(["codex", "debug", "voice", "--list-devices"])
+            .expect("parse");
+
+        let Some(Subcommand::Debug(DebugCommand {
+            subcommand: DebugSubcommand::Voice(cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected debug voice subcommand");
+        };
+
+        assert!(cmd.list_devices);
     }
 
     #[test]

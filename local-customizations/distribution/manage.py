@@ -16,6 +16,7 @@ import tempfile
 import time
 
 from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, validate_stable_manifest
+from voice import VOICE_CHECK, check_voice_runtime, verify_voice_resources
 
 HOME = Path.home()
 CODEX_HOME = Path(os.environ.get('CODEX_HOME', HOME / '.codex')).expanduser()
@@ -79,6 +80,7 @@ def extract(archive, destination):
 def verify_package(package, manifest):
     if manifest.get('upstream_channel') == 'stable':
         validate_stable_manifest(manifest)
+        verify_voice_resources(package, manifest['voice_build_commit'], manifest['upstream_commit'])
     metadata = json.loads((package / 'codex-package.json').read_text())
     if metadata['target'] != TARGET or metadata['version'] != manifest['version']:
         raise RuntimeError('Package metadata does not match the published build.')
@@ -97,6 +99,9 @@ def verify_package(package, manifest):
 
 def verify_local_checks(package, manifest):
     passed = []
+    if VOICE_CHECK in manifest.get('required_local_checks', []):
+        check_voice_runtime(package, manifest['source_commit'], manifest['voice_build_commit'])
+        passed.append(VOICE_CHECK)
     if 'bundled-visualization-renderer' not in manifest.get('required_local_checks', []):
         return passed
     helper = package / 'customizations/visualize-cli/visualize.py'

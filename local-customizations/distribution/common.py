@@ -80,6 +80,11 @@ def validate_stable_manifest(manifest):
     if (manifest.get('official_resources_tag') != pin['upstream_release']
             or manifest.get('version') != stable_package_version(manifest.get('source_commit'))):
         raise RuntimeError('The published stable version or resource identity is inconsistent.')
+    if manifest.get('voice_build_commit') != manifest.get('source_commit'):
+        raise RuntimeError('The voice helper was not built from the same source as the custom CLI.')
+    if ('voice-runtime' not in manifest.get('check_suites', [])
+            or 'voice-runtime' not in manifest.get('required_local_checks', [])):
+        raise RuntimeError('The stable package has no mandatory native voice startup check.')
 
 
 def atomic_write(path, content, mode=None):

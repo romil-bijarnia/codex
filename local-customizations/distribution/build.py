@@ -12,11 +12,13 @@ import sys
 import tarfile
 
 from common import ROOT, CONFIG, REPO, TARGET, api, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, stable_package_version
+from voice import VOICE_CHECK, assemble_voice_resources, check_voice_runtime, verify_voice_resources
+from voice_build import build_voice_host
 
 
 def plan(commit=None):
     commit = source_revision(commit)
-    return {'source_commit': commit, 'source_branch': CONFIG['source_branch'],
+    return {'source_commit': commit, 'voice_build_commit': commit, 'source_branch': CONFIG['source_branch'],
             'release_tag': release_tag(commit), 'target': TARGET, **stable_release_pin()}
 
 
@@ -155,6 +157,12 @@ def build(work, build_plan, output_dir):
     verify_workspace_version(source, cargo_version)
     build_plan = dict(build_plan, upstream_commit=upstream_base(source))
     release, resource_archive = official_resources(work)
+    unpacked = work / 'official';unpacked.mkdir()
+    with tarfile.open(resource_archive) as bundle:bundle.extractall(unpacked, filter='data')
+    metadata_files = list(unpacked.rglob('codex-package.json'))
+    if len(metadata_files) != 1:raise RuntimeError('Official package layout is ambiguous.')
+    package = metadata_files[0].parent
+    verify_voice_resources(package, pin['upstream_commit'])
     import tomllib
     toolchain = tomllib.loads((source / 'codex-rs/rust-toolchain.toml').read_text())['toolchain']['channel']
     run(['rustup', 'toolchain', 'install', toolchain, '--profile', 'minimal'])
@@ -175,20 +183,18 @@ def build(work, build_plan, output_dir):
     source_times(source, restore=True)
     try:
         run(command, cwd=source / 'codex-rs', env=env)
+        helper = build_voice_host(source, package, env, work)
     finally:
         source_times(source)
-    unpacked = work / 'official';unpacked.mkdir()
-    with tarfile.open(resource_archive) as bundle:bundle.extractall(unpacked, filter='data')
-    metadata_files = list(unpacked.rglob('codex-package.json'))
-    if len(metadata_files) != 1:raise RuntimeError('Official package layout is ambiguous.')
-    package = metadata_files[0].parent
     target = Path(env['CARGO_TARGET_DIR']) / 'release'
     for name in ('codex', 'codex-exec-server', 'codex-code-mode-host'):
         (package / 'bin' / name).unlink(missing_ok=True);shutil.copy2(target / name, package / 'bin' / name)
+    shutil.copy2(helper, package / 'codex-resources/voice/bin/codex-voice-host')
     (package / 'codex-resources/bwrap').unlink(missing_ok=True);shutil.copy2(target / 'bwrap', package / 'codex-resources/bwrap')
     metadata = json.loads(metadata_files[0].read_text())
     metadata.update(target=TARGET, version=stable_package_version(commit))
     metadata_files[0].write_text(json.dumps(metadata, indent=2) + '\n')
+    assemble_voice_resources(package, commit, pin['upstream_commit'])
     shutil.copytree(source / 'local-customizations', package / 'customizations')
     qa_home = work / 'qa-home';(qa_home / '.codex').mkdir(parents=True)
     models = json.loads((source / 'codex-rs/models-manager/models.json').read_text())
@@ -199,12 +205,15 @@ def build(work, build_plan, output_dir):
     python = Path(sys.executable)
     test_env = dict(os.environ, HOME=str(qa_home))
     test_env.pop('CODEX_HOME', None)
-    suites = []
+    voice_report = check_voice_runtime(package, commit, commit)
+    voice_output = work / 'checks/voice-runtime.json';voice_output.parent.mkdir(parents=True, exist_ok=True)
+    voice_output.write_text(json.dumps(voice_report, indent=2) + '\n')
+    suites = [VOICE_CHECK]
     for name, script, extra in [('defaults','defaults-qa.py',[]),('daybreak-defaults','daybreak-defaults-qa.py',[]),('picker-display','picker-order-qa.py',['--display-only']),('integrations-portable','terminal-integrations-qa.py',['--without-bundled-renderer']),('regressions','cli-regression-qa.py',['--source',str(source)]),('steering','steering-qa.py',[])]:
         run([python, ROOT / 'checks' / script, package / 'bin/codex', work / 'checks' / name, *extra], env=test_env)
         suites.append(name)
     manifest = package_manifest(package, build_plan, check_suites=suites, real_model_requests=0,
-                                kernel_activation_verified=False, compiled_version=cargo_version, required_local_checks=['bundled-visualization-renderer'], official_resources_tag=release['tag_name'], build_kind='remote-source-build')
+                                kernel_activation_verified=False, compiled_version=cargo_version, required_local_checks=[VOICE_CHECK, 'bundled-visualization-renderer'], official_resources_tag=release['tag_name'], build_kind='remote-source-build')
     (package / 'custom-build.json').write_text(json.dumps(manifest, indent=2) + '\n')
     manifest = archive_package(package, output_dir, manifest)
     return manifest

@@ -34,6 +34,7 @@ class StableReleaseTests(unittest.TestCase):
         return dict(build.plan(self.commit), repository=common.REPO,
                     version=common.stable_package_version(self.commit),
                     official_resources_tag=self.pin['upstream_release'],
+                    check_suites=['voice-runtime'], required_local_checks=['voice-runtime'],
                     asset='codex-custom-' + common.TARGET + '.tar.gz')
 
     def test_plan_uses_pinned_stable_version_not_newest_release(self):
@@ -118,10 +119,12 @@ class StableReleaseTests(unittest.TestCase):
         common.validate_stable_manifest(good)
         for field, value in (('compiled_version', '0.169.0-dev'),
                              ('upstream_commit', 'f' * 40),
+                             ('voice_build_commit', 'f' * 40),
                              ('official_resources_tag', 'rust-v0.169.0-alpha.6'),
                              ('upstream_channel', 'development'),
                              ('version', '0.167.0-dev'),
-                             ('source_commit', None)):
+                             ('source_commit', None), ('check_suites', []),
+                             ('required_local_checks', [])):
             with self.subTest(field=field):
                 bad = dict(good);bad[field] = value
                 with self.assertRaises(RuntimeError):common.validate_stable_manifest(bad)
@@ -174,10 +177,11 @@ class StableReleaseTests(unittest.TestCase):
             binary.write_text('#!/bin/sh\nprintf "codex-cli 0.167.0\\n"\n');binary.chmod(0o755)
         manifest['binary_sha256'] = {name: common.sha256(package / 'bin' / name)
                                    for name in ('codex', 'codex-exec-server', 'codex-code-mode-host')}
-        manage.verify_package(package, manifest)
+        with patch.object(manage, 'verify_voice_resources'):
+            manage.verify_package(package, manifest)
         binary = package / 'bin/codex';binary.write_text('#!/bin/sh\nprintf "codex-cli 0.169.0-dev\\n"\n')
         manifest['binary_sha256']['codex'] = common.sha256(binary)
-        with self.assertRaisesRegex(RuntimeError, 'unexpected version'):
+        with patch.object(manage, 'verify_voice_resources'), self.assertRaisesRegex(RuntimeError, 'unexpected version'):
             manage.verify_package(package, manifest)
 
 

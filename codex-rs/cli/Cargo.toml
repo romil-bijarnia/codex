@@ -66,6 +66,7 @@ codex-model-provider = { workspace = true }
 codex-models-manager = { workspace = true }
 codex-plugin = { workspace = true }
 codex-protocol = { workspace = true }
+codex-realtime-webrtc = { workspace = true }
 codex-responses-api-proxy = { workspace = true }
 codex-tcp-tunnel = { workspace = true }
 codex-rmcp-client = { workspace = true }

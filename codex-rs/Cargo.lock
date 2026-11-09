@@ -2539,6 +2539,7 @@ dependencies = [
  "codex-multi-env-copy-file",
  "codex-plugin",
  "codex-protocol",
+ "codex-realtime-webrtc",
  "codex-responses-api-proxy",
  "codex-rmcp-client",
  "codex-rollout",

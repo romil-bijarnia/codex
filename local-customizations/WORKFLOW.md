@@ -49,6 +49,21 @@ Package checks exercise defaults, Daybreak, picker display, helpers, literal
 input/API regressions and steering with disposable profiles and local responses.
 Those checks do not establish live kernel/EL2 activation or every Rust test target.
 
+Voice has a mandatory native startup gate at build time and before installation.
+The CLI and voice helper are built from the same committed source with the same
+`STABLE_GIT_COMMIT`; the strict same-build handshake is not weakened or bypassed.
+The helper links the hash-verified pinned official audio libraries through
+build-only aliases and supported system-deps link inputs, not the runner's
+GStreamer version. Native library bytes, `runtime.json` and `sources.json` remain
+unchanged; the assembled manifest records the custom helper and its actual hash
+separately from native library provenance. The complete voice inventory is checked
+against its hashes and stable source before compilation. The real
+`codex debug voice` client must then complete the helper handshake, initialize
+the native audio runtime and shut down cleanly. It opens no audio streams and
+starts no network session. A picker-only check cannot satisfy this gate.
+Use `codex debug voice --list-devices` to additionally enumerate local devices
+without recording or playing audio.
+
 After the exact stable-based build passes, the source updater installs it with
 checksum verification and the required local renderer check:
 
