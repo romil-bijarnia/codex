@@ -61,3 +61,57 @@ async fn rejected_start_by_client_id_restores_visible_unsent_text() {
     assert!(chat.input_queue.rejected_steers_queue.is_empty());
     assert!(!chat.input_queue.user_turn_pending_start);
 }
+
+#[tokio::test]
+async fn rejected_start_preserves_the_original_history_override() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+    chat.set_feature_enabled(Feature::SteerOnly, true);
+    chat.input_queue.pending_user_message_client_id = Some("goal-start".to_owned());
+    chat.input_queue.pending_user_message_history_record = Some(
+        UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
+            text: "/goal finish the task".to_owned(),
+            text_elements: Vec::new(),
+        }),
+    );
+    chat.input_queue.user_turn_pending_start = true;
+    chat.safety_buffering_prompt = Some(UserMessage::from("expanded goal instructions"));
+
+    assert!(chat.enqueue_rejected_steer_by_id(Some("goal-start")));
+    assert_eq!(chat.bottom_pane.composer_text(), "/goal finish the task");
+    assert!(
+        chat.input_queue
+            .pending_user_message_history_record
+            .is_none()
+    );
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+}
+
+#[tokio::test]
+async fn rejected_steer_client_id_does_not_take_an_unrelated_pending_message() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+    chat.set_feature_enabled(Feature::SteerOnly, false);
+    for (id, text) in [
+        ("first", "leave this pending"),
+        ("second", "recover this steer"),
+    ] {
+        chat.input_queue.pending_steers.push_back(PendingSteer {
+            client_id: id.to_owned(),
+            user_message: UserMessage::from(text),
+            history_record: UserMessageHistoryRecord::UserMessageText,
+            source: UserMessageSource::Prompt,
+            compare_key: crate::chatwidget::user_messages::PendingSteerCompareKey {
+                message: text.to_owned(),
+                image_count: 0,
+            },
+        });
+    }
+
+    assert!(chat.enqueue_rejected_steer_by_id(Some("second")));
+    assert_eq!(chat.input_queue.pending_steers.len(), 1);
+    assert_eq!(chat.input_queue.pending_steers[0].client_id, "first");
+    assert_eq!(chat.input_queue.rejected_steers_queue.len(), 1);
+    assert_eq!(
+        chat.input_queue.rejected_steers_queue[0].text,
+        "recover this steer"
+    );
+}

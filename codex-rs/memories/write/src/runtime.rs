@@ -21,8 +21,8 @@ use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
 use codex_login::default_client::originator;
 use codex_model_provider::ModelProvider;
-use codex_model_provider::ProviderAuthContext;
 use codex_model_provider::SharedModelProvider;
+use codex_model_provider::create_model_provider;
 use codex_otel::SessionTelemetry;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::MemoryVersion;
@@ -139,22 +139,21 @@ fn build_session_telemetry(
 }
 
 impl MemoryStartupContext {
-    pub(crate) fn item_id_generator(&self) -> &codex_protocol::ItemIdGenerator {
-        self.thread.item_id_generator()
-    }
-
     pub(crate) fn new(
         thread_manager: Arc<ThreadManager>,
-        auth: Arc<ProviderAuthContext>,
+        auth_manager: Arc<AuthManager>,
         thread_id: ThreadId,
         thread: Arc<CodexThread>,
         config: &Config,
         source: SessionSource,
     ) -> Self {
-        let provider = auth.model_provider(config.model_provider.clone());
+        let provider = create_model_provider(
+            config.model_provider.clone(),
+            Some(Arc::clone(&auth_manager)),
+        );
         Self::new_with_provider(
             thread_manager,
-            Arc::clone(&auth.credentials),
+            auth_manager,
             thread_id,
             thread,
             config,
@@ -328,10 +327,10 @@ impl MemoryStartupContext {
         let session_id = SessionId::from(self.thread_id);
         let session_id_string = session_id.to_string();
         let model_client = ModelClient::new(
-            Arc::clone(&self.provider),
+            Some(Arc::clone(&self.auth_manager)),
             AgentIdentityAuthPolicy::JwtOnly,
             self.thread_id,
-            Arc::clone(self.item_id_generator()),
+            config.model_provider.clone(),
             session_source.clone(),
             config_snapshot.originator,
             config.model_verbosity,

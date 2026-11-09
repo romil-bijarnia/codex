@@ -1,29 +1,11 @@
-//! Check budgets and prepare response interceptors before sending model requests.
+//! Compose request-scoped response interceptors before tracing and response bookkeeping.
 use codex_extension_api::ModelRequestContributor;
 use codex_extension_api::ModelRequestInput;
 use codex_extension_api::ModelRequestKind;
 use codex_extension_api::ModelResponseInterceptor;
 use codex_extension_api::ModelResponseStream;
-use codex_protocol::error::CodexErr;
-use codex_protocol::error::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-pub(crate) async fn check_budget(
-    contributors: &[Arc<dyn ModelRequestContributor>],
-    thread_id: &str,
-    kind: ModelRequestKind,
-) -> Result<()> {
-    if kind == ModelRequestKind::Warmup {
-        return Ok(());
-    }
-    for contributor in contributors {
-        if contributor.budget_exhausted(thread_id).await {
-            return Err(CodexErr::SessionBudgetExceeded);
-        }
-    }
-    Ok(())
-}
 
 pub(crate) fn prepare(
     contributors: &[Arc<dyn ModelRequestContributor>],

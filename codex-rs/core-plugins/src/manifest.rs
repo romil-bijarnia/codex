@@ -14,7 +14,7 @@ use std::path::PathBuf;
 mod manifest_cache;
 pub(crate) use manifest_cache::ManifestCache;
 const MAX_DEFAULT_PROMPT_COUNT: usize = 3;
-const MAX_DEFAULT_PROMPT_LEN: usize = 512;
+const MAX_DEFAULT_PROMPT_LEN: usize = 128;
 
 #[path = "agent_plugin_manifest.rs"]
 mod agent_plugin_manifest;
@@ -739,7 +739,6 @@ mod tests {
     fn plugin_interface_normalizes_default_prompt_array() {
         let tmp = tempdir().expect("tempdir");
         let plugin_root = tmp.path().join("demo-plugin");
-        let at_limit = "é".repeat(MAX_DEFAULT_PROMPT_LEN);
         let too_long = "x".repeat(MAX_DEFAULT_PROMPT_LEN + 1);
         write_manifest(
             &plugin_root,
@@ -748,7 +747,7 @@ mod tests {
                 r#"{{
     "displayName": "Demo Plugin",
     "defaultPrompt": [
-      " {at_limit} ",
+      " Summarize my inbox ",
       123,
       "{too_long}",
       "   ",
@@ -766,7 +765,7 @@ mod tests {
         assert_eq!(
             interface.default_prompt,
             Some(vec![
-                at_limit,
+                "Summarize my inbox".to_string(),
                 "Draft the reply".to_string(),
                 "Find my next action".to_string(),
             ])

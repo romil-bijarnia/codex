@@ -44,10 +44,7 @@ fn list_resources_payload_from_all_servers_is_sorted() {
         vec![resource("memo://a-1", "a-1"), resource("memo://a-2", "a-2")],
     );
 
-    let payload = ListResourcesPayload::from_all_servers(McpResourceListing {
-        by_server: map,
-        deferred_servers: Vec::new(),
-    });
+    let payload = ListResourcesPayload::from_all_servers(map);
     let value = serde_json::to_value(&payload).expect("serialize payload");
     let uris: Vec<String> = value["resources"]
         .as_array()
@@ -135,10 +132,7 @@ fn list_resource_templates_payload_from_all_servers_is_sorted() {
         vec![template("memo://alpha/{id}", "alpha")],
     );
 
-    let payload = ListResourceTemplatesPayload::from_all_servers(McpResourceListing {
-        by_server: templates_by_server,
-        deferred_servers: Vec::new(),
-    });
+    let payload = ListResourceTemplatesPayload::from_all_servers(templates_by_server);
 
     assert_eq!(
         serde_json::to_value(payload).expect("serialize resource templates"),

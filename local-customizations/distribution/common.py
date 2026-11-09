@@ -51,6 +51,37 @@ def release_tag(commit):
     return 'source-' + source_revision(commit)
 
 
+def stable_release_pin():
+    """The declared stable source/resource base, never the newest development branch."""
+    tag = CONFIG.get('upstream_release', '')
+    match = re.fullmatch(r'rust-v(\d+\.\d+\.\d+)', tag)
+    commit = CONFIG.get('upstream_commit', '')
+    digest = CONFIG.get('resource_sha256', '')
+    if (CONFIG.get('upstream_channel') != 'stable' or match is None
+            or not re.fullmatch(r'[0-9a-f]{40}', commit)
+            or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+        raise RuntimeError('The source manifest must pin a stable release tag, commit and resource checksum.')
+    return {'upstream_channel': 'stable', 'upstream_release': tag,
+            'upstream_commit': commit, 'compiled_version': match.group(1),
+            'official_resources_sha256': digest}
+
+
+def stable_package_version(commit):
+    if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise RuntimeError('Stable package identity requires a complete personal source commit SHA.')
+    return stable_release_pin()['compiled_version'] + '+romil.' + commit[:12]
+
+
+def validate_stable_manifest(manifest):
+    """Reject a differently based or merely relabelled download before selection."""
+    pin = stable_release_pin()
+    if any(manifest.get(key) != value for key, value in pin.items()):
+        raise RuntimeError('The published build does not match the pinned stable release base.')
+    if (manifest.get('official_resources_tag') != pin['upstream_release']
+            or manifest.get('version') != stable_package_version(manifest.get('source_commit'))):
+        raise RuntimeError('The published stable version or resource identity is inconsistent.')
+
+
 def atomic_write(path, content, mode=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

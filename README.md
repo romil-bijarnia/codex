@@ -1,14 +1,18 @@
-# Personal Codex fork
+# Personal Codex fork — stable 0.167.0
 
 This is the primary source repository for the custom Codex CLI and launcher:
-`romil-bijarnia/codex`, branch `main`, forked from `openai/codex`.
-The complete native source is in `codex-rs/`; personal launchers, helpers,
-prompt sources and build tooling are in `local-customizations/`.
+`romil-bijarnia/codex`, branch `main`. The source baseline is the official
+`rust-v0.167.0` release (`086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`), with the
+retained personal changes applied to that release's actual code.
 
-Use GitHub's **Sync fork** or an ordinary merge from `upstream/main` to bring
-in upstream changes. Syncing updates source only; building and installing the
-CLI are separate, deliberate operations. See [the workflow](local-customizations/WORKFLOW.md).
-The earlier `codex-customizations` repository is historical, not the primary source.
+The CLI reports `0.167.0`. Package receipts separately identify the custom source
+commit; this is not an unmodified OpenAI binary. Source and resource versions
+are pinned together, and development source is not relabelled as a stable build.
+
+Stable updates use official stable release tags, not GitHub's Sync fork merge
+from unreleased upstream `main`. See [the workflow](local-customizations/WORKFLOW.md).
+The complete native source is in `codex-rs/`; personal helpers, prompt sources
+and build tooling are in `local-customizations/`.
 
 ---
 

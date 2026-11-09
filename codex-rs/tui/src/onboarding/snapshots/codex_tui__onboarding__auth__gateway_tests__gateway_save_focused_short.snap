@@ -1,8 +1,0 @@
----
-source: tui/src/onboarding/gateway_tests.rs
-expression: "screen(&widget, 4)"
----
-› Save
-
-* Required
-Enter the environment variable name on the app server.

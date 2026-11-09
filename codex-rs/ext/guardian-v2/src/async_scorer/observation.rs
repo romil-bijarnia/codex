@@ -81,19 +81,6 @@ impl GuardianV2Extension {
                     info.tool.name == "js"
                 }
         });
-        // Count execution attempts even when policy disables background scoring.
-        if is_js_execution {
-            score_progress.observe_js_execution();
-        }
-        let Some(config) = input.turn_store.get::<codex_core::config::Config>() else {
-            score_progress.clear_score();
-            return;
-        };
-        if input.serving_assessment.is_some() {
-            let index = score_progress.observe(&input);
-            score_progress.invalidate(index);
-            return;
-        }
         let parent_model = input.thread_store.get::<ModelInfo>();
         let policy = guardian_config.policy_for_model(parent_model.as_deref());
         if !policy.scoring_enabled() {
@@ -116,18 +103,14 @@ impl GuardianV2Extension {
                 }
             })
             .or_else(|| GuardianScope::for_tool(input.tool_name));
-        // Mandatory review constraints must not turn transparent catalog wrappers into actions.
+        // Model policies review nested actions; the Code Mode wrapper leaves their scores alone.
         // The legacy all-tools policy still scores wrappers through `other_tools`.
-        let wrapper_mode = parent_model
-            .as_ref()
-            .and_then(|model| model.guardian.as_ref())
-            .map_or(policy.other_tools, |catalog| catalog.other_tools);
         if scope.is_none()
             && input.tool_name.is_default_namespace()
             && input.tool_name.name == "exec"
             && matches!(input.payload, ToolPayload::Custom { .. })
             && matches!(input.source, ToolCallSource::Direct)
-            && wrapper_mode == GuardianReviewMode::Disabled
+            && policy.other_tools == GuardianReviewMode::Disabled
         {
             return;
         }
@@ -155,6 +138,9 @@ impl GuardianV2Extension {
                 }
             }
             return;
+        }
+        if is_js_execution {
+            score_progress.observe_js_execution();
         }
         let metrics = score_progress.metrics.clone();
         let context_mode = GuardianContextMode::from_history(input.conversation_history.as_ref());
@@ -207,10 +193,11 @@ impl GuardianV2Extension {
                 .get_thread(parsed_thread_id)
                 .await
                 .map_err(|error| error.to_string())?;
-            Ok((manager, thread))
+            let config = thread.config().await;
+            Ok((manager, thread, config))
         }
         .await;
-        let (manager, thread) = match thread_context {
+        let (manager, thread, config) = match thread_context {
             Ok(context) => context,
             Err(error) => {
                 score_progress.invalidate(tool_call_index);
@@ -236,11 +223,6 @@ impl GuardianV2Extension {
         {
             // A skipped call invalidates older scores, including ones still in flight.
             score_progress.invalidate(tool_call_index);
-            return;
-        }
-        if !scores_tool(&policy, input.tool_name, input.payload, scope) {
-            score_progress.invalidate(tool_call_index);
-            score_progress.clear_score();
             return;
         }
         input.thread_store.insert(GuardianV2Enabled);
@@ -353,6 +335,9 @@ impl GuardianV2Extension {
                 return;
             }
         };
+        let review_model_override = parent_model
+            .as_ref()
+            .and_then(|model| model.auto_review_model_override.clone());
         // Snapshot before spawning so a delayed sample cannot see later reviews.
         let sync_reviews = guardian_evidence.snapshot();
         let codex_core::context::GuardianUserInputSnapshot {
@@ -417,6 +402,7 @@ impl GuardianV2Extension {
             call_id,
             mcp_tool,
             planned_action,
+            review_model_override,
             sync_reviews,
             trusted_user_inputs,
             authorization_version,

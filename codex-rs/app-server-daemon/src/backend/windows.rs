@@ -156,19 +156,11 @@ pub(crate) fn ensure_detached_launch(executable: &Path) -> Result<()> {
             command.creation_flags(CREATE_SUSPENDED | DETACHED_PROCESS);
             let child = match command.spawn() {
                 Ok(child) => child,
-                Err(_) => {
-                    return Err(err).context(crate::telemetry::StartFailure::Spawn(
-                        "cannot launch detached daemon".into(),
-                    ));
-                }
+                Err(_) => return Err(err).context("cannot launch detached daemon"),
             };
             (child, Err(err).context(DetachedLaunchRestricted))
         }
-        Err(err) => {
-            return Err(err).context(crate::telemetry::StartFailure::Spawn(
-                "cannot launch detached daemon".into(),
-            ));
-        }
+        Err(err) => return Err(err).context("cannot launch detached daemon"),
     };
     child
         .kill()

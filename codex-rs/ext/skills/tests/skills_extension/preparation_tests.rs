@@ -11,7 +11,7 @@ struct PausedExecutor {
 }
 
 impl SkillProvider for PausedExecutor {
-    fn list<'a>(&'a self, query: SkillListQuery<'a>) -> SkillProviderFuture<'a, SkillCatalog> {
+    fn list(&self, query: SkillListQuery) -> SkillProviderFuture<'_, SkillCatalog> {
         Box::pin(async move {
             self.queries
                 .lock()

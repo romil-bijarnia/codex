@@ -33,7 +33,6 @@ use std::thread::sleep;
 use std::thread::spawn;
 use std::time::Duration;
 
-use crate::local_stdio_io;
 use crate::local_stdio_transport::DiscoveryOutcome;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -504,27 +503,26 @@ impl LocalStdioServerLauncher {
                 "MCP client is shut down",
             ));
         }
-        let stdio = local_stdio_io::spawn(command)?;
+        let child = command.spawn()?;
         #[cfg(windows)]
-        let (stdio, job) = match job {
-            Some(job) => match stdio
-                .child
+        let (child, job) = match job {
+            Some(job) => match child
                 .id()
                 .ok_or_else(|| io::Error::other("missing suspended MCP server process id"))
                 .and_then(|process_id| job.assign_and_resume_process(process_id))
             {
-                Ok(Some(root)) => (stdio, Some((job, root))),
-                Ok(None) => (stdio, None),
+                Ok(Some(root)) => (child, Some((job, root))),
+                Ok(None) => (child, None),
                 Err(error) => {
                     warn!(
                         "Windows MCP process job containment failed; retrying without it: {error}"
                     );
-                    drop(stdio);
+                    drop(child);
                     drop(job);
-                    (local_stdio_io::spawn(build_command())?, None)
+                    (build_command().spawn()?, None)
                 }
             },
-            None => (stdio, None),
+            None => (child, None),
         };
         #[cfg(windows)]
         let protocol_mode = if job.is_none() && protocol_mode == McpProtocolMode::DiscoverLocalStdio
@@ -534,13 +532,13 @@ impl LocalStdioServerLauncher {
         } else {
             protocol_mode
         };
-        let process_id = stdio.child.id();
+        let process_id = child.id();
         // A legacy replacement still belongs to the discovery startup that launched it.
         let discovery_owned = (protocol_mode == McpProtocolMode::DiscoverLocalStdio
             || replacement_slot.is_some())
             && process_id.is_some();
         let (transport, stderr) =
-            LocalStdioTransport::new(stdio, program_name.clone(), protocol_mode);
+            LocalStdioTransport::new(child, program_name.clone(), protocol_mode)?;
         #[cfg(windows)]
         let terminator = match job {
             Some((job, root)) => Some(LocalProcessTerminator::Job {
@@ -1037,44 +1035,6 @@ mod tests {
     use codex_protocol::config_types::ShellEnvironmentPolicy;
     use codex_protocol::shell_environment;
     use pretty_assertions::assert_eq;
-
-    #[cfg(windows)]
-    #[test]
-    fn idle_local_mcp_pipe_reads_leave_blocking_io_available() -> anyhow::Result<()> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .max_blocking_threads(1)
-            .enable_all()
-            .build()?;
-        runtime.block_on(async {
-            let cwd = std::env::current_dir()?;
-            let launcher = LocalStdioServerLauncher::new(cwd.clone());
-            for mode in [McpProtocolMode::Legacy, McpProtocolMode::V20260728] {
-                // set /p waits for stdin and leaves both output pipes open and quiet.
-                let command = StdioServerCommand::new(
-                    "cmd.exe".into(),
-                    ["/d", "/q", "/c", "set /p idle="]
-                        .map(OsString::from)
-                        .into(),
-                    None,
-                    Vec::new(),
-                    None,
-                    mode,
-                );
-                let mut transport = launcher.launch(command).await?;
-                // Poll the stdout read before scheduling the filesystem operation. The
-                // launcher also drains stderr. A blocking read can occupy the only slot.
-                let pending = transport.receive().now_or_never().is_none();
-                let metadata =
-                    tokio::time::timeout(Duration::from_secs(5), tokio::fs::metadata(&cwd)).await;
-                // Release the child even on the failing, pre-fix path.
-                transport.close().await?;
-                anyhow::ensure!(pending, "helper exited before its idle read");
-                metadata??;
-            }
-            Ok(())
-        })
-    }
 
     #[test]
     fn remote_env_policy_uses_core_env_without_remote_source_vars() {

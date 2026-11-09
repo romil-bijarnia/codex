@@ -16,7 +16,6 @@ use axum::response::sse::Sse;
 use axum::routing::post;
 use codex_api::AuthError;
 use codex_api::AuthProvider;
-use codex_api::SharedAuthProvider;
 use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::OAuthCredentialsStoreMode;
 use codex_exec_server::Environment;
@@ -161,7 +160,6 @@ async fn plugin_runtime_event_streams_are_isolated_and_cancel_locally() -> anyho
     let base_url = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move { axum::serve(listener, router).await });
     let auth = Arc::new(RevocableAuth::default());
-    let request_auth: SharedAuthProvider = auth.clone();
     let client = RmcpClient::new_streamable_http_client(
         "test-streamable-http",
         &format!("{base_url}/mcp"),
@@ -171,7 +169,7 @@ async fn plugin_runtime_event_streams_are_isolated_and_cancel_locally() -> anyho
         OAuthCredentialsStoreMode::File,
         AuthKeyringBackendKind::default(),
         Environment::default_for_tests().get_http_client(),
-        Some(Arc::new(request_auth)),
+        Some(auth.clone()),
     )
     .await?;
     initialize_client(&client).await?;

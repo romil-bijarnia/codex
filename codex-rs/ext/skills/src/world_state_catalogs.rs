@@ -251,26 +251,13 @@ impl<'a> CatalogRenderingContext<'a> {
                 SkillCatalogRenderPolicy::CORE_COMPATIBLE
                     .with_omitted_descriptions(self.step_state.config.omit_descriptions),
             );
-            let grants = self
-                .input
-                .step_store
-                .get::<crate::TurnSkillFilesystemGrants>();
-            let primary_environment = self
-                .input
-                .environments
-                .first()
-                .map(|selection| selection.environment_id.as_str());
             for (catalog, rendered) in [
                 (&executor, &mut rendered.executor),
                 (&cloud, &mut rendered.cloud),
                 (&host, &mut rendered.host),
             ] {
                 if let Some(rendered) = rendered {
-                    rendered.entries = catalog.entries_for_render(
-                        rendered,
-                        grants.as_deref(),
-                        primary_environment,
-                    );
+                    rendered.entries = catalog.entries_for_render(rendered);
                 }
             }
         }
@@ -451,7 +438,6 @@ impl<'a> CatalogRenderingContext<'a> {
                 CatalogDelta {
                     rendered,
                     include_usage: self.include_usage,
-                    tracks_grants: kind != CatalogKind::Cloud,
                     allocation: (kind == CatalogKind::Cloud).then_some(allocation),
                 },
                 self.input

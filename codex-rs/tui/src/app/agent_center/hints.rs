@@ -146,10 +146,8 @@ impl AgentsOverviewView {
         }
         let cancel = if state.help {
             self.keymap.primary_hint(ListAction::Cancel)
-        } else if state.editing_metadata() || self.can_return_to_chat {
-            self.center_list_hint(ListAction::Cancel)
         } else {
-            None
+            self.center_list_hint(ListAction::Cancel)
         };
         if let Some(hint) = cancel {
             hints.push((hint.display_label(), "back".into()));

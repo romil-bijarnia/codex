@@ -244,17 +244,13 @@ pub struct PreparedFork {
     pub history_base: Option<HistoryPosition>,
     /// Bounded model context selected by the requested fork boundary.
     pub model_context: Arc<Vec<RolloutItem>>,
-    /// Prevents the source thread from being deleted until the child's history reference is
-    /// finalized.
-    ///
-    /// If absent, the backend must revalidate the prepared fork as part of finalizing that
-    /// reference.
-    _source_reservation: Option<Box<dyn std::fmt::Debug + Send>>,
+    /// Blocks source deletion until the child's history reference is durable.
+    _source_reservation: Box<dyn std::fmt::Debug + Send>,
 }
 
 impl PreparedFork {
     /// Creates a frozen fork snapshot while retaining a backend-owned source reservation.
-    pub fn with_source_reservation(
+    pub fn new(
         source_thread_id: ThreadId,
         history_base: Option<HistoryPosition>,
         model_context: Arc<Vec<RolloutItem>>,
@@ -264,22 +260,7 @@ impl PreparedFork {
             source_thread_id,
             history_base,
             model_context,
-            _source_reservation: Some(Box::new(source_reservation)),
-        }
-    }
-
-    /// Creates a frozen fork snapshot for a backend that revalidates the source while making the
-    /// child's history reference durable.
-    pub fn with_source_revalidation(
-        source_thread_id: ThreadId,
-        history_base: Option<HistoryPosition>,
-        model_context: Arc<Vec<RolloutItem>>,
-    ) -> Self {
-        Self {
-            source_thread_id,
-            history_base,
-            model_context,
-            _source_reservation: None,
+            _source_reservation: Box::new(source_reservation),
         }
     }
 }
@@ -379,9 +360,6 @@ pub struct ListThreadsParams {
 /// Parameters for searching thread content.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchThreadsParams {
-    /// The current login when searching account-scoped local history.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account: Option<crate::LocalHistoryAccount>,
     /// Maximum number of threads to return.
     pub page_size: usize,
     /// Opaque cursor returned by a previous search call.
@@ -514,7 +492,7 @@ pub enum ListItemsPosition {
     /// Opaque cursor returned by a previous list call.
     Cursor(String),
     /// Exclusive item anchor within the visible non-empty turn.
-    /// Requires creation order without an update boundary.
+    /// Requires creation order without an update watermark.
     ItemAnchor { item_id: String },
 }
 
@@ -535,12 +513,10 @@ pub struct ListItemsParams {
     pub page_size: usize,
     /// Direction to sort items by the selected ordinal.
     pub sort_direction: SortDirection,
-    /// Ordinal to sort items by. Update-ordinal sorting requires an update boundary.
+    /// Ordinal to sort items by. Update-ordinal sorting requires an update watermark.
     pub sort_key: ItemSortKey,
     /// Filters out items with an update ordinal less than or equal to the provided value.
     pub after_updated_at_ordinal: Option<u64>,
-    /// Filters out items with an update ordinal greater than or equal to the provided value.
-    pub before_updated_at_ordinal: Option<u64>,
 }
 
 /// The ordinal to use when listing persisted items.
@@ -639,12 +615,6 @@ pub struct ThreadOccurrenceSearchPage {
 /// Store-owned thread metadata used by list/read/resume responses.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoredThread {
-    /// Recorded creator user, when available from the backing store.
-    #[serde(default)]
-    pub creator_user_id: Option<String>,
-    /// Recorded creator workspace, when available from the backing store.
-    #[serde(default)]
-    pub creator_account_id: Option<String>,
     /// Originator recorded at creation, if available from the backing store.
     #[serde(default)]
     pub originator: Option<String>,
@@ -963,12 +933,10 @@ impl ThreadMetadataPatch {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.updated_at.is_none()
-            && self.token_usage.is_none()
-            && self.is_empty_except_updated_at_and_token_usage()
+        self.updated_at.is_none() && self.is_empty_except_updated_at()
     }
 
-    pub(crate) fn is_empty_except_updated_at_and_token_usage(&self) -> bool {
+    pub(crate) fn is_empty_except_updated_at(&self) -> bool {
         self.name.is_none()
             && self.rollout_path.is_none()
             && self.preview.is_none()
@@ -990,6 +958,7 @@ impl ThreadMetadataPatch {
             && self.cli_version.is_none()
             && self.approval_mode.is_none()
             && self.permission_profile.is_none()
+            && self.token_usage.is_none()
             && self.first_user_message.is_none()
             && self.git_info.is_none()
             && self.memory_mode.is_none()

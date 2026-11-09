@@ -124,7 +124,7 @@ impl SessionInner {
             Duration::from_millis(request.yield_time_ms.unwrap_or(DEFAULT_EXEC_YIELD_TIME_MS))
                 .saturating_add(Duration::from_secs(1));
         let opening = async {
-            let mut client = self.client()?;
+            let mut client = self.client();
             let mut request = self.request(request);
             if let Some(traceparent) = trace.and_then(|trace| trace.traceparent)
                 && let Ok(traceparent) = traceparent.parse()
@@ -319,7 +319,7 @@ impl SessionInner {
                 request.max_output_tokens,
             )?,
         };
-        let mut client = self.client()?;
+        let mut client = self.client();
         let watcher = preempt.map(|signal| {
             self.watch_yield(
                 signal,
@@ -341,20 +341,17 @@ impl SessionInner {
     }
 
     fn watch_yield(
-        self: &Arc<Self>,
+        &self,
         yield_signal: CancellationToken,
         observation: grpc::yield_observation_request::Observation,
     ) -> AbortOnDropHandle<()> {
-        let session = Arc::clone(self);
+        let mut client = self.client();
         let request = self.request(grpc::YieldObservationRequest {
             session_id: self.id.clone(),
             observation: Some(observation),
         });
         AbortOnDropHandle::new(tokio::spawn(async move {
             yield_signal.cancelled().await;
-            let Ok(mut client) = session.client() else {
-                return;
-            };
             if let Err(error) = deadline::startup("yield observation", async move {
                 client.yield_observation(request).await.map(|_| ())
             })
@@ -368,7 +365,7 @@ impl SessionInner {
 
     pub(super) async fn terminate(&self, request: TerminateRequest) -> Result<WaitOutcome, String> {
         self.require_open()?;
-        let mut client = self.client()?;
+        let mut client = self.client();
         let response = deadline::session_request(
             self,
             "termination",
@@ -478,9 +475,7 @@ impl Drop for WaitCancellation {
         }
         let session = Arc::clone(&self.session);
         self.session.runtime.spawn(async move {
-            let Ok(mut client) = session.client() else {
-                return;
-            };
+            let mut client = session.client();
             let result = deadline::request(
                 &session,
                 "wait cancellation",

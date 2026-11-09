@@ -63,7 +63,6 @@ impl Normalizer {
         let text = self.normalize_values(&text);
         if options.rewrite_known_segments
             && let Some(segment) = segment
-            && !(options.preserve_environment_context && segment == "ENVIRONMENT_CONTEXT")
         {
             let marker = format!("<{segment}>");
             if segment == "COMPACTION_SUMMARY"

@@ -67,11 +67,8 @@ impl PetPickerPreviewState {
         });
     }
 
-    pub(crate) fn take_area(&self) -> Option<Rect> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|mut inner| inner.last_area.take())
+    pub(crate) fn area(&self) -> Option<Rect> {
+        self.inner.lock().ok().and_then(|inner| inner.last_area)
     }
 
     fn update(&self, f: impl FnOnce(&mut PetPickerPreviewInner)) {

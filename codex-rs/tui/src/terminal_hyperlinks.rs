@@ -9,7 +9,6 @@ mod source;
 pub(crate) use paragraph::HyperlinkParagraph;
 pub(crate) use paragraph::HyperlinkRows;
 pub(crate) use paragraph::HyperlinkText;
-pub(crate) use paragraph::mark_hyperlink_cells;
 pub(crate) use source::LineWrapPolicy;
 pub(crate) use source::LogicalLineSource;
 
@@ -210,7 +209,7 @@ pub(crate) fn lines_with_sources_eq(left: &[HyperlinkLine], right: &[HyperlinkLi
             .eq(right.iter().map(|line| &line.source))
 }
 
-pub(crate) fn source_span_width(span: &Span<'_>) -> usize {
+fn source_span_width(span: &Span<'_>) -> usize {
     span.content
         .graphemes(/*is_extended*/ true)
         .map(display_width)
@@ -236,24 +235,13 @@ impl HyperlinkLine {
     }
 
     pub(crate) fn push_span(&mut self, span: Span<'static>, destination: Option<&str>) {
-        if let Some(destination) = destination.and_then(web_destination) {
-            self.push_linked_span(span, self.source_width(), destination);
-        } else {
-            self.source = None;
-            self.line.push_span(span);
-        }
-    }
-
-    pub(crate) fn push_linked_span(
-        &mut self,
-        span: Span<'static>,
-        start: usize,
-        destination: String,
-    ) {
         self.source = None;
+        let start = self.source_width();
         let end = start + source_span_width(&span);
         self.line.push_span(span);
-        if end > start {
+        if end > start
+            && let Some(destination) = destination.and_then(web_destination)
+        {
             self.hyperlinks
                 .push(TerminalHyperlink::web(start..end, destination));
         }

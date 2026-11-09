@@ -4,6 +4,7 @@
 use codex_extension_api::ExtensionData;
 use codex_extension_api::MessageLifecycleContributor;
 use codex_extension_api::MessageLifecycleInput;
+use codex_protocol::ResponseItemId;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::InterAgentCommunication;
 use serde::Deserialize;
@@ -155,11 +156,13 @@ pub(crate) struct MessageDelivery(Arc<Mutex<Option<MessagePublication>>>);
 impl MessageDelivery {
     pub(crate) fn publish(
         sender: ThreadId,
+        message_id: ResponseItemId,
         observers: &[Arc<dyn MessageLifecycleContributor>],
     ) -> Self {
         let input = MessageLifecycleInput {
             sender,
-            data: ExtensionData::new(uuid::Uuid::now_v7().to_string()),
+            data: ExtensionData::new(message_id.to_string()),
+            message_id,
         };
         for observer in observers {
             observer.on_publish(&input);

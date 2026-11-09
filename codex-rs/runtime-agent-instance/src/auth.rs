@@ -3,7 +3,6 @@
 use crate::ActorInfo;
 use crate::RegistrationError;
 use crate::RuntimeAgentInstance;
-use crate::RuntimeAuthBinding;
 use crate::RuntimeAuthError;
 use codex_api::AuthError;
 use codex_api::AuthHeaderTelemetry;
@@ -13,7 +12,6 @@ use codex_features::RuntimeAuthMode;
 use codex_http_client::CHATGPT_ACCOUNT_ID_HEADER;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthChangeState;
-use codex_login::AuthOwner;
 use codex_login::CodexAuth;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -30,8 +28,6 @@ pub struct RuntimeAuth {
     pub(crate) auth: CodexAuth,
     pub(crate) http_client_factory: HttpClientFactory,
     pub(crate) change_state: AuthChangeState,
-    pub(crate) owner: AuthOwner,
-    pub(crate) binding: Arc<RuntimeAuthBinding>,
 }
 
 impl std::fmt::Debug for RuntimeAuth {
@@ -65,14 +61,6 @@ impl RuntimeAuth {
 
     pub fn change_state(&self) -> AuthChangeState {
         self.change_state
-    }
-
-    pub fn auth_owner(&self) -> &AuthOwner {
-        &self.owner
-    }
-
-    pub fn binding(&self) -> &Arc<RuntimeAuthBinding> {
-        &self.binding
     }
 
     /// Preserve the caller's transport settings and restrictions while binding requests to
@@ -181,11 +169,8 @@ impl From<RuntimeAuthError> for AuthError {
             RuntimeAuthError::Unavailable
             | RuntimeAuthError::Unsupported
             | RuntimeAuthError::UnsupportedResourceSelection
-            | RuntimeAuthError::InvalidResourceSelection(_)
             | RuntimeAuthError::Changed
             | RuntimeAuthError::RefreshFailed
-            | RuntimeAuthError::RefreshTokenFailed(_)
-            | RuntimeAuthError::Task(_)
             | RuntimeAuthError::KeyGeneration
             | RuntimeAuthError::Registration(
                 RegistrationError::InvalidEndpoint

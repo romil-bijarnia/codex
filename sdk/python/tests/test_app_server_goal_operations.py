@@ -75,12 +75,8 @@ def test_private_goal_operation_coalesces_runtime_continuations(tmp_path) -> Non
         "messages": agent_message_texts(events),
         "request_count": len(requests),
         "objective_reached_model": (
-            "<external_goal_objective>Improve benchmark coverage</external_goal_objective>"
-            in requests[0].message_input_texts("user")
-        ),
-        "steering_reached_model": any(
-            "Continue working toward the active thread goal." in text
-            for text in requests[0].message_input_texts("user")
+            "<objective>\nImprove benchmark coverage\n</objective>"
+            in "\n".join(requests[0].message_input_texts("user"))
         ),
         "routes_after_completion": routes,
     } == {
@@ -90,6 +86,5 @@ def test_private_goal_operation_coalesces_runtime_continuations(tmp_path) -> Non
         "messages": ["Initial pass complete.", "Goal complete."],
         "request_count": 3,
         "objective_reached_model": True,
-        "steering_reached_model": True,
         "routes_after_completion": {},
     }

@@ -16,7 +16,6 @@ fn failed_turn_does_not_overwrite_output_last_message_file() {
             "thread-1".to_string(),
             "turn-1".to_string(),
             ThreadItemPayload::AgentMessage {
-                moderation: None,
                 id: "msg-1".to_string(),
                 text: "partial answer".to_string(),
                 phase: None,
@@ -57,8 +56,7 @@ fn failed_turn_does_not_overwrite_output_last_message_file() {
     assert_eq!(status, CodexStatus::InitiateShutdown);
     assert_eq!(processor.final_message(), None);
 
-    let output = BoundOutput::open(&output_path).expect("bind output");
-    EventProcessor::print_final_output(&mut processor, Some(output)).expect("print final output");
+    EventProcessor::print_final_output(&mut processor);
 
     assert_eq!(
         std::fs::read_to_string(&output_path).expect("read output file"),

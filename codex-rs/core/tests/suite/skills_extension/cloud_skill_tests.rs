@@ -15,7 +15,7 @@ struct FakeCloudSkillProvider {
 }
 
 impl SkillProvider for FakeCloudSkillProvider {
-    fn list<'a>(&'a self, _query: SkillListQuery<'a>) -> SkillProviderFuture<'a, SkillCatalog> {
+    fn list(&self, _query: SkillListQuery) -> SkillProviderFuture<'_, SkillCatalog> {
         Box::pin(async { Ok(self.catalog.clone()) })
     }
 

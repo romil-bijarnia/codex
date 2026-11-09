@@ -1,4 +1,4 @@
-//! Forward OAuth progress for every configured provider sharing the changed grant.
+//! Forward OAuth progress for the app's current gateway.
 
 use crate::config_manager::ConfigManager;
 use crate::outgoing_message::OutgoingMessageSender;
@@ -39,30 +39,27 @@ pub(crate) fn spawn(
             else {
                 continue;
             };
-            for (provider_id, provider) in &config.model_providers {
-                let Ok(Some(manager)) = codex_model_provider::create_model_provider(
-                    provider.clone(),
-                    Some(Arc::clone(&auth_manager)),
-                )
-                .gateway_auth_manager() else {
-                    continue;
-                };
-                if !matches!(manager.oauth_session(), Some(oauth) if oauth.config() == &change.config)
-                {
-                    continue;
-                }
-                let (status, error) = status_fields(change.status.clone());
-                outgoing
-                    .send_server_notification(ServerNotification::GatewayOAuthChanged(
-                        GatewayOAuthChangedNotification {
-                            auth_url: None,
-                            provider_id: provider_id.clone(),
-                            status,
-                            error,
-                        },
-                    ))
-                    .await;
+            let Ok(Some(manager)) = codex_model_provider::create_model_provider(
+                config.model_provider.clone(),
+                Some(Arc::clone(&auth_manager)),
+            )
+            .gateway_auth_manager() else {
+                continue;
+            };
+            if manager.config() != &change.config {
+                continue;
             }
+            let (status, error) = status_fields(change.status);
+            outgoing
+                .send_server_notification(ServerNotification::GatewayOAuthChanged(
+                    GatewayOAuthChangedNotification {
+                        auth_url: None,
+                        provider_id: config.model_provider_id,
+                        status,
+                        error,
+                    },
+                ))
+                .await;
         }
     }))
 }

@@ -324,8 +324,6 @@ pub(crate) fn managed_network_for_sandbox_permissions(
     }
 }
 
-
-
 pub(crate) trait Sandboxable {
     fn sandbox_preference(&self) -> SandboxablePreference;
     fn escalate_on_failure(&self) -> bool {
@@ -472,7 +470,6 @@ impl<'a> SandboxAttempt<'a> {
             .transform(SandboxTransformRequest {
                 command,
                 permissions: self.permissions,
-                workspace_roots: None,
                 sandbox: self.sandbox,
                 enforce_managed_network: self.enforce_managed_network,
                 environment_id,
@@ -508,7 +505,6 @@ impl<'a> SandboxAttempt<'a> {
             .transform(SandboxTransformRequest {
                 command,
                 permissions: self.permissions,
-                workspace_roots: None,
                 // The exec-server must receive the native command, not this host's wrapper.
                 sandbox: SandboxType::None,
                 enforce_managed_network: self.enforce_managed_network,

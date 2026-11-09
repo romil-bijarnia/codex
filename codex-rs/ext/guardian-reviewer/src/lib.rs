@@ -63,7 +63,6 @@ pub use model::ReviewModel;
 pub use model::select_review_model;
 pub use outcome::GuardianReviewError;
 pub use outcome::GuardianReviewOutcome;
-pub use outcome::GuardianReviewResponse;
 pub use outcome::GuardianReviewSessionOutcome;
 pub use planned_action::build_guardian_planned_action;
 
@@ -95,7 +94,6 @@ pub use feedback::ReviewFeedbackContext;
 pub use feedback::ReviewFeedbackSettings;
 pub use reporting::ReviewMetadata;
 pub use reporting::ReviewReport;
-
 
 pub use node_repl_review_evidence::GUARDIAN_MAX_NODE_REPL_TOOL_RESULT_TOKENS;
 pub use node_repl_review_evidence::NodeReplReviewEvidence;

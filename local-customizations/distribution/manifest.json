@@ -3,7 +3,10 @@
   "repository": "romil-bijarnia/codex",
   "source_branch": "main",
   "upstream_repository": "openai/codex",
-  "upstream_branch": "main",
   "target": "aarch64-unknown-linux-gnu",
-  "resource_target": "aarch64-unknown-linux-musl"
+  "resource_target": "aarch64-unknown-linux-musl",
+  "upstream_channel": "stable",
+  "upstream_release": "rust-v0.167.0",
+  "upstream_commit": "086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a",
+  "resource_sha256": "0de261ecf1e7f3028a7952f03fca2093f749277d38590b78bb32f8567756bbb7"
 }

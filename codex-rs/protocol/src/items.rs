@@ -1,5 +1,5 @@
 use crate::AgentPath;
-use crate::ItemIdGenerator;
+use crate::ResponseItemId;
 use crate::ThreadId;
 use crate::dynamic_tools::DynamicToolCallOutputContentItem;
 use crate::mcp::CallToolResult;
@@ -151,32 +151,6 @@ pub struct AsyncUserInputQuestion {
     pub options: Option<Vec<String>>,
 }
 
-/// A presentation instruction for Chat to apply to this answer when recovering history.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct AgentMessageDisplay {
-    /// Unknown actions must be left for the producing client to handle.
-    pub action: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub block_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub cyber_trusted_access: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub check_trusted_contacts: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS, JsonSchema)]
-pub struct AgentMessageModeration {
-    pub moderated: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub display: Option<AgentMessageDisplay>,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema)]
 /// Assistant-authored message payload used in turn-item streams.
 ///
@@ -184,9 +158,6 @@ pub struct AgentMessageModeration {
 /// should use it when present, but retain legacy completion semantics when it
 /// is `None`.
 pub struct AgentMessageItem {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub moderation: Option<AgentMessageModeration>,
     pub id: String,
     pub content: Vec<AgentMessageContent>,
     /// Optional phase metadata carried through from `ResponseItem::Message`.
@@ -756,10 +727,7 @@ impl HookPromptFragment {
     }
 }
 
-pub fn build_hook_prompt_message(
-    fragments: &[HookPromptFragment],
-    item_id_generator: &ItemIdGenerator,
-) -> Option<ResponseItem> {
+pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<ResponseItem> {
     let mut content = Vec::new();
     let mut metadata = Vec::new();
     for fragment in fragments {
@@ -776,7 +744,7 @@ pub fn build_hook_prompt_message(
     Some(ResponseItem::Message {
         status: None,
         encrypted_content: None,
-        id: Some(item_id_generator("msg")),
+        id: Some(ResponseItemId::new("msg")),
         role: "user".to_string(),
         content,
         phase: None,
@@ -952,9 +920,7 @@ mod tests {
             HookPromptFragment::from_single_hook("Retry with care & joy.", "hook-run-1"),
             HookPromptFragment::from_single_hook("Then summarize cleanly.", "hook-run-2"),
         ];
-        let message =
-            build_hook_prompt_message(&original, &crate::uuid_v7_item_id_generator_for_test())
-                .expect("hook prompt");
+        let message = build_hook_prompt_message(&original).expect("hook prompt");
 
         let ResponseItem::Message { id, content, .. } = message else {
             panic!("expected hook prompt message");

@@ -17,7 +17,6 @@ use super::super::AmazonBedrockModelProvider;
 use super::super::AwsAuthRecovery;
 use super::*;
 
-const MAX_CREDENTIAL_OUTPUT_BYTES: usize = 64 * 1024;
 const SECRET: &str = "credential-export-secret";
 const VALID_OUTPUT: &[u8] = br#"{"AccessKeyId":"exported","SecretAccessKey":"credential-export-secret","SessionToken":"credential-export-secret"}"#;
 
@@ -184,7 +183,10 @@ fn credential_output_formats_expiration_and_sanitized_errors() {
 
 #[tokio::test]
 async fn credential_export_process_errors_are_bounded_and_sanitized() -> io::Result<()> {
-    let oversized = format!("{SECRET}{}", "x".repeat(MAX_CREDENTIAL_OUTPUT_BYTES));
+    let oversized = format!(
+        "{SECRET}{}",
+        "x".repeat(MAX_CREDENTIAL_OUTPUT_BYTES as usize)
+    );
     for (mode, output, timeout_ms, expected_kind) in [
         ("missing", VALID_OUTPUT, 5_000, io::ErrorKind::NotFound),
         ("relative", VALID_OUTPUT, 5_000, io::ErrorKind::InvalidInput),
@@ -237,7 +239,7 @@ async fn credential_export_process_errors_are_bounded_and_sanitized() -> io::Res
 #[tokio::test]
 async fn credential_export_reuses_cache_and_coalesces_refreshes() -> io::Result<()> {
     let mut output = VALID_OUTPUT.to_vec();
-    output.resize(MAX_CREDENTIAL_OUTPUT_BYTES, b' ');
+    output.resize(MAX_CREDENTIAL_OUTPUT_BYTES as usize, b' ');
     let (directory, exporter) = exporter_fixture(&output, "success")?;
     let original = AwsAccessKeys {
         access_key_id: "exported".to_string(),

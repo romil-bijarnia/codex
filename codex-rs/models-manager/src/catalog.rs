@@ -29,8 +29,6 @@ impl<'a> SelectedCatalog<'a> {
 pub(crate) struct CatalogState {
     pub entry: ModelsCacheEntry,
     pub provider_model_ids: HashSet<String>,
-    // Distinguishes a successfully loaded empty catalog from the initial bundled seed.
-    pub initialized: bool,
 }
 
 impl CatalogState {
@@ -38,7 +36,6 @@ impl CatalogState {
         Self {
             entry,
             provider_model_ids: HashSet::new(),
-            initialized: false,
         }
     }
 
@@ -52,7 +49,6 @@ impl CatalogState {
         Self {
             entry,
             provider_model_ids,
-            initialized: true,
         }
     }
 

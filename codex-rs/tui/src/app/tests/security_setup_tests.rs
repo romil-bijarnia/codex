@@ -193,15 +193,16 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
 }
 
 #[tokio::test]
-async fn security_setup_skips_unavailable_or_mismatched_server_notice() -> Result<()> {
-    for response in [
-        json!({"result": {"notice": null}}),
-        json!({"error": {"code": -32601, "message": "Method not found"}}),
-        json!({"result": {"notice": {
-            "accountId": "other-account", "userId": "other-user",
-            "title": "Keep using Daybreak mode", "description": "Set up security.",
-            "action": {"label": "Set up security", "url": "https://chatgpt.com/cyber"}
-        }}}),
+async fn security_setup_skips_fetch_when_server_auth_does_not_match_saved_login() -> Result<()> {
+    for (auth_method, auth_token) in [
+        (
+            Some(AuthMode::ChatgptAuthTokens),
+            Some("other-account-token"),
+        ),
+        (Some(AuthMode::ChatgptAuthTokens), Some("saved-token")),
+        (Some(AuthMode::Chatgpt), Some("other-account-token")),
+        (Some(AuthMode::Chatgpt), None),
+        (None, None),
     ] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
         let backend = wiremock::MockServer::start().await;
@@ -231,8 +232,15 @@ async fn security_setup_skips_unavailable_or_mismatched_server_notice() -> Resul
         let daemon = tokio::spawn(async move {
             let (stream, _) = listener.accept().await?;
             serve_reconnect_requests(tokio_tungstenite::accept_async(stream).await?, |request| {
-                assert_eq!(request.method, "account/securitySetup/read");
-                std::future::ready(Some(response.clone()))
+                assert_eq!(request.method, "getAuthStatus");
+                assert_eq!(
+                    request.params,
+                    Some(json!({"includeToken": true, "refreshToken": false}))
+                );
+                std::future::ready(Some(json!({"result": {
+                    "authMethod": auth_method, "authToken": auth_token,
+                    "requiresOpenaiAuth": true
+                }})))
             })
             .await
         });
@@ -257,11 +265,7 @@ async fn security_setup_skips_unavailable_or_mismatched_server_notice() -> Resul
         backend.verify().await;
         server.shutdown().await?;
         let methods = daemon.await??;
-        assert!(
-            methods
-                .iter()
-                .any(|method| method == "account/securitySetup/read")
-        );
+        assert!(methods.iter().any(|method| method == "getAuthStatus"));
     }
     Ok(())
 }

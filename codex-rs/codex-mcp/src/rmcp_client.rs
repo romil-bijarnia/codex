@@ -32,7 +32,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::auth::McpAuthProvider;
 use crate::client_tool_catalog::ClientToolCatalog;
 use crate::codex_apps::normalize_codex_apps_callable_name;
 use crate::codex_apps::normalize_codex_apps_callable_namespace;
@@ -60,6 +59,7 @@ use crate::tools::ToolInfo;
 use anyhow::Result;
 use anyhow::anyhow;
 use async_channel::Sender;
+use codex_api::SharedAuthProvider;
 use codex_async_utils::CancelErr;
 use codex_async_utils::OrCancelExt;
 use codex_config::McpServerAuth;
@@ -285,7 +285,7 @@ struct ManagedClientStartup {
     tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
     runtime_context: McpRuntimeContext,
     resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
-    runtime_auth_provider: Option<McpAuthProvider>,
+    runtime_auth_provider: Option<SharedAuthProvider>,
     client_elicitation_capability: ElicitationCapability,
     client_mcp_extensions: ClientMcpExtensions,
     auth_changes: Option<watch::Receiver<AuthChangeState>>,
@@ -490,12 +490,11 @@ impl AsyncManagedClient {
         tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
         runtime_context: McpRuntimeContext,
         resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
-        runtime_auth_provider: Option<McpAuthProvider>,
+        runtime_auth_provider: Option<SharedAuthProvider>,
         client_elicitation_capability: ElicitationCapability,
         client_mcp_extensions: ClientMcpExtensions,
         auth_changes: Option<watch::Receiver<AuthChangeState>>,
         protocol_mode: McpProtocolMode,
-        defer_startup: bool,
         catalog_item_limit: usize,
         connection_pool: Option<(crate::McpConnectionPool, ConnectionKey)>,
         publish_apps: Option<watch::Sender<Option<std::sync::Weak<RmcpClient>>>>,
@@ -524,17 +523,6 @@ impl AsyncManagedClient {
             .as_ref()
             .and_then(|auth| auth.as_ref().ok())
             .map(|auth| auth.authority.clone());
-        // Startup may publish a legacy catalog after negotiation. Only a dormant chat can
-        // advertise it beforehand, and the pool must never put modern tools in that catalog.
-        let pool_catalog = tool_catalog_cache_context
-            .as_ref()
-            .filter(|_| protocol_mode != McpProtocolMode::DiscoverLocalStdio)
-            .cloned();
-        let advertised_catalog = if defer_startup {
-            tool_catalog_cache_context.clone()
-        } else {
-            pool_catalog.clone()
-        };
         let startup = Arc::new(ManagedClientStartup {
             ema_auth,
             originator: AuthStorageOriginator::current(),
@@ -546,7 +534,7 @@ impl AsyncManagedClient {
             tx_event,
             elicitation_requests,
             codex_apps_tools_cache_context: codex_apps_tools_cache_context.clone(),
-            tool_catalog_cache_context,
+            tool_catalog_cache_context: tool_catalog_cache_context.clone(),
             runtime_context,
             resolved_environment,
             runtime_auth_provider,
@@ -559,6 +547,10 @@ impl AsyncManagedClient {
             startup_complete: Arc::clone(&startup_complete),
             server_capabilities: Arc::clone(&server_capabilities),
         });
+        // A discovery attempt may publish a legacy catalog. It cannot read that catalog
+        // before negotiation or publish a modern joiner's tool list into it.
+        let tool_catalog_cache_context = tool_catalog_cache_context
+            .filter(|_| protocol_mode != McpProtocolMode::DiscoverLocalStdio);
         let (client, connection_slot) = if let Some((pool, key)) = connection_pool {
             let slot = Arc::new(ConnectionSlot::default());
             let connection_slot = Arc::clone(&slot);
@@ -566,13 +558,14 @@ impl AsyncManagedClient {
             let cancel_token = cancel_token.clone();
             let startup_complete = Arc::clone(&startup_complete);
             let server_capabilities = Arc::clone(&server_capabilities);
+            let tool_catalog_cache_context = tool_catalog_cache_context.clone();
             let client = async move {
                 let outcome = pool
                     .connect(
                         slot,
                         key,
                         server_capabilities,
-                        pool_catalog,
+                        tool_catalog_cache_context,
                         cancel_token,
                         |cancellation, sharing_declined| {
                             let mut shared_startup = (*startup).clone();
@@ -621,7 +614,7 @@ impl AsyncManagedClient {
             cached_server_info,
             server_capabilities,
             codex_apps_tools_cache_context,
-            tool_catalog_cache_context: advertised_catalog,
+            tool_catalog_cache_context,
             startup_complete,
             startup_reconnect,
             connection_slot,
@@ -1190,7 +1183,7 @@ async fn start_server_task(
         && let Some(context) = tool_catalog_cache_context.take()
         && let Some(ticket) = &tool_catalog_fetch_ticket
     {
-        context.record_modern_stdio_discovery(ticket);
+        context.invalidate_if_newest(ticket);
     }
     let connection_sharing = sharing_negotiation
         .map(|negotiation| negotiation.finish(&initialize_result.protocol_version))
@@ -1436,7 +1429,7 @@ pub(crate) async fn make_rmcp_client(
     oauth_refresh_mode: McpOAuthRefreshMode,
     runtime_context: McpRuntimeContext,
     resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
-    runtime_auth_provider: Option<McpAuthProvider>,
+    runtime_auth_provider: Option<SharedAuthProvider>,
     protocol_mode: McpProtocolMode,
 ) -> Result<RmcpClient, StartupOutcomeError> {
     let config = server.config().clone();
@@ -1542,13 +1535,6 @@ pub(crate) async fn make_rmcp_client(
             bearer_token_env_var,
             http_headers_helper: _,
         } => {
-            let (runtime_auth_provider, runtime_context) = match runtime_auth_provider {
-                Some(provider) => {
-                    let (provider, context) = provider.resolve(runtime_context, &url).await?;
-                    (Some(provider), context)
-                }
-                None => (None, runtime_context),
-            };
             let http_client = runtime_context
                 .http_client_for_server(server.config(), resolved_environment.as_ref())
                 .map_err(|error| StartupOutcomeError::from(anyhow!(error)))?;

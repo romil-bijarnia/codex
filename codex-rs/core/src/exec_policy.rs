@@ -12,17 +12,14 @@ use codex_execpolicy::Decision;
 use codex_execpolicy::Error as ExecPolicyRuleError;
 use codex_execpolicy::Evaluation;
 use codex_execpolicy::MatchOptions;
+use codex_execpolicy::NetworkRuleProtocol;
 use codex_execpolicy::Policy;
 use codex_execpolicy::PolicyParser;
 use codex_execpolicy::RequirementsExecPolicy;
 use codex_execpolicy::RuleMatch;
 use codex_execpolicy::blocking_append_allow_prefix_rule;
 use codex_execpolicy::blocking_append_network_rule;
-use codex_network_proxy::NetworkProxy;
 use codex_protocol::approvals::ExecPolicyAmendment;
-use codex_protocol::approvals::NetworkApprovalContext;
-use codex_protocol::approvals::NetworkPolicyAmendment;
-use codex_protocol::approvals::NetworkPolicyRuleAction;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemSandboxKind;
@@ -35,8 +32,6 @@ use tokio::task::spawn_blocking;
 use tracing::instrument;
 
 use crate::config::Config;
-use crate::network_policy_decision::ExecPolicyNetworkRuleAmendment;
-use crate::network_policy_decision::execpolicy_network_rule_amendment;
 use crate::sandboxing::SandboxPermissions;
 use crate::tools::sandboxing::ExecApprovalRequirement;
 use codex_shell_command::bash::parse_shell_lc_plain_commands;
@@ -283,8 +278,6 @@ pub(crate) struct ExecPolicyManager {
     update_lock: Semaphore,
 }
 
-
-
 impl ExecPolicyManager {
     pub(crate) fn new(policy: Arc<Policy>) -> Self {
         Self::from_snapshot(policy, /*source_requirements*/ None)
@@ -372,16 +365,14 @@ impl ExecPolicyManager {
         Ok(())
     }
 
-    /// Keeps the policy used by subsequent calls in step with native enforcement and persistence.
-    pub(crate) async fn apply_network_rule_and_persist(
+    pub(crate) async fn append_network_rule_and_update(
         &self,
         codex_home: &Path,
         host: &str,
-        amendment: &NetworkPolicyAmendment,
-        approval_context: &NetworkApprovalContext,
-        proxy: Option<&NetworkProxy>,
-        on_policy_applied: impl FnOnce(),
-    ) -> anyhow::Result<()> {
+        protocol: NetworkRuleProtocol,
+        decision: Decision,
+        justification: Option<String>,
+    ) -> Result<(), ExecPolicyUpdateError> {
         let _update_guard =
             self.update_lock
                 .acquire()
@@ -391,48 +382,19 @@ impl ExecPolicyManager {
                         "exec policy update semaphore closed".to_string(),
                     ),
                 })?;
-        let ExecPolicyNetworkRuleAmendment {
-            protocol,
-            decision,
-            justification,
-        } = execpolicy_network_rule_amendment(amendment, approval_context, host);
-        let mut updated_policy = self.current().as_ref().clone();
-        updated_policy.add_network_rule(host, protocol, decision, Some(justification.clone()))?;
-        let updated_policy = Arc::new(updated_policy);
-        if let Some(proxy) = proxy {
-            match amendment.action {
-                NetworkPolicyRuleAction::Allow => proxy
-                    .add_allowed_domain(host)
-                    .await
-                    .map_err(|err| anyhow::anyhow!("failed to update runtime allowlist: {err}"))?,
-                NetworkPolicyRuleAction::Deny => proxy
-                    .add_denied_domain(host)
-                    .await
-                    .map_err(|err| anyhow::anyhow!("failed to update runtime denylist: {err}"))?,
-            }
-        }
-        // Explicit denials also apply to owner-routed calls without a shared proxy. Publish
-        // before the cancellable write. Grants become available to other calls only after a save.
-        if decision == Decision::Forbidden {
-            self.policy.store(Arc::clone(&updated_policy));
-        }
-        let notify_after_save = if proxy.is_some() {
-            on_policy_applied();
-            None
-        } else {
-            Some(on_policy_applied)
-        };
         let policy_path = default_policy_path(codex_home);
+        let host = host.to_string();
         spawn_blocking({
             let policy_path = policy_path.clone();
-            let host = host.to_owned();
+            let host = host.clone();
+            let justification = justification.clone();
             move || {
                 blocking_append_network_rule(
                     &policy_path,
                     &host,
                     protocol,
                     decision,
-                    Some(&justification),
+                    justification.as_deref(),
                 )
             }
         })
@@ -443,10 +405,9 @@ impl ExecPolicyManager {
             source,
         })?;
 
-        self.policy.store(updated_policy);
-        if let Some(notify) = notify_after_save {
-            notify();
-        }
+        let mut updated_policy = self.current().as_ref().clone();
+        updated_policy.add_network_rule(&host, protocol, decision, justification)?;
+        self.policy.store(Arc::new(updated_policy));
         Ok(())
     }
 }

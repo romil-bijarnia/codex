@@ -5,9 +5,11 @@ use super::MACOS_SEATBELT_BASE_POLICY;
 use super::MacosSeatbeltProfile;
 use super::ProxyPolicyInputs;
 use super::UnixDomainSocketPolicy;
+use super::build_seatbelt_unreadable_glob_policy;
 use super::create_seatbelt_command_args;
+use super::create_seatbelt_command_args_for_legacy_policy;
 use super::create_seatbelt_command_args_with_profile;
-use super::dynamic_network_policy_for_network;
+use super::dynamic_network_policy;
 use super::normalize_path_for_sandbox;
 use super::seatbelt_regex_for_glob;
 use super::seatbelt_regex_for_unreadable_glob;
@@ -147,21 +149,13 @@ fn seatbelt_allows_semaphore_limit_sysconf() {
         SandboxPolicy::new_workspace_write_policy(),
     ] {
         // getconf calls the same sysconf used by Python's ProcessPoolExecutor.
-        let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-            command: vec!["/usr/bin/getconf".to_string(), "SEM_NSEMS_MAX".to_string()],
-            file_system_sandbox_policy:
-                &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-                    &policy,
-                    workspace.path(),
-                ),
-            network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-            sandbox_policy_cwd: workspace.path(),
-            enforce_managed_network: false,
-            managed_network: None,
-            environment_id: None,
-            network: None,
-            extra_allow_unix_sockets: &[],
-        })
+        let args = create_seatbelt_command_args_for_legacy_policy(
+            vec!["/usr/bin/getconf".to_string(), "SEM_NSEMS_MAX".to_string()],
+            &policy,
+            workspace.path(),
+            /*enforce_managed_network*/ false,
+            /*network*/ None,
+        )
         .expect("create seatbelt args");
         let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
             .args(args)
@@ -398,8 +392,8 @@ fn process_platform_defaults_allow_scratch_without_granting_it_to_filesystem_hel
 
 #[test]
 fn create_seatbelt_args_routes_network_through_proxy_ports() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Restricted,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::new_read_only_policy(),
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![43128, 48081],
@@ -437,8 +431,13 @@ fn create_seatbelt_args_routes_network_through_proxy_ports() {
 
 #[test]
 fn dynamic_network_policy_allows_tls_without_darwin_user_cache_write() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Enabled,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs::default(),
     );
@@ -896,7 +895,10 @@ fn nested_protected_paths_cannot_be_bypassed_by_renaming_ancestors() {
 
 #[test]
 fn prepared_managed_network_context_allows_only_its_proxy_ports() {
-    let file_system_policy = FileSystemSandboxPolicy::read_only();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        Path::new("/"),
+    );
     let managed_network = ManagedNetworkSandboxContext {
         loopback_ports: vec![43123, 48081],
         allow_local_binding: false,
@@ -929,7 +931,10 @@ fn prepared_managed_network_context_allows_only_its_proxy_ports() {
 async fn prepared_managed_network_context_takes_precedence_over_live_proxy_socket_policy()
 -> anyhow::Result<()> {
     let cwd = TempDir::new().expect("temp cwd");
-    let file_system_policy = FileSystemSandboxPolicy::read_only();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        cwd.path(),
+    );
     let network_config = NetworkProxyConfig {
         enabled: true,
         mode: NetworkMode::Full,
@@ -1169,56 +1174,30 @@ fn unreadable_glob_policy_includes_canonicalized_static_prefix() {
     fs::create_dir(&real_root).expect("create real root");
     symlink(&real_root, &link_root).expect("create symlinked root");
 
-    let real_root = real_root.canonicalize().expect("canonicalize real root");
-    fs::create_dir(real_root.join("app")).expect("create app directory");
-    for (suffix, file) in [
-        ("**/*.env", "app/token.env"),
-        ("{app,service}/*.env", "app/token.env"),
-        (r"secret\?.env", "secret?.env"),
-    ] {
-        let denied = real_root.join(file);
-        let sibling = denied.with_file_name("editable.txt");
-        fs::write(&denied, "secret").expect("write denied file");
-        fs::write(&sibling, "public").expect("write sibling");
-        let mut policy = restricted_write_policy(&[&real_root]);
-        policy.entries.push(FileSystemSandboxEntry::new(
-            FileSystemPath::GlobPattern {
-                pattern: format!("link-root/{suffix}"),
-            },
-            FileSystemAccessMode::Deny,
-        ));
-        let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-            command: vec![
-                "/bin/sh".into(),
-                "-c".into(),
-                r#"/bin/cat "$1" && printf edited > "$1" && ! /bin/cat "$2" && ! (printf leaked > "$2")"#.into(),
-                "sh".into(),
-                sibling.display().to_string(),
-                denied.display().to_string(),
-            ],
-            file_system_sandbox_policy: &policy,
-            network_sandbox_policy: NetworkSandboxPolicy::Restricted,
-            sandbox_policy_cwd: temp_dir.path(),
-            enforce_managed_network: false,
-            managed_network: None,
-            environment_id: None,
-            network: None,
-            extra_allow_unix_sockets: &[],
-        })
-        .expect("generate Seatbelt command");
-        let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
-            .args(args)
-            .current_dir(&real_root)
-            .output()
-            .expect("run Seatbelt command");
-        assert!(output.status.success(), "{suffix}: {output:?}");
-        assert_eq!(
-            fs::read_to_string(&denied).expect("read denied file"),
-            "secret"
+    let canonical_root = real_root.canonicalize().expect("canonicalize real root");
+    for suffix in ["**/*.env", "{app,service}/*.env", r"secret\?.env"] {
+        let pattern = format!("{}/{suffix}", link_root.display());
+        let canonical_pattern = format!("{}/{suffix}", canonical_root.display());
+        let expected_regex = seatbelt_regex_for_unreadable_glob(&canonical_pattern)
+            .expect("canonical glob should compile");
+        let mut policy = FileSystemSandboxPolicy::default();
+        policy.entries.push(FileSystemSandboxEntry {
+            path: FileSystemPath::GlobPattern { pattern },
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
+        });
+
+        let seatbelt_policy = build_seatbelt_unreadable_glob_policy(&policy, temp_dir.path());
+
+        assert!(
+            seatbelt_policy.contains(&format!(r#"(deny file-read* (regex #"{expected_regex}"))"#)),
+            "expected canonicalized glob regex in policy:\n{seatbelt_policy}"
         );
-        assert_eq!(
-            fs::read_to_string(&sibling).expect("read sibling"),
-            "edited"
+        assert!(
+            seatbelt_policy.contains(&format!(
+                r#"(deny file-write* (regex #"{expected_regex}"))"#
+            )),
+            "expected canonicalized glob write deny in policy:\n{seatbelt_policy}"
         );
     }
 }
@@ -1378,7 +1357,10 @@ fn restricted_reads_cannot_read_preferences_outside_allowed_roots() {
         FileSystemSandboxEntry::new(workspace_root.into(), FileSystemAccessMode::Read),
         FileSystemSandboxEntry::new(plist_path.into(), FileSystemAccessMode::Deny),
     ]);
-    let full_read = FileSystemSandboxPolicy::read_only();
+    let full_read = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        workspace.path(),
+    );
     let run = |policy: &FileSystemSandboxPolicy, command: Vec<String>| {
         let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
             command,
@@ -1447,8 +1429,8 @@ fn restricted_reads_cannot_read_preferences_outside_allowed_roots() {
 
 #[test]
 fn create_seatbelt_args_allows_local_binding_when_explicitly_enabled() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Restricted,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::new_read_only_policy(),
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![43128],
@@ -1478,8 +1460,13 @@ fn create_seatbelt_args_allows_local_binding_when_explicitly_enabled() {
 
 #[test]
 fn dynamic_network_policy_preserves_restricted_policy_when_proxy_config_without_ports() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Enabled,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![],
@@ -1509,8 +1496,13 @@ fn dynamic_network_policy_preserves_restricted_policy_when_proxy_config_without_
 
 #[test]
 fn dynamic_network_policy_blocks_dns_when_local_binding_has_no_proxy_ports() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Enabled,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![],
@@ -1532,8 +1524,13 @@ fn dynamic_network_policy_blocks_dns_when_local_binding_has_no_proxy_ports() {
 
 #[test]
 fn dynamic_network_policy_preserves_restricted_policy_for_managed_network_without_proxy_config() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Enabled,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
         /*enforce_managed_network*/ true,
         &ProxyPolicyInputs {
             ports: vec![],
@@ -1559,8 +1556,8 @@ fn dynamic_network_policy_preserves_restricted_policy_for_managed_network_withou
 
 #[test]
 fn create_seatbelt_args_allowlists_unix_socket_paths() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Restricted,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::new_read_only_policy(),
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![43128],
@@ -1597,7 +1594,10 @@ fn create_seatbelt_args_allowlists_unix_socket_paths() {
 #[test]
 fn create_seatbelt_args_allowlists_explicit_unix_socket_paths_without_proxy() {
     let cwd = TempDir::new().expect("temp cwd");
-    let file_system_policy = FileSystemSandboxPolicy::read_only();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        cwd.path(),
+    );
     let extra_allow_unix_sockets = vec![absolute_path("/tmp/codex-browser-use")];
     let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
         command: vec!["/usr/bin/true".to_string()],
@@ -1637,7 +1637,10 @@ fn create_seatbelt_args_allowlists_explicit_unix_socket_paths_without_proxy() {
 #[tokio::test]
 async fn create_seatbelt_args_merges_proxy_and_explicit_unix_socket_paths() -> anyhow::Result<()> {
     let cwd = TempDir::new().expect("temp cwd");
-    let file_system_policy = FileSystemSandboxPolicy::read_only();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        cwd.path(),
+    );
     let network_socket = "/tmp/codex-proxy-use";
     let explicit_socket = "/tmp/codex-browser-use";
     let mut network_config = NetworkProxyConfig {
@@ -1700,7 +1703,10 @@ async fn create_seatbelt_args_merges_proxy_and_explicit_unix_socket_paths() -> a
 #[test]
 fn create_seatbelt_args_preserves_full_network_with_explicit_unix_socket_paths() {
     let cwd = TempDir::new().expect("temp cwd");
-    let file_system_policy = FileSystemSandboxPolicy::read_only();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        cwd.path(),
+    );
     let extra_allow_unix_sockets = vec![absolute_path("/tmp/codex-browser-use")];
     let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
         command: vec!["/usr/bin/true".to_string()],
@@ -1790,8 +1796,8 @@ fn normalize_path_for_sandbox_rejects_relative_paths() {
 
 #[test]
 fn create_seatbelt_args_allows_all_unix_sockets_when_enabled() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Restricted,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::new_read_only_policy(),
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![43128],
@@ -1821,8 +1827,13 @@ fn create_seatbelt_args_allows_all_unix_sockets_when_enabled() {
 
 #[test]
 fn create_seatbelt_args_full_network_with_proxy_is_still_proxy_only() {
-    let policy = dynamic_network_policy_for_network(
-        NetworkSandboxPolicy::Enabled,
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
             ports: vec![43128],
@@ -1890,19 +1901,13 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command.clone(),
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &cwd,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &cwd,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command.clone(),
+        &policy,
+        &cwd,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
 
     let policy_text = seatbelt_policy_arg(&args);
@@ -2043,19 +2048,13 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let write_hooks_file_args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command_git,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &cwd,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &cwd,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let write_hooks_file_args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command_git,
+        &policy,
+        &cwd,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&write_hooks_file_args)
@@ -2086,19 +2085,13 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let write_allowed_file_args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command_allowed,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &cwd,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &cwd,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let write_allowed_file_args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command_allowed,
+        &policy,
+        &cwd,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&write_allowed_file_args)
@@ -2141,19 +2134,13 @@ fn create_seatbelt_args_rejects_symlinked_writable_root() {
         exclude_slash_tmp: true,
     };
 
-    let error = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: vec!["/usr/bin/true".to_string()],
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &workspace,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &workspace,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let error = create_seatbelt_command_args_for_legacy_policy(
+        vec!["/usr/bin/true".to_string()],
+        &policy,
+        &workspace,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .expect_err("symlinked workspace should be rejected");
 
     assert!(
@@ -2187,19 +2174,13 @@ fn seatbelt_prevents_writable_root_replacement() {
         "sh".to_string(),
         target.display().to_string(),
     ];
-    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &workspace,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &workspace,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command,
+        &policy,
+        &workspace,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .expect("build seatbelt command");
 
     let policy_text = seatbelt_policy_arg(&args);
@@ -2604,24 +2585,17 @@ fn seatbelt_protects_aws_in_extra_writable_home() {
             ]
         };
         for attempt in attempts {
-            let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-                command: vec![
+            let args = create_seatbelt_command_args_for_legacy_policy(
+                vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
                     format!(r#"printf ran > "$HOME/probe" && {attempt}"#),
                 ],
-                file_system_sandbox_policy:
-                    &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-                        &policy, &workspace,
-                    ),
-                network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-                sandbox_policy_cwd: &workspace,
-                enforce_managed_network: false,
-                managed_network: None,
-                environment_id: None,
-                network: None,
-                extra_allow_unix_sockets: &[],
-            })
+                &policy,
+                &workspace,
+                /*enforce_managed_network*/ false,
+                /*network*/ None,
+            )
             .expect("build seatbelt command");
             let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
                 .args(args)
@@ -2830,20 +2804,13 @@ fn create_seatbelt_args_block_first_time_dot_codex_creation_with_metadata_name_r
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy,
-            repo_root.as_path(),
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: repo_root.as_path(),
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command,
+        &policy,
+        repo_root.as_path(),
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
 
     let policy_text = seatbelt_policy_arg(&args);
@@ -2890,19 +2857,13 @@ fn create_seatbelt_args_with_read_only_git_pointer_file() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &cwd,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &cwd,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command,
+        &policy,
+        &cwd,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
 
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
@@ -2933,19 +2894,13 @@ fn create_seatbelt_args_with_read_only_git_pointer_file() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let gitdir_args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command_gitdir,
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy, &cwd,
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: &cwd,
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let gitdir_args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command_gitdir,
+        &policy,
+        &cwd,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&gitdir_args)
@@ -3066,20 +3021,13 @@ fn create_seatbelt_args_for_cwd_as_git_repo() {
     .iter()
     .map(std::string::ToString::to_string)
     .collect();
-    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
-        command: shell_command.clone(),
-        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
-            &policy,
-            vulnerable_root.as_path(),
-        ),
-        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
-        sandbox_policy_cwd: vulnerable_root.as_path(),
-        enforce_managed_network: false,
-        managed_network: None,
-        environment_id: None,
-        network: None,
-        extra_allow_unix_sockets: &[],
-    })
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command.clone(),
+        &policy,
+        vulnerable_root.as_path(),
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
     .unwrap();
 
     let slash_tmp = PathBuf::from("/tmp")

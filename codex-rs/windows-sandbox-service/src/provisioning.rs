@@ -1,6 +1,5 @@
 //! Provisions an authenticated client's sandbox through its selected setup path.
 
-pub(crate) mod legacy_bin;
 mod registered;
 
 use std::os::windows::fs::MetadataExt;
@@ -114,7 +113,6 @@ pub(crate) fn run(
             helper.display()
         );
     }
-    legacy_bin::prepare(&identity.codex_home, identity.token.as_handle())?;
     let retained_handles = identity
         .directory_handles
         .iter()

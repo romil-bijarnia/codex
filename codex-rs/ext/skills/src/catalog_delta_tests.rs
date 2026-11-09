@@ -14,7 +14,6 @@ fn update_spends_budget_only_on_accepted_rows_and_their_new_roots() {
         snapshot: SkillEntrySnapshot {
             fingerprint: String::new(),
             shown: false,
-            grant: None,
         },
         line: line.to_string(),
         root: Some(AliasRoot {

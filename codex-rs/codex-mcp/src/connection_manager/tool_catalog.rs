@@ -547,21 +547,11 @@ impl McpConnectionSet {
                 call,
             );
         }
-        let deferred_servers = self
-            .servers
-            .iter()
-            .filter(|(_, view)| {
-                view.connection.startup_is_dormant()
-                    && !view.connection.client.cancel_token.is_cancelled()
-            })
-            .map(|(name, _)| name.clone())
-            .collect();
         let clients = Arc::new(McpBindingClients::new(
             clients
                 .into_iter()
                 .map(|(server_name, (client, _))| (server_name, client))
                 .collect(),
-            deferred_servers,
         ));
         McpBinding::new(
             Arc::clone(self),
@@ -578,30 +568,21 @@ impl McpConnectionSet {
         self: &Arc<Self>,
         config: Arc<crate::McpConfig>,
         advertised_tool: &ToolInfo,
-    ) -> Result<PreparedMcpCall> {
+    ) -> Option<PreparedMcpCall> {
         let server_name = &advertised_tool.server_name;
-        let unavailable = || advertised_tool.unavailable_to_model_error();
-        let view = self.servers.get(server_name).ok_or_else(unavailable)?;
+        let view = self.servers.get(server_name)?;
         if !view.tool_filter.allows(&advertised_tool.tool.name) {
-            return Err(unavailable());
+            return None;
         }
         // Recovery belongs to readiness, before the caller acquires the tool execution lock.
-        let mut client = view
-            .connection
-            .client()
-            .await
-            .with_context(|| format!("Could not start MCP server `{server_name}`"))?;
+        let mut client = view.connection.client().await.ok()?;
         client.tool_timeout = view.tool_timeout;
         let snapshot = client.tool_catalog.read(Arc::new).await;
-        let current_tool = snapshot
-            .tools
-            .iter()
-            .find(|tool| {
-                tool.server_name == *server_name
-                    && tool.tool.name == advertised_tool.tool.name
-                    && tool.connector_id == advertised_tool.connector_id
-            })
-            .ok_or_else(unavailable)?;
+        let current_tool = snapshot.tools.iter().find(|tool| {
+            tool.server_name == *server_name
+                && tool.tool.name == advertised_tool.tool.name
+                && tool.connector_id == advertised_tool.connector_id
+        })?;
         let mut tool_info = if server_name == CODEX_APPS_MCP_SERVER_NAME {
             prepare_codex_apps_tools_for_model(
                 vec![current_tool.clone()],
@@ -613,9 +594,10 @@ impl McpConnectionSet {
                 &self.tool_plugin_context,
             )
         }
-        .pop()
-        .filter(tool_is_model_visible)
-        .ok_or_else(unavailable)?;
+        .pop()?;
+        if !tool_is_model_visible(&tool_info) {
+            return None;
+        }
         tool_info = Self::with_server_metadata(tool_info, &view.metadata);
         // Preserve the globally normalized identity advertised to the model, while
         // taking schema, annotations, and approval metadata from the current catalog.
@@ -626,7 +608,6 @@ impl McpConnectionSet {
             .callable_name
             .clone_from(&advertised_tool.callable_name);
         self.prepare_call(tool_info, Arc::new(client), config, snapshot)
-            .ok_or_else(unavailable)
     }
 
     fn prepare_call(

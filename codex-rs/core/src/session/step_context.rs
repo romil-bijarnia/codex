@@ -11,11 +11,8 @@ use crate::session::turn_context::TurnContext;
 use crate::session::turn_context::TurnEnvironment;
 use crate::tools::router::ToolRouter;
 use codex_extension_api::ExtensionData;
-use codex_features::Feature;
 use codex_file_system::EnvironmentAccess;
 use codex_mcp::McpBinding;
-use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
-use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_PROVIDER_ID;
 use codex_otel::SessionTelemetry;
 use codex_plugin::ExecutorPluginHookSource;
 use codex_protocol::items::ModelInvocationContext;
@@ -25,8 +22,6 @@ use tokio_util::sync::CancellationToken;
 /// Request-scoped state that may change between model sampling requests.
 #[derive(Clone)]
 pub(crate) struct StepContext {
-    /// Input prefix captured for this normal inference attempt, acknowledged with its output.
-    pub(crate) sampled_through_sequence: Option<u64>,
     pub(crate) turn: Arc<TurnContext>,
     /// Preempts this request and yields its code-mode observations when user input arrives.
     pub(crate) preempt: Option<CancellationToken>,
@@ -54,23 +49,14 @@ pub(crate) struct StepContext {
 }
 
 impl StepContext {
-    /// Feature that selects the tool layout of new windows on this route.
-    pub(crate) fn incremental_tools_feature(&self) -> Option<Feature> {
-        if self.settings.model_info.use_responses_lite {
-            Some(Feature::IncrementalTools)
-        } else {
-            matches!(
-                self.turn.config.model_provider_id.as_str(),
-                AMAZON_BEDROCK_PROVIDER_ID | AMAZON_BEDROCK_RUNTIME_PROVIDER_ID
-            )
-            .then_some(Feature::IncrementalToolsLegacy)
-        }
-    }
-
     /// Whether new context windows should record tool declarations in history.
     pub(crate) fn incremental_tools_enabled(&self) -> bool {
-        self.incremental_tools_feature()
-            .is_some_and(|feature| self.turn.config.features.enabled(feature))
+        self.settings.model_info.use_responses_lite
+            && self
+                .turn
+                .config
+                .features
+                .enabled(codex_features::Feature::IncrementalTools)
     }
 
     /// Pairs the step's environments with access using current session and originating-turn grants.

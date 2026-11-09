@@ -50,7 +50,7 @@ fn exec_server_defaults_preserve_local_and_noise_modes() {
 
 #[test]
 fn remote_forwarder_skips_cloud_config() {
-    let mut command = exec_server_from_args(&[
+    let command = exec_server_from_args(&[
         "forward",
         "--connect",
         "ws://localhost:8765",
@@ -60,8 +60,6 @@ fn remote_forwarder_skips_cloud_config() {
         "env-1",
     ]);
     assert!(!command.should_load_cloud_config());
-    command.chatgpt_token_stdin = true;
-    assert!(command.validate_remote_transport().is_err());
 }
 
 #[test]
@@ -165,18 +163,6 @@ fn exec_server_rejects_missing_or_conflicting_remote_options() {
         ),
         (
             vec!["--executor-credential-stdin", "--use-agent-identity-auth"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--executor-credential-stdin", "--registration-bearer-stdin"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--chatgpt-token-stdin", "--executor-credential-stdin"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--chatgpt-token-stdin", "--registration-bearer-stdin"],
             ErrorKind::ArgumentConflict,
         ),
         (

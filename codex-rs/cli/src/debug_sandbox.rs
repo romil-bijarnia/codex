@@ -25,7 +25,6 @@ use codex_protocol::config_types::SandboxMode;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::SandboxEnforcement;
 use codex_protocol::permissions::NetworkSandboxPolicy;
-use codex_sandboxing::SandboxType::WindowsMxc;
 use codex_sandboxing::landlock::create_linux_sandbox_command_args_for_permission_profile;
 #[cfg(target_os = "macos")]
 use codex_sandboxing::seatbelt::CreateSeatbeltCommandArgsParams;
@@ -271,9 +270,6 @@ async fn run_command_under_sandbox(
             }
             permission_profile => permission_profile.clone(),
         },
-        None if matches!(sandbox_type, SandboxType::Windows) => {
-            config.permissions.permission_profile().clone()
-        }
         None => config.permissions.effective_permission_profile(),
     };
     if matches!(permission_profile, PermissionProfile::Disabled) && sandbox_state_disable_network {
@@ -302,7 +298,7 @@ async fn run_command_under_sandbox(
     // disk config. Preserve that backend rather than weakening enforcement.
     // An explicit MXC launch fails closed if the native implementation is unavailable.
     let windows_sandbox_type = if sandbox_state.as_ref().is_some_and(|state| state.use_mxc) {
-        WindowsMxc
+        codex_sandboxing::SandboxType::WindowsMxc
     } else {
         config.effective_local_windows_sandbox_type()
     };
@@ -331,10 +327,7 @@ async fn run_command_under_sandbox(
     if let SandboxType::Windows = sandbox_type {
         #[cfg(target_os = "windows")]
         {
-            if windows_sandbox_type != WindowsMxc {
-                if sandbox_state.is_none() {
-                    permission_profile = config.permissions.effective_permission_profile();
-                }
+            if windows_sandbox_type != codex_sandboxing::SandboxType::WindowsMxc {
                 let workspace_roots = config
                     .effective_workspace_roots()
                     .iter()
@@ -389,10 +382,9 @@ async fn run_command_under_sandbox(
     // policy came from managed requirements.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let enforce_managed_network = network.is_some();
-    // MXC adds the CA read grant in transform after binding the workspace roots.
-    let managed_mitm_ca_trust_bundle_path = match (network.as_ref(), &sandbox_type) {
-        (None, _) | (_, SandboxType::Windows) => None,
-        (Some(network), _) => network.managed_mitm_ca_trust_bundle_path(),
+    let managed_mitm_ca_trust_bundle_path = match network.as_ref() {
+        Some(network) => network.managed_mitm_ca_trust_bundle_path(),
+        None => None,
     };
     let runtime_permission_profile = with_managed_mitm_ca_readable_root(
         permission_profile,
@@ -494,14 +486,6 @@ async fn run_command_under_sandbox(
                 .context("sandbox command must not be empty")?;
             let sandbox_policy_cwd = PathUri::from_abs_path(&sandbox_policy_cwd);
             let codex_self_exe = std::env::current_exe()?;
-            let workspace_roots = sandbox_state.is_none().then(|| {
-                config
-                    .permissions
-                    .workspace_roots()
-                    .iter()
-                    .map(PathUri::from_abs_path)
-                    .collect::<Vec<_>>()
-            });
             let request = SandboxManager::new().transform(SandboxTransformRequest {
                 command: SandboxCommand {
                     program: program.into(),
@@ -512,8 +496,7 @@ async fn run_command_under_sandbox(
                     additional_permissions: None,
                 },
                 permissions: &runtime_permission_profile,
-                workspace_roots: workspace_roots.as_deref(),
-                sandbox: WindowsMxc,
+                sandbox: codex_sandboxing::SandboxType::WindowsMxc,
                 enforce_managed_network,
                 environment_id: None,
                 network: network.as_ref(),

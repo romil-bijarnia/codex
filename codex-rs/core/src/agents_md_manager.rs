@@ -44,7 +44,6 @@ struct AgentsMdState {
 #[derive(Default)]
 struct AgentsMdCache {
     selections: Option<Vec<TurnEnvironmentSelection>>,
-    project_doc_max_bytes: usize,
     active_project_trust_level: Option<TrustLevel>,
     loaded: Option<Arc<LoadedAgentsMd>>,
 }
@@ -88,8 +87,7 @@ impl AgentsMdManager {
         let (mut instructions, cached, refresh_repository) = {
             let mut state = self.state.lock().await;
             let refresh_repository = state.cache.selections.as_ref() != Some(&selections)
-                || state.cache.active_project_trust_level != active_project_trust_level
-                || state.cache.project_doc_max_bytes != config.project_doc_max_bytes;
+                || state.cache.active_project_trust_level != active_project_trust_level;
             if refresh_repository {
                 // Tightened read permissions must not leave inaccessible instructions visible,
                 // even if discovery fails or the caller cancels the refresh.
@@ -129,28 +127,18 @@ impl AgentsMdManager {
             let loaded = if let Some(project) = &instructions.project_snapshot {
                 project.as_ref().clone()
             } else if refresh_repository {
-                load_project_instructions(config, environments, &mut warnings).await?
+                load_project_instructions(config, /*user_instructions*/ None, environments)
+                    .await?
+                    .unwrap_or_default()
             } else {
                 cached.as_deref().cloned().unwrap_or_default()
             }
             .with_instructions(instructions.user.clone(), instructions.thread.clone())
             .map(Arc::new);
-            let budget = config.project_doc_max_bytes;
-            if budget > 0
-                && let Some(loaded) = &loaded
-            {
-                let bytes = loaded.text().len();
-                if bytes > budget {
-                    warnings.push(format!(
-                        "Combined user instructions use {bytes} bytes, above the {budget}-byte `project_doc_max_bytes` setting. The total includes global and thread instructions. The limit applies only to project files."
-                    ));
-                }
-            }
             let mut state = self.state.lock().await;
             state.instructions = instructions;
             state.cache = AgentsMdCache {
                 selections: Some(selections),
-                project_doc_max_bytes: budget,
                 active_project_trust_level,
                 loaded: loaded.clone(),
             };
@@ -177,8 +165,7 @@ impl AgentsMdManager {
             .collect::<Vec<_>>();
         let state = self.state.lock().await;
         (state.cache.selections.as_ref() == Some(&selections)
-            && state.cache.active_project_trust_level == config.active_project.trust_level
-            && state.cache.project_doc_max_bytes == config.project_doc_max_bytes)
+            && state.cache.active_project_trust_level == config.active_project.trust_level)
             .then(|| state.cache.loaded.clone().unwrap_or_default())
     }
 

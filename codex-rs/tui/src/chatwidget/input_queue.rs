@@ -58,14 +58,6 @@ pub(super) struct InputQueueState {
 }
 
 impl InputQueueState {
-    pub(super) fn take_pending_steer(&mut self, client_id: &str) -> Option<PendingSteer> {
-        let index = self
-            .pending_steers
-            .iter()
-            .position(|pending| pending.client_id == client_id)?;
-        self.pending_steers.remove(index)
-    }
-
     pub(super) fn submissions_paused(&self) -> bool {
         self.suppress_queue_autosend || self.transcript_copy.strong_count() > 0
     }
@@ -149,8 +141,6 @@ mod tests {
             .push_back(UserMessage::from("rejected"));
         state.pending_steers.push_back(PendingSteer {
             client_id: "test-submission".to_string(),
-            admitted_turn_id: None,
-            optimistically_rendered: false,
             user_message: UserMessage::from("pending"),
             history_record: UserMessageHistoryRecord::UserMessageText,
             source: UserMessageSource::Prompt,

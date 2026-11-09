@@ -1598,7 +1598,7 @@ async fn curated_plugin_skills_follow_auth_switch() -> Result<()> {
         let skills_snapshot = test_codex
             .thread_manager
             .skills_service()
-            .snapshot_for_config(&skills_input, /*repository*/ None)
+            .snapshot_for_config(&skills_input, /*fs*/ None)
             .await;
         skills_snapshot
             .outcome()

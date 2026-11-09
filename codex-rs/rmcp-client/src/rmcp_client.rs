@@ -14,10 +14,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::AuthProviderResolver;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
+use codex_api::SharedAuthProvider;
 use codex_config::McpServerOAuthConfig;
 use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::McpServerEnvVar;
@@ -183,7 +183,7 @@ enum TransportRecipe {
         pinned_credential_store: Arc<OnceLock<ResolvedOAuthCredentialStore>>,
         originator: AuthStorageOriginator,
         http_client: Arc<dyn HttpClient>,
-        auth_provider: Option<Arc<dyn AuthProviderResolver>>,
+        auth_provider: Option<SharedAuthProvider>,
         redirect_mode: StreamableHttpRedirectMode,
         oauth_refresh_mode: McpOAuthRefreshMode,
         initialize_deadline: Arc<StdMutex<Option<Instant>>>,
@@ -573,7 +573,7 @@ impl RmcpClient {
         store_mode: OAuthCredentialsStoreMode,
         keyring_backend_kind: AuthKeyringBackendKind,
         http_client: Arc<dyn HttpClient>,
-        auth_provider: Option<Arc<dyn AuthProviderResolver>>,
+        auth_provider: Option<SharedAuthProvider>,
     ) -> Result<Self> {
         Self::new_streamable_http_client_with_protocol_mode(
             server_name,
@@ -601,7 +601,7 @@ impl RmcpClient {
         store_mode: OAuthCredentialsStoreMode,
         keyring_backend_kind: AuthKeyringBackendKind,
         http_client: Arc<dyn HttpClient>,
-        auth_provider: Option<Arc<dyn AuthProviderResolver>>,
+        auth_provider: Option<SharedAuthProvider>,
         protocol_mode: McpProtocolMode,
     ) -> Result<Self> {
         Self::new_streamable_http_client_with_protocol_mode_and_redirect_mode(
@@ -633,7 +633,7 @@ impl RmcpClient {
         store_mode: OAuthCredentialsStoreMode,
         keyring_backend_kind: AuthKeyringBackendKind,
         http_client: Arc<dyn HttpClient>,
-        auth_provider: Option<Arc<dyn AuthProviderResolver>>,
+        auth_provider: Option<SharedAuthProvider>,
         protocol_mode: McpProtocolMode,
         redirect_mode: StreamableHttpRedirectMode,
         oauth_refresh_mode: McpOAuthRefreshMode,
@@ -1820,9 +1820,7 @@ impl RmcpClient {
             .await
             {
                 Ok(result) => return Ok(result),
-                Err(error)
-                    if label == "tools/list" && Self::is_retryable_transport_error(&error) =>
-                {
+                Err(error) if Self::is_retryable_tools_list_error(label, &error) => {
                     let Some(retry_delay_ms) = retry_delay_ms else {
                         return Err(error);
                     };
@@ -1873,7 +1871,10 @@ impl RmcpClient {
         }
     }
 
-    pub(crate) fn is_retryable_transport_error(error: &ClientOperationError) -> bool {
+    fn is_retryable_tools_list_error(label: &str, error: &ClientOperationError) -> bool {
+        if label != "tools/list" {
+            return false;
+        }
         let ClientOperationError::Service(rmcp::service::ServiceError::TransportSend(error)) =
             error
         else {

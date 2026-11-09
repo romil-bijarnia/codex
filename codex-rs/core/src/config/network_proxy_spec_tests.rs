@@ -778,7 +778,6 @@ async fn environment_local_binding_preserves_explicit_denials_and_inherits_omitt
         allowed_domains = ["example.com"]
         "#,
     )?;
-    let empty = Policy::empty();
     for (name, configured, required, expected_bindings) in [
         (
             "absent",
@@ -884,60 +883,21 @@ async fn environment_local_binding_preserves_explicit_denials_and_inherits_omitt
                 "{name}: {local_binding_policy:?}, owner={owner_binding:?}"
             );
             let carrier = controller.as_ref().unwrap_or(&composed);
-            // Exercise both directions of a mixed-executor route when the controller
-            // leaves binding unspecified. An explicit denial cannot start an MXC proxy.
-            let (primary_os, primary_binding) = if local_binding_policy == DefaultFalse
-                && carrier.config.allow_local_binding.is_none()
-            {
-                (Platform::Windows, RequireTrue)
-            } else {
-                (Platform::Linux, DefaultFalse)
-            };
             let proxy = NetworkProxy::builder()
                 .state(Arc::new(carrier.build_state_with_audit_metadata(
                     Default::default(),
-                    primary_os,
-                    primary_binding,
+                    Platform::Linux,
+                    DefaultFalse,
                 )?))
                 .managed_by_codex(/*managed_by_codex*/ false)
                 .build()
                 .await?;
-            for policy in [Some(owner), Some(composed.environment_policy()), None] {
-                if policy.is_none() && (controller.is_none() || owner_binding.is_some()) {
-                    continue;
-                }
-                if let Some(controller) = &controller {
-                    let mcp = NetworkProxySpec::mcp_network_policy(
-                        Some(controller),
-                        &profile,
-                        McpNetworkRoute {
-                            primary_allows_proxy: true,
-                            local_binding: local_binding_policy,
-                            owner: policy.as_ref(),
-                        },
-                        &profile,
-                        AskForApproval::OnRequest,
-                        &empty,
-                    )?;
-                    assert_eq!(
-                        mcp.enabled,
-                        expected || local_binding_policy == DefaultFalse
-                    );
-                    if policy.is_some() || name == "managed_omitted" {
-                        assert_eq!(
-                            mcp.allowed_domains.iter().any(|host| host == "example.com"),
-                            expected
-                        );
-                    }
-                    if !expected {
-                        assert!(mcp.hard_deny_allowlist_misses);
-                    }
-                }
+            for policy in [owner, composed.environment_policy()] {
                 let scoped = proxy.for_execution(
                     "remote",
                     "binding-test",
                     "binding-token".to_string(),
-                    policy,
+                    Some(policy),
                     Some(Arc::new(|_request| async { NetworkDecision::Allow })),
                 )?;
                 let launch = scoped

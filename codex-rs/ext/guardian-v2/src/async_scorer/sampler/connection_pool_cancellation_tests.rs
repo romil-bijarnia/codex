@@ -153,7 +153,7 @@ async fn cancellation_preserves_unused_sockets_and_backpressured_completion() ->
         .execution(
             &sample_request("stale"),
             Vec::new(),
-            /*auth_owner*/ None,
+            /*auth_owner_generation*/ None,
         )
         .request;
     // Cancel before this current-thread runtime can dispatch, then reuse its only socket.

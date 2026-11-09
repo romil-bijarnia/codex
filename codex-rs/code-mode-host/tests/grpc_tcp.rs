@@ -149,7 +149,6 @@ async fn tcp_listener_opens_a_grpc_session() -> Result<()> {
         }
         let response = client
             .open_session(grpc::OpenSessionRequest {
-                max_pending_delegate_calls: None,
                 cell_execution_limits: None,
                 output_truncation: None,
             })

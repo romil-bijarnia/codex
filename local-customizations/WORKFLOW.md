@@ -1,64 +1,71 @@
-# Main Codex source workflow
+# Stable Codex source workflow
 
 ## Source of truth
 
-- GitHub fork: https://github.com/romil-bijarnia/codex
-- Working and default branch: `main`.
-- Upstream: https://github.com/openai/codex.git, branch `main`.
+- Repository: https://github.com/romil-bijarnia/codex
+- Only working/default branch: `main`.
+- Current official baseline: `rust-v0.167.0`.
+- Baseline commit: `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`.
 - Local checkout: `$HOME/Work/codex`.
-- Native code, launchers, helpers and prompt sources are ordinary Git files.
-- `codex-customizations` is retained as historical material, not the main source.
+- Native customizations, launchers, helpers and prompt sources are ordinary Git files.
 
-## Update from upstream
+The repository keeps prior development history, but its current source tree is
+ported to the stable release. The explicit pin in
+`local-customizations/distribution/manifest.json` identifies the baseline; a
+merge-base against upstream main does not identify the version being built.
 
-Use **Sync fork**, then **Update branch**, on GitHub. Retain personal commits;
-resolve conflicts rather than discarding local changes. Pull the result locally:
+## Source changes and stable upgrades
 
-```sh
-cd "$HOME/Work/codex"
-git switch main
-git pull --ff-only origin main
-```
+Save custom changes normally on `main` and push them to `origin/main`.
+Do not use GitHub's **Sync fork / Update branch** against upstream main for a
+stable-version upgrade: main includes unreleased development changes.
 
-Or perform the equivalent source update locally, starting with intended work
-committed and a clean working tree:
+For an upstream upgrade, select the next non-prerelease official release, port
+the retained custom changes onto that release's actual source, and update the
+pinned tag, commit and resource checksum together. Preserve the single main
+branch and existing history; do not discard custom behaviour or force-push
+merely to change the displayed version. Review and test the resulting source
+before building. Changing only a version string is not a stable-source upgrade.
 
-```sh
-git fetch upstream
-git merge upstream/main
-# Resolve any conflicts and run the tests relevant to the changes.
-git push origin main
-```
+The builder checks the official release is neither draft nor prerelease, checks
+the fetched tag's exact commit, requires the matching workspace version and
+verifies the official package checksum. It does not fetch development-main
+code or choose a newer alpha resource package.
 
-Edit the real source here, not a separate aggregate patch. Commit and push custom
-changes to `origin/main`. A successful merge is not proof that behaviour is
-unchanged, so use focused tests appropriate to the actual source change.
+## Build, test and install
 
-## Building and installation are separate
+The optional `personal-build.yml` workflow is manual. The exact source commit
+includes its recipe and checks. The build compiles the CLI and its companion
+executables from the same stable-based tree and retains the matching complete
+resource package. It does not copy a single executable over a working install.
 
-Syncing or pushing source does not rebuild or replace the installed CLI.
-The optional `personal-build.yml` workflow is manual only. When a build is
-requested, it builds an exact source commit and runs the existing package checks.
-Do not enable automatic builds merely to save or publish source changes.
-
-The distribution tools live under `local-customizations/distribution/` and now
-target this fork's `main` branch. Their focused tests are:
+Focused updater tests:
 
 ```sh
 python3 -m unittest discover -s local-customizations/distribution/tests -v
 ```
 
-The current installed launcher/package was deliberately not changed when this
-fork became primary. Its legacy `codex update` entrypoint may still refer to the
-old package workflow; do not use that command as a substitute for Sync fork.
-Switching the installed updater or installing a new native build is a separate
-operation. Read the live package receipt before claiming that saved source is
-already installed. Existing conversations must not be restarted just to publish
-source, and complete package resources must be preserved during any later install.
+Package checks exercise defaults, Daybreak, picker display, helpers, literal
+input/API regressions and steering with disposable profiles and local responses.
+Those checks do not establish live kernel/EL2 activation or every Rust test target.
+
+After the exact stable-based build passes, the source updater installs it with
+checksum verification and the required local renderer check:
+
+```sh
+codex update
+codex custom-status
+```
+
+Normal launches execute the selected complete package. Running terminal clients
+retain their loaded executable; the shared backend only rolls over after observed
+idle time. Do not terminate active chats merely to change the footer version.
+The CLI reports `0.167.0`; package metadata uses `0.167.0+romil.<source SHA>` so
+custom provenance is retained without a development-version label.
 
 ## Data and recovery
 
-Publish source and reusable project tooling, not credentials, private AGENTS.md,
-account sessions, personal databases, caches or generated build products.
-Recovery documentation and installation/configuration templates are in GRID.
-No backup copies or runtime-profile changes are required to update this repository.
+Credentials, private AGENTS.md, sessions, personal databases, caches and generated
+products stay out of source commits. Recovery documentation and reusable
+installation/configuration material are in GRID. Live package receipts determine
+what is installed; never rewrite old receipts to make them look like a new build.

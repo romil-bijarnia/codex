@@ -22,24 +22,8 @@ async fn build_config(temp_dir: &TempDir) -> Config {
         .expect("config should build")
 }
 
-#[test]
-fn remote_resume_restores_saved_server_profile_without_permission_overrides() -> Result<()> {
-    // The embedded server and client load full configurations on the same test thread.
-    const TEST_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
-    std::thread::Builder::new()
-        .name("tui-resume-permissions".into())
-        .stack_size(TEST_STACK_SIZE_BYTES)
-        .spawn(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?
-                .block_on(crate::boxed_future!(resume_with_saved_server_profile()))
-        })?
-        .join()
-        .expect("permission profile test thread panicked")
-}
-
-async fn resume_with_saved_server_profile() -> Result<()> {
+#[tokio::test]
+async fn remote_resume_restores_saved_server_profile_without_permission_overrides() -> Result<()> {
     let home = tempfile::tempdir()?;
     std::fs::write(
         home.path().join("config.toml"),
@@ -180,7 +164,6 @@ async fn resume_with_saved_server_profile() -> Result<()> {
             client_config,
             thread_id,
             /*selected_profile*/ None,
-            crate::app_server_session::SideChatStorage::Temporary,
         )
         .await?;
     assert_eq!(

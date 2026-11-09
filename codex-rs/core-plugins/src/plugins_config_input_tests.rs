@@ -28,14 +28,12 @@ fn repeated_service_configs_and_early_clones_share_one_lazy_pool() {
     );
     let clone = input.clone();
     assert!(input.remote_http_clients.get().is_none());
-    let first = input.remote_plugin_service_config(/*runtime_auth*/ None);
+    let first = input.remote_plugin_service_config();
     let reuse: Vec<_> = (0..220)
         .map(|_| {
             Arc::ptr_eq(
                 &first.http_clients,
-                &clone
-                    .remote_plugin_service_config(/*runtime_auth*/ None)
-                    .http_clients,
+                &clone.remote_plugin_service_config().http_clients,
             )
         })
         .collect();
@@ -54,9 +52,7 @@ fn repeated_service_configs_and_early_clones_share_one_lazy_pool() {
             reuse,
             Arc::ptr_eq(
                 &first.http_clients,
-                &new_input
-                    .remote_plugin_service_config(/*runtime_auth*/ None)
-                    .http_clients,
+                &new_input.remote_plugin_service_config().http_clients,
             ),
         ),
         (vec![true; 220], false)
@@ -99,7 +95,7 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         test_http_client_factory(),
         /*product_sku*/ None,
     );
-    let first = input.remote_plugin_service_config(/*runtime_auth*/ None);
+    let first = input.remote_plugin_service_config();
     let first_auth = CodexAuth::from_external_chatgpt_tokens(
         "header.e30.first",
         "first-account",
@@ -112,7 +108,7 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
 
     input.chatgpt_base_url = format!("{}/backend-api", second_server.uri());
     input.product_sku = Some("updated".to_string());
-    let second = input.remote_plugin_service_config(/*runtime_auth*/ None);
+    let second = input.remote_plugin_service_config();
     let second_auth = CodexAuth::from_external_chatgpt_tokens(
         "header.e30.second",
         "second-account",

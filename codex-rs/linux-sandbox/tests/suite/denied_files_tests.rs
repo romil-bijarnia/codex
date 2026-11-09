@@ -19,16 +19,14 @@ use pretty_assertions::assert_eq;
 enum DeniedFileRules {
     ExactPaths,
     Globs,
-    GlobsFromRoot,
     GlobsWithProtectedRg,
-    GlobsWithoutRg,
+    GlobsWithNativeFallback,
 }
 
 #[test_case::test_case(DeniedFileRules::ExactPaths; "exact_paths")]
 #[test_case::test_case(DeniedFileRules::Globs; "globs")]
-#[test_case::test_case(DeniedFileRules::GlobsFromRoot; "globs_from_root")]
 #[test_case::test_case(DeniedFileRules::GlobsWithProtectedRg; "globs_with_protected_rg")]
-#[test_case::test_case(DeniedFileRules::GlobsWithoutRg; "globs_without_rg")]
+#[test_case::test_case(DeniedFileRules::GlobsWithNativeFallback; "globs_with_native_fallback")]
 #[tokio::test]
 async fn sandbox_starts_with_multiple_denied_files(rules: DeniedFileRules) {
     if should_skip_bwrap_tests().await {
@@ -38,7 +36,7 @@ async fn sandbox_starts_with_multiple_denied_files(rules: DeniedFileRules) {
 
     let use_controlled_rg_path = matches!(
         rules,
-        DeniedFileRules::GlobsWithProtectedRg | DeniedFileRules::GlobsWithoutRg
+        DeniedFileRules::GlobsWithProtectedRg | DeniedFileRules::GlobsWithNativeFallback
     );
     let temp = if use_controlled_rg_path {
         // Bazel can mount the default temp directory noexec.
@@ -56,22 +54,10 @@ async fn sandbox_starts_with_multiple_denied_files(rules: DeniedFileRules) {
         (workspace.join("one.key"), "dummy first key"),
         (workspace.join("nested/two.key"), "dummy second key"),
         (workspace.join(".env.local"), "dummy environment"),
-        (workspace.join("nested/.env"), "dummy nested environment"),
-        (workspace.join("#report-1.csv"), "dummy report"),
-        (workspace.join("!report.csv"), "dummy literal bang report"),
-        (workspace.join("notes.txt "), "dummy spaced filename"),
-        (workspace.join("root-only.cfg"), "dummy root configuration"),
     ];
     for (path, contents) in &denied_files {
         std::fs::write(path, contents).expect("write denied dummy file");
     }
-    for path in ["notes.txt", "nested/allowed.cfg"] {
-        std::fs::write(workspace.join(path), "public").expect("write allowed file");
-    }
-    std::os::unix::fs::symlink("AGENTS.md", workspace.join("relative.key"))
-        .expect("relative file symlink");
-    std::os::unix::fs::symlink(workspace.join("AGENTS.md"), workspace.join("absolute.key"))
-        .expect("absolute file symlink");
 
     let sandbox_helper = codex_linux_sandbox_exe();
     let helper_dir = AbsolutePathBuf::try_from(sandbox_helper.parent().expect("helper parent"))
@@ -156,18 +142,9 @@ printf '%s\000' "$CODEX_TEST_DENIED_PATH_0" "$CODEX_TEST_DENIED_PATH_1" "$CODEX_
             }));
         }
         DeniedFileRules::Globs
-        | DeniedFileRules::GlobsFromRoot
         | DeniedFileRules::GlobsWithProtectedRg
-        | DeniedFileRules::GlobsWithoutRg => {
-            for suffix in [
-                "**/*.key",
-                "**/.env.local",
-                "nest*/.env",
-                "#report-*.csv",
-                "!*.csv",
-                "*.txt ",
-                "*.cfg",
-            ] {
+        | DeniedFileRules::GlobsWithNativeFallback => {
+            for suffix in ["**/*.key", "**/.env.local"] {
                 entries.push(FileSystemSandboxEntry::new(
                     FileSystemPath::GlobPattern {
                         pattern: format!("{}/{suffix}", workspace.display()),
@@ -181,14 +158,24 @@ printf '%s\000' "$CODEX_TEST_DENIED_PATH_0" "$CODEX_TEST_DENIED_PATH_1" "$CODEX_
         &FileSystemSandboxPolicy::restricted(entries),
         NetworkSandboxPolicy::Enabled,
     );
+    if matches!(rules, DeniedFileRules::Globs)
+        && codex_sandboxing::find_pre_sandbox_executable_in_path(
+            "rg",
+            &permission_profile.file_system_sandbox_policy(),
+            workspace.as_path(),
+        )
+        .is_none()
+    {
+        eprintln!("skipping ripgrep config test: no protected rg is available");
+        return;
+    }
     let output = run_cmd_result_with_permission_profile_for_cwd(
         &[
             "/bin/sh",
             "-c",
             r#"set -eu
-cd "$1"
 /bin/cat AGENTS.md
-for blocked in one.key nested/two.key .env.local nested/.env '#report-1.csv' '!report.csv' 'notes.txt ' root-only.cfg; do
+for blocked in one.key nested/two.key .env.local; do
     if (: < "$blocked") 2>/dev/null; then
         printf 'read unexpectedly allowed: %s\n' "$blocked" >&2
         exit 10
@@ -198,23 +185,11 @@ for blocked in one.key nested/two.key .env.local nested/.env '#report-1.csv' '!r
         exit 11
     fi
 done
-for allowed in notes.txt nested/allowed.cfg; do
-    test "$(/bin/cat "$allowed")" = public
-done
-for alias in relative.key absolute.key; do
-    test "$(/bin/cat "$alias")" = 'project instructions'
-done
 printf 'allowed\n' > allowed.txt
 /bin/cat allowed.txt
 "#,
-            "sh",
-            workspace.to_str().expect("UTF-8 workspace"),
         ],
-        if matches!(rules, DeniedFileRules::GlobsFromRoot) {
-            AbsolutePathBuf::try_from("/").expect("absolute root")
-        } else {
-            workspace.clone()
-        },
+        workspace.clone(),
         permission_profile,
         env,
         LONG_TIMEOUT_MS,
@@ -246,6 +221,9 @@ printf 'allowed\n' > allowed.txt
             !fixture.path().join("rejected-rg-ran").exists(),
             "writable rg ran before confinement"
         );
-        assert!(!fixture.path().join("protected-rg-ran").exists());
+        assert_eq!(
+            fixture.path().join("protected-rg-ran").exists(),
+            matches!(rules, DeniedFileRules::GlobsWithProtectedRg),
+        );
     }
 }

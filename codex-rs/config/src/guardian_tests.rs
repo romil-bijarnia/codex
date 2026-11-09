@@ -20,7 +20,6 @@ fn explicit_catalog_policy_preserves_precedence_over_the_legacy_switch() {
                     Sourced::new(
                         FeatureRequirementsToml {
                             entries: [("guardianv2".to_owned(), enabled)].into(),
-                            ..Default::default()
                         },
                         RequirementSource::Unknown,
                     )
@@ -30,7 +29,7 @@ fn explicit_catalog_policy_preserves_precedence_over_the_legacy_switch() {
             let mut model = test_model();
             model.guardian = Some(catalog.clone());
             assert_eq!(
-                GuardianPolicyLoader::new(Some(&legacy)).resolve(Some(&model), &requirements),
+                GuardianPolicyLoader::new(Some(&legacy), &requirements).resolve(Some(&model)),
                 catalog
             );
         }
@@ -44,7 +43,7 @@ fn legacy_scope_applies_only_to_models_without_catalog_policy() {
         "review_scope": {"computer_use_only": false, "sandboxed_exec_commands": true}
     }))
     .unwrap();
-    let loader = GuardianPolicyLoader::new(Some(&legacy));
+    let loader = GuardianPolicyLoader::new(Some(&legacy), &ConfigRequirements::default());
     let expected = GuardianModelPolicy {
         computer_use: Some(GuardianReviewMode::Adaptive),
         shell: Some(GuardianReviewMode::Adaptive),
@@ -57,38 +56,12 @@ fn legacy_scope_applies_only_to_models_without_catalog_policy() {
         initial_cua_call: Some(false),
         sandboxed_exec_commands: Some(true),
     };
-    assert_eq!(
-        loader.resolve(/*model*/ None, &ConfigRequirements::default()),
-        expected
-    );
+    assert_eq!(loader.resolve(/*model*/ None), expected);
     let catalog: GuardianModelPolicy =
         serde_json::from_value(json!({"computer_use": "adaptive"})).unwrap();
     let mut model = test_model();
     model.guardian = Some(catalog.clone());
-    assert_eq!(
-        loader.resolve(Some(&model), &ConfigRequirements::default()),
-        catalog
-    );
-    for reviewer in [ApprovalsReviewer::AutoReview, ApprovalsReviewer::User] {
-        let restricted: ConfigRequirements = crate::ConfigRequirementsWithSources {
-            allowed_approvals_reviewers: Some(Sourced::new(
-                vec![reviewer],
-                RequirementSource::Unknown,
-            )),
-            ..Default::default()
-        }
-        .try_into()
-        .unwrap();
-        // Reuse the same cached base across tightening and relaxation, including
-        // decisions without model metadata.
-        for model in [None, Some(&model)] {
-            let base = loader.resolve(model, &ConfigRequirements::default());
-            let mut synchronous = base.clone();
-            synchronous.disable_scoring();
-            assert_eq!(loader.resolve(model, &restricted), synchronous);
-            assert_eq!(loader.resolve(model, &ConfigRequirements::default()), base);
-        }
-    }
+    assert_eq!(loader.resolve(Some(&model)), catalog);
 }
 
 #[test]
@@ -106,15 +79,15 @@ fn required_models_preserve_cua_allowance_and_disable_all_tools_scoring() {
     .unwrap();
     let cua_only = FeatureToml::Enabled(true);
     for legacy in [Some(&cua_only), Some(&legacy)] {
-        let loader = GuardianPolicyLoader::new(legacy);
-        let ordinary = loader.resolve(/*model*/ None, &requirements);
+        let loader = GuardianPolicyLoader::new(legacy, &requirements);
+        let ordinary = loader.resolve(/*model*/ None);
         let mut expected = ordinary.clone();
         expected.disable_scoring();
         if ordinary.allows_initial_cua_call() {
             expected.computer_use = ordinary.computer_use;
         }
         let mut actual = ordinary;
-        requirements.constrain_guardian_policy(&mut actual, Some("provider/protected-model"));
+        requirements.constrain_guardian_policy(&mut actual, "provider/protected-model");
         assert_eq!(actual, expected);
     }
 }
@@ -128,11 +101,11 @@ fn legacy_cua_opt_in_and_disabled_feature_preserve_scoring_behavior() {
     ] {
         let enabled = legacy == json!(true);
         let legacy = serde_json::from_value(legacy).unwrap();
-        let loader = GuardianPolicyLoader::new(Some(&legacy));
+        let loader = GuardianPolicyLoader::new(Some(&legacy), &ConfigRequirements::default());
         for required in [false, true] {
             let mut model = test_model();
             model.node_repl_auto_review_required = required;
-            let policy = loader.resolve(Some(&model), &ConfigRequirements::default());
+            let policy = loader.resolve(Some(&model));
             assert_eq!(policy.scoring_enabled(), enabled && required);
             assert_eq!(model.computer_use_review_required(), required);
         }

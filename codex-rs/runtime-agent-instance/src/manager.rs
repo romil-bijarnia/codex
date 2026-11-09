@@ -1,28 +1,44 @@
-//! Bind credential sources to shared runtime registrations.
+//! Reuse one active runtime for the selected credential source and organization.
 
 use crate::AgentHostAuthorization;
+use crate::AuthenticatedActorAuthorization;
 use crate::PlatformResourceSelection;
 use crate::RegistrationError;
+use crate::RuntimeAgentInstance;
 use crate::RuntimeAuth;
-use crate::RuntimeAuthBinding;
-use crate::RuntimeAuthError;
+use crate::RuntimeRegistration;
+use crate::RuntimeRegistrationClient;
 use crate::RuntimeRegistrationMetadata;
-use crate::binding::RegistrationTarget;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::NetworkPolicyDenied;
+use codex_login::AuthChangeState;
 use codex_login::AuthManager;
-use codex_login::AuthRuntimeConfig;
 use codex_login::CodexAuth;
+use codex_login::RefreshTokenError;
+use http::StatusCode;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use url::Url;
 
-/// Shares registration state across requests using the same credential source and context.
+/// Owned alongside an AuthManager, not created for every thread or request.
 pub struct RuntimeAuthManager {
-    login: Arc<RuntimeAuthBinding>,
-    registrations: std::sync::Mutex<Vec<CredentialRegistration>>,
+    credentials: Arc<AuthManager>,
+    host: AgentHostAuthorization,
+    metadata: RuntimeRegistrationMetadata,
+    registration_url: Url,
+    state: Mutex<Option<CachedRuntime>>,
 }
 
-enum CredentialRegistration {
-    Provider(Arc<RuntimeAuthBinding>),
-    ApiKey(Arc<RuntimeAuthBinding>),
+struct CachedRuntime {
+    source_generation: u64,
+    selection: PlatformResourceSelection,
+    state: RuntimeState,
+}
+
+enum RuntimeState {
+    Pending { registration: RuntimeRegistration },
+    Ready { runtime: Arc<RuntimeAgentInstance> },
+    Denied { error: RegistrationError },
 }
 
 impl std::fmt::Debug for RuntimeAuthManager {
@@ -32,8 +48,9 @@ impl std::fmt::Debug for RuntimeAuthManager {
 }
 
 impl RuntimeAuthManager {
+    /// Check that a consumer uses this owner's credential provider, not an ambient fallback.
     pub fn uses_credentials(&self, credentials: &Arc<AuthManager>) -> bool {
-        self.login.uses_credentials(credentials)
+        Arc::ptr_eq(&self.credentials, credentials)
     }
 
     pub fn new(
@@ -42,154 +59,224 @@ impl RuntimeAuthManager {
         metadata: RuntimeRegistrationMetadata,
         registration_url: Url,
     ) -> Self {
-        Self::from_registration(
-            credentials,
-            RegistrationTarget::Explicit {
-                host,
-                url: registration_url,
-            },
-            metadata,
-        )
-    }
-
-    /// Resolve the ChatGPT registration origin only when a first-party request needs a runtime.
-    pub fn for_chatgpt(
-        credentials: Arc<AuthManager>,
-        installation_id: String,
-        base_url: String,
-        metadata: RuntimeRegistrationMetadata,
-    ) -> Self {
-        Self::from_registration(
-            credentials,
-            RegistrationTarget::ChatGpt {
-                installation_id,
-                base_url,
-            },
-            metadata,
-        )
-    }
-
-    fn from_registration(
-        credentials: Arc<AuthManager>,
-        registration: RegistrationTarget,
-        metadata: RuntimeRegistrationMetadata,
-    ) -> Self {
         Self {
-            login: Arc::new(RuntimeAuthBinding::new(credentials, registration, metadata)),
-            registrations: std::sync::Mutex::new(Vec::new()),
+            credentials,
+            host,
+            metadata,
+            registration_url,
+            state: Mutex::new(None),
         }
     }
 
-    /// Construct a Codex runtime owner without registering it or generating its key.
-    pub fn for_codex(
-        credentials: Arc<AuthManager>,
-        chatgpt_base_url: &str,
-        installation_id: &str,
-    ) -> Self {
-        Self::for_chatgpt(
-            credentials,
-            installation_id.to_owned(),
-            chatgpt_base_url.to_owned(),
-            RuntimeRegistrationMetadata {
-                harness: Some("codex".to_string()),
-                harness_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                role: crate::RuntimeRole::Orchestrator,
-            },
-        )
-    }
-
-    pub fn registration_url(&self) -> Result<Url, RegistrationError> {
-        self.login.registration_url()
-    }
-
     pub async fn auth(&self) -> Result<RuntimeAuth, RuntimeAuthError> {
-        self.login.auth().await
+        self.auth_with_selection(&PlatformResourceSelection::default())
+            .await
     }
 
+    /// Select auth and a runtime for the requested organization and project.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "runtime initialization serializes registration and refresh for one credential source"
+    )]
     pub async fn auth_with_selection(
         &self,
         selection: &PlatformResourceSelection,
     ) -> Result<RuntimeAuth, RuntimeAuthError> {
-        self.login.auth_with_selection(selection).await
-    }
-
-    pub async fn auth_for(
-        &self,
-        expected: &CodexAuth,
-        selection: &PlatformResourceSelection,
-    ) -> Result<RuntimeAuth, RuntimeAuthError> {
-        self.login.auth_for(expected, selection).await
-    }
-
-    pub async fn auth_for_source(
-        &self,
-        source_generation: u64,
-        selection: &PlatformResourceSelection,
-    ) -> Result<RuntimeAuth, RuntimeAuthError> {
-        self.login
-            .auth_for_source(source_generation, selection)
+        // This initializer's lock can span IO. No AuthManager lock is held across registration.
+        let mut state = self.state.lock().await;
+        let (auth, http_client_factory) = self
+            .credentials
+            .auth_with_http_client_factory()
             .await
+            .ok_or(RuntimeAuthError::Unavailable)?;
+        let mut recovery = self.credentials.unauthorized_recovery();
+        let mut result = self
+            .auth_once(&mut state, auth, http_client_factory, selection)
+            .await;
+        while matches!(
+            &result,
+            Err(RuntimeAuthError::Registration(
+                RegistrationError::Rejected {
+                    status: StatusCode::UNAUTHORIZED,
+                    ..
+                }
+            ))
+        ) && recovery.has_next()
+        {
+            recovery.next().await.map_err(|error| match error {
+                RefreshTokenError::Policy(denied) => RuntimeAuthError::Policy(denied),
+                RefreshTokenError::Permanent(_) | RefreshTokenError::Transient(_) => {
+                    RuntimeAuthError::RefreshFailed
+                }
+            })?;
+            let (auth, http_client_factory) = self
+                .credentials
+                .auth_with_http_client_factory()
+                .await
+                .ok_or(RuntimeAuthError::Unavailable)?;
+            result = self
+                .auth_once(&mut state, auth, http_client_factory, selection)
+                .await;
+        }
+        result
     }
 
-    /// Bind a login or command-backed credential without changing its refresh lifecycle.
-    pub fn bind(&self, credentials: Arc<AuthManager>) -> Arc<RuntimeAuthBinding> {
-        if self.login.uses_credentials(&credentials) {
-            return Arc::clone(&self.login);
-        }
-        let mut registrations = self
-            .registrations
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(binding) = registrations.iter().find_map(|entry| match entry {
-            CredentialRegistration::Provider(binding) if binding.uses_credentials(&credentials) => {
-                Some(binding)
-            }
-            _ => None,
-        }) {
-            return Arc::clone(binding);
-        }
-        let binding = Arc::new(RuntimeAuthBinding::new(
-            credentials,
-            self.login.registration.clone(),
-            self.login.metadata.clone(),
-        ));
-        registrations.push(CredentialRegistration::Provider(Arc::clone(&binding)));
-        binding
-    }
-
-    /// An explicit key is independent of login storage and command output, even when bytes match.
-    pub fn bind_api_key(
+    async fn auth_once(
         &self,
-        api_key: &str,
-        runtime: &AuthRuntimeConfig,
-    ) -> Arc<RuntimeAuthBinding> {
-        let mut registrations = self
-            .registrations
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(binding) = registrations.iter().find_map(|entry| match entry {
-            CredentialRegistration::ApiKey(binding)
-                if binding
-                    .credentials
-                    .auth_cached()
-                    .as_ref()
-                    .and_then(CodexAuth::api_key)
-                    == Some(api_key)
-                    && binding.credentials.runtime_config() == *runtime =>
-            {
-                Some(binding)
-            }
-            _ => None,
+        state: &mut Option<CachedRuntime>,
+        auth: CodexAuth,
+        http_client_factory: HttpClientFactory,
+        selection: &PlatformResourceSelection,
+    ) -> Result<RuntimeAuth, RuntimeAuthError> {
+        let actor_auth = actor_authorization(&auth, selection)?;
+        let http_client_factory = http_client_factory.with_sensitive_header_protection();
+        let change_state = self.auth_state(&auth)?;
+        // Registered runtimes can serve different projects. Pending and denied
+        // registrations retain their original scope and idempotency key.
+        if state.as_ref().is_some_and(|cached| {
+            cached.source_generation != change_state.source_generation
+                || cached.selection.organization_id != selection.organization_id
+                || (!matches!(cached.state, RuntimeState::Ready { .. })
+                    && cached.selection != *selection)
         }) {
-            return Arc::clone(binding);
+            *state = None;
         }
-        let binding = Arc::new(RuntimeAuthBinding::new(
-            AuthManager::from_api_key(api_key, runtime.clone()),
-            self.login.registration.clone(),
-            self.login.metadata.clone(),
-        ));
-        registrations.push(CredentialRegistration::ApiKey(Arc::clone(&binding)));
-        binding
+        let cached = match state {
+            Some(cached) => cached,
+            None => state.insert(CachedRuntime {
+                source_generation: change_state.source_generation,
+                selection: selection.clone(),
+                state: RuntimeState::Pending {
+                    registration: RuntimeRegistration::new(
+                        actor_auth.clone(),
+                        self.host.clone(),
+                        self.metadata.clone(),
+                    )
+                    .map_err(|_| RuntimeAuthError::KeyGeneration)?,
+                },
+            }),
+        };
+        let runtime_state = &mut cached.state;
+        let registration = match runtime_state {
+            RuntimeState::Ready { runtime } => {
+                return Ok(RuntimeAuth {
+                    runtime: runtime.clone(),
+                    auth,
+                    http_client_factory,
+                    change_state,
+                });
+            }
+            RuntimeState::Denied { error } => return Err(error.clone().into()),
+            RuntimeState::Pending { registration } => {
+                registration.request.actor_auth = actor_auth;
+                registration
+            }
+        };
+        let client = RuntimeRegistrationClient::new(
+            http_client_factory.clone(),
+            self.registration_url.clone(),
+        )?;
+        let result = client.register(registration).await;
+        if self.auth_state(&auth)?.source_generation != change_state.source_generation {
+            // A late response must not publish an old identity after a credential switch.
+            *state = None;
+            return Err(RuntimeAuthError::Changed);
+        }
+        match result {
+            Ok(info) => {
+                let runtime = Arc::new(registration.finish(info));
+                *runtime_state = RuntimeState::Ready {
+                    runtime: runtime.clone(),
+                };
+                Ok(RuntimeAuth {
+                    runtime,
+                    auth,
+                    http_client_factory,
+                    change_state,
+                })
+            }
+            Err(
+                error @ RegistrationError::Rejected {
+                    status: StatusCode::FORBIDDEN,
+                    ..
+                },
+            ) => {
+                *runtime_state = RuntimeState::Denied {
+                    error: error.clone(),
+                };
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn auth_state(&self, auth: &CodexAuth) -> Result<AuthChangeState, RuntimeAuthError> {
+        let state = self
+            .credentials
+            .auth_change_state_for(auth)
+            .ok_or(RuntimeAuthError::Changed)?;
+        if self.credentials.refresh_failure_for_auth(auth).is_some() {
+            return Err(RuntimeAuthError::RefreshFailed);
+        }
+        Ok(state)
+    }
+}
+
+fn actor_authorization(
+    auth: &CodexAuth,
+    selection: &PlatformResourceSelection,
+) -> Result<AuthenticatedActorAuthorization, RuntimeAuthError> {
+    if !matches!(auth, CodexAuth::ApiKey(_)) && selection != &PlatformResourceSelection::default() {
+        return Err(RuntimeAuthError::UnsupportedResourceSelection);
+    }
+    let credential = auth
+        .get_token()
+        .map_err(|_| RuntimeAuthError::Unsupported)?
+        .into();
+    Ok(match auth {
+        CodexAuth::ApiKey(_) => AuthenticatedActorAuthorization::PlatformApiKey {
+            credential,
+            selection: selection.clone(),
+        },
+        CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_) => {
+            AuthenticatedActorAuthorization::Oauth { credential }
+        }
+        CodexAuth::PersonalAccessToken(_) => {
+            AuthenticatedActorAuthorization::PersonalAccessToken { credential }
+        }
+        CodexAuth::Headers(_)
+        | CodexAuth::AgentIdentity(_)
+        | CodexAuth::BedrockApiKey(_)
+        | CodexAuth::BedrockAccessKeys(_) => return Err(RuntimeAuthError::Unsupported),
+    })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeAuthError {
+    #[error("runtime registration requires an actor credential")]
+    Unavailable,
+    #[error("this credential cannot register a runtime; use a supported OpenAI sign-in")]
+    Unsupported,
+    #[error("organization and project selection requires an OpenAI API key")]
+    UnsupportedResourceSelection,
+    #[error("credentials changed during runtime registration; try again")]
+    Changed,
+    #[error("runtime registration could not refresh actor credentials")]
+    RefreshFailed,
+    #[error("failed to generate runtime signing key")]
+    KeyGeneration,
+    #[error(transparent)]
+    Policy(#[from] NetworkPolicyDenied),
+    #[error(transparent)]
+    Registration(RegistrationError),
+}
+
+impl From<RegistrationError> for RuntimeAuthError {
+    fn from(error: RegistrationError) -> Self {
+        match error {
+            RegistrationError::Policy(denied) => Self::Policy(denied),
+            error => Self::Registration(error),
+        }
     }
 }
 

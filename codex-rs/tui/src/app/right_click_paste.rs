@@ -17,7 +17,7 @@ pub(super) struct PendingPaste {
     target: (Option<ThreadId>, crate::bottom_pane::ClipboardPasteTarget),
     source: PasteSource,
     shortcut: Option<KeyCode>,
-    pub(super) request: Arc<()>,
+    _request: Arc<()>,
 }
 
 pub(crate) struct PasteEnvironment {
@@ -113,28 +113,13 @@ impl App {
         ))
     }
 
-    pub(super) fn start_right_click_paste(
-        &mut self,
-        tui: &mut tui::Tui,
-        mouse: MouseEvent,
-        context: ClipboardPasteContext,
-    ) {
+    pub(super) fn start_right_click_paste(&mut self, tui: &mut tui::Tui, mouse: MouseEvent) {
         let source = match mouse.kind {
             MouseEventKind::Down(MouseButton::Right) => PasteSource::Clipboard,
             MouseEventKind::Down(MouseButton::Middle) => PasteSource::Primary,
             _ => return,
         };
         if !mouse.modifiers.is_empty() || self.pending_right_click_paste.is_some() {
-            return;
-        }
-        // The restricted handoff does not run the ordinary mouse editor first. Settle any
-        // held typing before taking the target of an eligible click.
-        if context == ClipboardPasteContext::DraftHandoff
-            && (self
-                .right_click_paste_target(tui, source, /*shortcut*/ None)
-                .is_none()
-                || !self.chat_widget.prepare_composer_mouse(mouse))
-        {
             return;
         }
         self.start_clipboard_text_paste(tui, source, /*shortcut*/ None);
@@ -155,7 +140,7 @@ impl App {
                     target,
                     source,
                     shortcut,
-                    request,
+                    _request: request,
                 });
                 tui.frame_requester().schedule_frame();
             }

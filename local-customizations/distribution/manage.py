@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 import time
 
-from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root
+from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, validate_stable_manifest
 
 HOME = Path.home()
 CODEX_HOME = Path(os.environ.get('CODEX_HOME', HOME / '.codex')).expanduser()
@@ -55,6 +55,7 @@ def download_release(tag, folder, commit):
         raise RuntimeError('The published build does not match this platform and exact personal source commit.')
     if manifest['release_tag'] != tag:
         raise RuntimeError('Published manifest has the wrong release identity.')
+    validate_stable_manifest(manifest)
     asset = f'codex-custom-{TARGET}.tar.gz'
     if manifest['asset'] != asset:
         raise RuntimeError('Unexpected package asset name.')
@@ -76,6 +77,8 @@ def extract(archive, destination):
 
 
 def verify_package(package, manifest):
+    if manifest.get('upstream_channel') == 'stable':
+        validate_stable_manifest(manifest)
     metadata = json.loads((package / 'codex-package.json').read_text())
     if metadata['target'] != TARGET or metadata['version'] != manifest['version']:
         raise RuntimeError('Package metadata does not match the published build.')
@@ -184,7 +187,9 @@ def refresh_source():
 
 
 def status():
-    print(json.dumps({'repository': REPO, 'channel': CONFIG['source_branch'],
+    print(json.dumps({'repository': REPO, 'channel': stable_release_pin()['upstream_channel'],
+                      'source_branch': CONFIG['source_branch'],
+                      'upstream_release': CONFIG['upstream_release'],
                       'source_checkout': str(source_root()),
                       'checkout_commit': output(['git', '-C', source_root(), 'rev-parse', 'HEAD']),
                       'installed': read_state(), 'selected_package': str((PACKAGES / 'current').resolve()),
@@ -240,7 +245,8 @@ def update(args):
         release = published(tag)
         info = {'source_commit': commit, 'source_branch': CONFIG['source_branch'], 'release_tag': tag,
                 'build_available': bool(release), 'already_installed': state.get('release_tag') == tag and installed_matches(state, commit),
-                'source_checkout_required': True}
+                'source_checkout_required': True, 'upstream_release': CONFIG['upstream_release'],
+                'upstream_channel': stable_release_pin()['upstream_channel']}
         if args.check:
             print(json.dumps(info, indent=2))
             return
@@ -293,7 +299,7 @@ def update(args):
 def main():
     parser = argparse.ArgumentParser(prog='codex', description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    u = commands.add_parser('update', help='Install the committed personal source branch; upstream merges remain ordinary Git work')
+    u = commands.add_parser('update', help='Install committed personal source based on its pinned stable upstream release')
     u.add_argument('--check', action='store_true', help='Show availability without requesting a build or installing')
     u.add_argument('--no-wait', action='store_true', help='Request a missing build and return without installing')
     u.add_argument('--revision', help='Exact personal source commit; default follows the personal branch, not bare upstream')

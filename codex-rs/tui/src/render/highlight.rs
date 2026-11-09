@@ -290,16 +290,11 @@ pub(crate) fn syntax_theme_revision() -> u64 {
 
 /// Clone the current syntax theme (e.g. to save for cancel-restore).
 pub(crate) fn current_syntax_theme() -> Theme {
-    with_syntax_theme(Theme::clone)
-}
-
-/// Borrow the active theme for one synchronous render operation.
-pub(crate) fn with_syntax_theme<T>(f: impl FnOnce(&Theme) -> T) -> T {
     let active_theme = theme_lock();
-    let theme = active_theme
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(&theme)
+    match active_theme.read() {
+        Ok(theme) => theme.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
 }
 
 /// An explicit diff background, including the ANSI terminal-default marker.
@@ -371,18 +366,11 @@ pub(crate) fn foreground_style_for_scopes_with_theme(
     theme: &Theme,
     scope_names: &[&str],
 ) -> Option<Style> {
-    foreground_color_for_scopes(&Highlighter::new(theme), scope_names)
-        .map(|fg| Style::default().fg(fg))
-}
-
-pub(crate) fn foreground_color_for_scopes(
-    highlighter: &Highlighter<'_>,
-    scope_names: &[&str],
-) -> Option<RtColor> {
+    let highlighter = Highlighter::new(theme);
     scope_names.iter().find_map(|scope_name| {
         let scope = Scope::new(scope_name).ok()?;
         let fg = highlighter.style_mod_for_stack(&[scope]).foreground?;
-        convert_syntect_color(fg)
+        convert_syntect_color(fg).map(|fg| Style::default().fg(fg))
     })
 }
 

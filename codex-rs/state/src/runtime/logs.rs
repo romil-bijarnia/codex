@@ -52,8 +52,6 @@ impl StateRuntime {
     ///
     /// This runs inside the same transaction as the insert so callers never
     /// observe "inserted but not yet pruned" rows.
-    /// The cumulative byte and row limits use the same window frame so SQLite can
-    /// compute both in one pass. The unique id breaks ties in timestamp order.
     async fn prune_logs_after_insert(
         &self,
         entries: &[LogEntry],
@@ -107,7 +105,6 @@ WHERE id IN (
             ) OVER (
                 PARTITION BY thread_id
                 ORDER BY ts DESC, ts_nanos DESC, id DESC
-                ROWS UNBOUNDED PRECEDING
             ) AS cumulative_bytes,
             ROW_NUMBER() OVER (
                 PARTITION BY thread_id
@@ -190,7 +187,6 @@ WHERE id IN (
             ) OVER (
                 PARTITION BY process_uuid
                 ORDER BY ts DESC, ts_nanos DESC, id DESC
-                ROWS UNBOUNDED PRECEDING
             ) AS cumulative_bytes,
             ROW_NUMBER() OVER (
                 PARTITION BY process_uuid
@@ -257,7 +253,6 @@ WHERE id IN (
             ) OVER (
                 PARTITION BY process_uuid
                 ORDER BY ts DESC, ts_nanos DESC, id DESC
-                ROWS UNBOUNDED PRECEDING
             ) AS cumulative_bytes,
             ROW_NUMBER() OVER (
                 PARTITION BY process_uuid

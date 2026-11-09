@@ -1,14 +1,12 @@
 //! Input queue restore and thread-input snapshot behavior for `ChatWidget`.
 
 use std::collections::HashSet;
-use std::collections::VecDeque;
 
 use codex_protocol::models::local_image_label_text;
 
 use crate::bottom_pane::ComposerDraftSnapshot;
 use crate::bottom_pane::KillBufferSnapshot;
 use crate::bottom_pane::MentionUsage;
-use crate::bottom_pane::ShellPrefixHandling;
 
 use super::user_messages::remap_colliding_paste_placeholders;
 use super::*;
@@ -24,24 +22,6 @@ impl ChatWidget {
 
     pub(crate) fn restore_kill_buffer_snapshot(&mut self, snapshot: KillBufferSnapshot) {
         self.bottom_pane.restore_kill_buffer_snapshot(snapshot);
-    }
-
-    pub(crate) fn composer_draft_snapshot(&mut self) -> ComposerDraftSnapshot {
-        self.bottom_pane.flush_pending_composer_input();
-        let mut draft = self.bottom_pane.composer_draft_snapshot();
-        // This snapshot comes from an active host, where disabled shell commands
-        // also mean a leading bang was entered literally.
-        draft.shell_mode = Some(draft.shell_mode.unwrap_or(false));
-        draft
-    }
-
-    /// Continue an active Cloud-switch draft without undoing an accepted Vim Escape.
-    pub(crate) fn restore_cloud_switch_draft(&mut self, draft: ComposerDraftSnapshot) {
-        let continue_vim_normal_mode = draft.vim_normal_mode;
-        self.restore_startup_draft(draft);
-        if continue_vim_normal_mode {
-            self.bottom_pane.set_vim_enabled(/*enabled*/ true);
-        }
     }
 
     /// Restore the exact draft entered before the fully initialized composer became available.
@@ -99,23 +79,20 @@ impl ChatWidget {
                     .saturating_sub(original_end)
             });
             pending_pastes.extend(startup_pending_pastes);
-            self.restore_composer_state_with_shell_mode(
-                Self::composer_state_from_user_message(
-                    merge_user_messages(vec![existing_message, startup_message]),
-                    pending_pastes,
-                ),
-                existing_draft.shell_mode,
-            );
+            self.restore_composer_state(Self::composer_state_from_user_message(
+                merge_user_messages(vec![existing_message, startup_message]),
+                pending_pastes,
+            ));
             startup_offset
                 .saturating_add(draft.cursor)
                 .saturating_add(cursor_adjustment)
         } else if existing_has_content || !startup_has_content {
             existing_cursor
         } else {
-            self.restore_composer_state_with_shell_mode(
-                Self::composer_state_from_user_message(startup_message, draft.pending_pastes),
-                draft.shell_mode,
-            );
+            self.restore_composer_state(Self::composer_state_from_user_message(
+                startup_message,
+                draft.pending_pastes,
+            ));
             draft.cursor
         };
         self.bottom_pane.set_composer_cursor(cursor);
@@ -354,11 +331,41 @@ impl ChatWidget {
         }
     }
 
+    /// Recover the exact locally retained submission without relying on the
+    /// newer upstream admission-receipt subsystem. Stable 0.167 tracks starts
+    /// separately from pending steers, but both retain the same client ID.
+    fn take_submitted_message(
+        &mut self,
+        client_id: &str,
+    ) -> Option<(UserMessage, UserMessageHistoryRecord, UserMessageSource)> {
+        let queue = &mut self.input_queue;
+        if queue.pending_user_message_client_id.as_deref() == Some(client_id) {
+            queue.pending_user_message_client_id = None;
+            queue.user_turn_pending_start = false;
+            let history = queue
+                .pending_user_message_history_record
+                .take()
+                .unwrap_or(UserMessageHistoryRecord::UserMessageText);
+            self.safety_buffering_prompt
+                .take()
+                .map(|message| (message, history, self.safety_buffering_source))
+        } else {
+            let index = queue
+                .pending_steers
+                .iter()
+                .position(|pending| pending.client_id == client_id)?;
+            queue
+                .pending_steers
+                .remove(index)
+                .map(|pending| (pending.user_message, pending.history_record, pending.source))
+        }
+    }
+
     pub(crate) fn enqueue_rejected_steer(&mut self) -> bool {
         self.enqueue_rejected_steer_by_id(/*client_id*/ None)
     }
 
-    pub(super) fn enqueue_rejected_steer_by_id(&mut self, client_id: Option<&str>) -> bool {
+    pub(crate) fn enqueue_rejected_steer_by_id(&mut self, client_id: Option<&str>) -> bool {
         if self.config.features.enabled(Feature::SteerOnly) {
             // A newly started cloud submission can be rejected by client ID before
             // it becomes a pending steer. Keep that text visibly unsent, not queued.
@@ -422,49 +429,6 @@ impl ChatWidget {
     /// or review completion.
     /// When there are queued user messages, restore them into the composer
     /// separated by newlines rather than auto-submitting the next one.
-    pub(super) fn on_interrupted_server_turn(&mut self, reason: TurnAbortReason, turn_id: &str) {
-        let queue = &mut self.input_queue;
-        // Recovery for the interrupted turn must leave other admitted steers and
-        // unresolved submissions alone until their own events arrive.
-        let (later, interrupted): (VecDeque<_>, _) = std::mem::take(&mut queue.pending_steers)
-            .into_iter()
-            .partition(|steer| {
-                steer
-                    .admitted_turn_id
-                    .as_deref()
-                    .is_some_and(|id| id != turn_id)
-            });
-        queue.pending_steers = interrupted;
-        let mut unconfirmed = Vec::new();
-        if queue.has_unconfirmed_messages() {
-            let history = std::mem::take(&mut queue.queued_user_message_history_records);
-            for (message, record) in std::mem::take(&mut queue.queued_user_messages)
-                .into_iter()
-                .zip(
-                    history
-                        .into_iter()
-                        .chain(std::iter::repeat(UserMessageHistoryRecord::UserMessageText)),
-                )
-            {
-                if matches!(message.delivery, MessageDelivery::Unconfirmed(_)) {
-                    unconfirmed.push((message, record));
-                } else {
-                    queue.queued_user_messages.push_back(message);
-                    queue.queued_user_message_history_records.push_back(record);
-                }
-            }
-        }
-        self.on_interrupted_turn(reason);
-        self.input_queue.pending_steers.extend(later);
-        for (message, record) in unconfirmed {
-            self.input_queue.queued_user_messages.push_back(message);
-            self.input_queue
-                .queued_user_message_history_records
-                .push_back(record);
-        }
-        self.refresh_pending_input_preview();
-    }
-
     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
         self.requeue_image_submission();
         // Finalize, log a gentle prompt, and clear running state.
@@ -693,14 +657,6 @@ impl ChatWidget {
     }
 
     pub(super) fn restore_composer_state(&mut self, composer: ThreadComposerState) {
-        self.restore_composer_state_with_shell_mode(composer, /*shell_mode*/ None);
-    }
-
-    fn restore_composer_state_with_shell_mode(
-        &mut self,
-        composer: ThreadComposerState,
-        shell_mode: Option<bool>,
-    ) {
         let ThreadComposerState {
             text,
             local_images,
@@ -716,11 +672,6 @@ impl ChatWidget {
             text_elements,
             local_image_paths,
             mention_bindings,
-            if shell_mode == Some(false) {
-                ShellPrefixHandling::Literal
-            } else {
-                ShellPrefixHandling::Interpret
-            },
         );
         self.bottom_pane.set_composer_pending_pastes(pending_pastes);
     }
@@ -748,7 +699,7 @@ impl ChatWidget {
 
     pub(crate) fn capture_thread_input_state(&mut self) -> Option<ThreadInputState> {
         self.cancel_image_submission();
-        let draft = self.bottom_pane.composer_recovery_snapshot();
+        let draft = self.bottom_pane.composer_draft_snapshot();
         let composer = ThreadComposerState {
             text: draft.text,
             text_elements: draft.text_elements,
@@ -783,6 +734,10 @@ impl ChatWidget {
             reconnect_pending: false,
             user_turn_pending_start: self.input_queue.user_turn_pending_start,
             pending_user_message_client_id: self.input_queue.pending_user_message_client_id.clone(),
+            pending_user_message_history_record: self
+                .input_queue
+                .pending_user_message_history_record
+                .clone(),
             submit_pending_steers_after_interrupt: self
                 .input_queue
                 .submit_pending_steers_after_interrupt,
@@ -831,6 +786,8 @@ impl ChatWidget {
                 preserve_in_flight_turn && input_state.user_turn_pending_start;
             self.input_queue.pending_user_message_client_id =
                 input_state.pending_user_message_client_id;
+            self.input_queue.pending_user_message_history_record =
+                input_state.pending_user_message_history_record;
             self.input_queue.submit_pending_steers_after_interrupt =
                 preserve_in_flight_turn && input_state.submit_pending_steers_after_interrupt;
             self.update_collaboration_mode_indicator();
@@ -847,9 +804,7 @@ impl ChatWidget {
                 for pending in pending_steers.into_iter().rev() {
                     queued_user_messages.push_front(QueuedUserMessage {
                         source: pending.source,
-                        delivery: if input_state.reconnect_pending
-                            || pending.admitted_turn_id.is_some()
-                        {
+                        delivery: if input_state.reconnect_pending {
                             MessageDelivery::Unconfirmed(Some(pending.client_id))
                         } else {
                             MessageDelivery::Unsent

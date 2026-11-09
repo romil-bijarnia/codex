@@ -17,12 +17,6 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
-fn normalize_reconnect_status(popup: &str) -> String {
-    let status =
-        regex_lite::Regex::new(r"(?m)^[•◦] (Reconnecting to server… )\([\dhms ]+\)").unwrap();
-    status.replace(popup, "• ${1}(<elapsed>)").into_owned()
-}
-
 #[tokio::test]
 async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()> {
     let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
@@ -31,11 +25,6 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
     app.primary_thread_id = Some(id);
     app.chat_widget
         .handle_thread_session(test_thread_session(id, app.config.cwd.to_path_buf()));
-    app.ensure_thread_channel(id)
-        .store
-        .lock()
-        .await
-        .set_active_turn_id("finished".into());
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = crate::resolve_remote_addr(&format!("ws://{}", listener.local_addr()?))?;
     app.app_server_target = AppServerTarget::Remote {
@@ -43,21 +32,8 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
     };
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await?;
-        let mut steered_message = None;
         serve_reconnect_requests(tokio_tungstenite::accept_async(stream).await?, |request| {
-            let params = request.params.unwrap();
-            let message_id = params["clientUserMessageId"]
-                .as_str()
-                .expect("submission ID");
-            if request.method == "turn/steer" {
-                assert_eq!(params["expectedTurnId"], "finished");
-                steered_message = Some(message_id.to_owned());
-                return std::future::ready(Some(
-                    json!({"error": {"code": -32600, "message": "no active turn to steer"}}),
-                ));
-            }
             assert_eq!(request.method, "turn/start");
-            assert_eq!(steered_message.as_deref(), Some(message_id));
             std::future::ready(None)
         })
         .await
@@ -151,7 +127,7 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
                     .unwrap()
                     .display_lines(/*width*/ 80)
             ),
-            normalize_reconnect_status(&render_bottom_popup(&app.chat_widget, /*width*/ 80))
+            render_bottom_popup(&app.chat_widget, /*width*/ 80)
         )
     );
     let mut keymap = codex_config::types::TuiKeymap::default();
@@ -175,12 +151,7 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
         app.chat_widget.composer_text_with_pending(),
         "queued before disconnect"
     );
-    assert_eq!(app.chat_widget.queued_user_message_texts(), ["only once"]);
-    assert!(
-        app.chat_widget
-            .capture_thread_input_state()
-            .is_some_and(|input| input.has_unconfirmed_messages())
-    );
+    assert!(!app.chat_widget.has_queued_follow_up_messages());
     let paste = "copied text ".repeat(/*n*/ 92);
     app.handle_tui_event(&mut tui, &mut session, TuiEvent::Paste(paste.clone()))
         .await?;
@@ -234,10 +205,7 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
         ));
     }
     session.shutdown().await?;
-    assert_eq!(
-        server.await??,
-        vec!["initialize", "turn/steer", "turn/start"]
-    );
+    assert_eq!(server.await??, vec!["initialize", "turn/start"]);
     Ok(())
 }
 
@@ -623,9 +591,14 @@ async fn rejected_initial_thread_start_reconnects_and_submits_prompt_once() -> R
             TuiEvent::Paste("startup draft".into()),
         )
         .await?;
+        let reconnect_status =
+            regex_lite::Regex::new(r"^[•◦] (Reconnecting to server… )\([\dhms ]+\)")?;
         assert_snapshot!(
             "rejected_startup_reconnecting",
-            normalize_reconnect_status(&render_bottom_popup(&app.chat_widget, /*width*/ 80))
+            reconnect_status.replace(
+                &render_bottom_popup(&app.chat_widget, /*width*/ 80),
+                "• ${1}(<elapsed>)",
+            )
         );
 
         let mut launch_choices = crate::app_server_session::StartupLaunchChoices::default();

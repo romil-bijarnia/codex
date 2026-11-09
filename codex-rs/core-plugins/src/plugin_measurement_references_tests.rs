@@ -174,9 +174,7 @@ impl Fixture {
         &self,
         target: &PluginMeasurementTarget,
     ) -> Result<Option<Arc<PluginMeasurementReference>>> {
-        self.cache
-            .prepare(&self.config, &self.auth, target, /*runtime_auth*/ None)
-            .await
+        self.cache.prepare(&self.config, &self.auth, target).await
     }
 
     async fn assert_request_count(&self, expected: usize) {
@@ -256,7 +254,7 @@ async fn narrow_preparation_reuses_versions_and_keeps_old_leases_alive() -> Resu
     // A newer release cannot supply an older version's declaration on a cold cache.
     assert!(
         RemotePluginMeasurementCache::new()
-            .prepare(&f.config, &f.auth, &first, /*runtime_auth*/ None)
+            .prepare(&f.config, &f.auth, &first)
             .await?
             .is_none()
     );

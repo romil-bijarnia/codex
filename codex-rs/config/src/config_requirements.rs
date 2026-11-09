@@ -1,7 +1,5 @@
 use crate::ApplicationRequirementsToml;
 use codex_features::FeatureToml;
-use codex_features::RuntimeAgentInstancesConfigToml;
-use codex_features::RuntimeAuthMode;
 use codex_model_provider_info::ModelProviderInfo;
 pub use codex_model_provider_info::ResidencyRequirement;
 use codex_protocol::config_types::ApprovalsReviewer;
@@ -275,7 +273,6 @@ impl Default for ConfigRequirements {
 
 impl ConfigRequirements {
     /// Returns whether a model slug or its supported provider alias requires auto-review.
-
 
     pub fn managed_auth_policy(&self) -> ManagedAuthPolicy {
         ManagedAuthPolicy {
@@ -936,46 +933,14 @@ impl WindowsRequirementsToml {
 }
 
 #[derive(Deserialize, Debug, Clone, Default, PartialEq, Eq)]
-#[serde(from = "FeatureRequirementsInput")]
 pub struct FeatureRequirementsToml {
-    pub entries: BTreeMap<String, bool>,
-    pub runtime_auth_mode: Option<RuntimeAuthMode>,
-}
-
-// Keep boolean requirements unchanged while accepting the same typed runtime setting as config.
-#[derive(Deserialize)]
-struct FeatureRequirementsInput {
-    runtime_agent_instances: Option<FeatureToml<RuntimeAgentInstancesConfigToml>>,
     #[serde(flatten)]
-    entries: BTreeMap<String, bool>,
-}
-
-impl From<FeatureRequirementsInput> for FeatureRequirementsToml {
-    fn from(input: FeatureRequirementsInput) -> Self {
-        let mut entries = input.entries;
-        if let Some(enabled) = input
-            .runtime_agent_instances
-            .as_ref()
-            .and_then(FeatureToml::enabled)
-        {
-            entries.insert("runtime_agent_instances".to_string(), enabled);
-        }
-        let runtime_auth_mode = input
-            .runtime_agent_instances
-            .and_then(|feature| match feature {
-                FeatureToml::Enabled(_) => None,
-                FeatureToml::Config(config) => config.mode,
-            });
-        Self {
-            entries,
-            runtime_auth_mode,
-        }
-    }
+    pub entries: BTreeMap<String, bool>,
 }
 
 impl FeatureRequirementsToml {
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty() && self.runtime_auth_mode.is_none()
+        self.entries.is_empty()
     }
 }
 
@@ -3333,7 +3298,6 @@ tracestate = { managed = { tenant = "enterprise", region = "us" }, other = { kee
         ];
         let feature_requirements = FeatureRequirementsToml {
             entries: BTreeMap::from([("personality".to_string(), true)]),
-            ..Default::default()
         };
         let browser_use = BrowserUseRequirementsToml {
             extension: None,
@@ -4839,7 +4803,6 @@ allowed_approvals_reviewers = ["user"]
                         ("apps".to_string(), false),
                         ("personality".to_string(), true),
                     ]),
-                    ..Default::default()
                 },
                 RequirementSource::Unknown,
             ))

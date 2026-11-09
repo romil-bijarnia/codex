@@ -47,18 +47,10 @@ impl LocalAgentRuntime {
                 .trim()
                 .strip_prefix("<source_thread_id>")?
                 .split_once("</source_thread_id>")?;
-            let input = input.trim();
-            // Cloud deliveries include Dot attribution, but authority comes from the source thread.
-            let input = if let Some(rest) = input.strip_prefix("<source_orbit_id>") {
-                let (orbit_id, input) = rest.split_once("</source_orbit_id>")?;
-                if orbit_id.contains('<') {
-                    return None;
-                }
-                input.trim()
-            } else {
-                input
-            };
-            input.strip_prefix("<input>")?.strip_suffix("</input>")?;
+            input
+                .trim()
+                .strip_prefix("<input>")?
+                .strip_suffix("</input>")?;
             ThreadId::from_string(source)
                 .ok()
                 .filter(|source| *source != receiver_thread_id)
@@ -103,9 +95,7 @@ impl LocalAgentRuntime {
                                 ContextManager::reconstruct_rollout(
                                     &stored.items,
                                     meta.history_mode,
-                                    ContextManager::new(std::sync::Arc::clone(
-                                        &self.item_id_generator,
-                                    )),
+                                    ContextManager::new(),
                                     // Tool bodies are not sender authorization evidence.
                                     TruncationPolicy::Bytes(0),
                                 )

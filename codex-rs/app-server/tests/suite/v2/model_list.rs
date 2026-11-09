@@ -156,7 +156,6 @@ requires_openai_auth = true
                 limit: Some(100),
                 include_hidden: Some(true),
                 cursor: None,
-                ..Default::default()
             },
         })
         .await?;
@@ -275,7 +274,6 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
                 limit: Some(100),
                 cursor: None,
                 include_hidden: None,
-                ..Default::default()
             },
         })
         .await?;
@@ -306,7 +304,6 @@ async fn list_models_includes_hidden_models() -> Result<()> {
                 limit: Some(100),
                 cursor: None,
                 include_hidden: Some(true),
-                ..Default::default()
             },
         })
         .await?;
@@ -429,7 +426,6 @@ model_catalog_url = "{server_uri}/v1/models"
             limit: Some(100),
             cursor: None,
             include_hidden: None,
-            ..Default::default()
         })
         .await?;
     let response = mcp
@@ -513,7 +509,6 @@ async fn list_models_pagination_works() -> Result<()> {
                     limit: Some(1),
                     cursor: cursor.clone(),
                     include_hidden: None,
-                    ..Default::default()
                 },
             })
             .await?;
@@ -550,7 +545,6 @@ async fn list_models_rejects_invalid_cursor() -> Result<()> {
             limit: None,
             cursor: Some("invalid".to_string()),
             include_hidden: None,
-            ..Default::default()
         })
         .await?;
 

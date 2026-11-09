@@ -102,7 +102,8 @@ async fn background_routing_skips_config_until_chatgpt_sign_in(
         manager.clone(),
         Some(config.cwd.to_path_buf()),
         Arc::clone(&config),
-        Arc::clone(&threads),
+        threads.get_models_manager(),
+        Arc::clone(&auth_manager),
     ));
     let processor = AccountRequestProcessor::new(
         Arc::clone(&auth_manager),

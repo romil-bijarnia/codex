@@ -725,7 +725,6 @@ alpha = true
         Sourced::new(
             crate::FeatureRequirementsToml {
                 entries: BTreeMap::from([("alpha".to_string(), true), ("beta".to_string(), true),]),
-                ..Default::default()
             },
             RequirementSource::composite([high_source, low_source]),
         )

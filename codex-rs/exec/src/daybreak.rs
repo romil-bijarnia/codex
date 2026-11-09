@@ -50,7 +50,6 @@ pub(crate) async fn program_for_turn(
                     cursor,
                     limit: None,
                     include_hidden: Some(true),
-                    model_provider: None,
                 },
             })
             .await;

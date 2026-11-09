@@ -5,7 +5,6 @@
 
 mod authorization;
 mod client;
-mod device;
 mod diagnostics;
 mod error;
 mod pkce;
@@ -21,10 +20,6 @@ pub(crate) use client::RefreshReason;
 pub(crate) use client::RefreshTokenGrant;
 pub(crate) use client::TokenEncoding;
 pub(crate) use client::TokenEndpoint;
-pub(crate) use device::DeviceAuthorizationError;
-pub(crate) use device::DeviceAuthorizationOptions;
-pub use device::OAuthDeviceCodePrompt;
-pub(crate) use device::authorize_device;
 pub(crate) use diagnostics::sanitize_url_for_logging;
 pub(crate) use error::ErrorBodyLimit;
 pub(crate) use error::OAuthError;

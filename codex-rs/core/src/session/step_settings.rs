@@ -291,8 +291,6 @@ impl StepSettings {
         }
         Ok(next)
     }
-
-
 }
 
 #[cfg(test)]

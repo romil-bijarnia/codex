@@ -58,11 +58,7 @@ pub(crate) struct PreparedExecCommand {
     pub(crate) completion_timeout: Option<Duration>,
 }
 
-impl PreparedExecCommand {
-
-
-
-}
+impl PreparedExecCommand {}
 
 pub(crate) struct ParsedExecCommand<'a> {
     session: &'a Session,
@@ -84,7 +80,7 @@ impl<'a> ParsedExecCommand<'a> {
     ) -> Result<Self, FunctionCallError> {
         let workdir: ExecCommandWorkdirArgs = parse_arguments(arguments)?;
         let cwd = workdir.resolve_cwd(turn_environment)?;
-        let environment = turn_environment.environment();
+        let environment = &turn_environment.environment;
 
         // Remote executors enforce URI-native sandbox policy themselves. Only a host-local
         // sandbox needs a native cwd for resolving paths nested in the permissions config.
@@ -164,7 +160,7 @@ impl<'a> ParsedExecCommand<'a> {
             .unwrap_or_else(|| session.user_shell());
         // TODO(anp): Resolve requested shells in remote environments instead of restricting
         // commands to the reported default shell.
-        if turn_environment.environment().is_remote()
+        if turn_environment.environment.is_remote()
             && let Some(requested_shell) = args.shell.take()
         {
             let Some(remote_shell) = turn_environment.shell.as_ref() else {

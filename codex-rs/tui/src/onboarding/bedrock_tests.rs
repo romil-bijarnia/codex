@@ -193,7 +193,7 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
          Use your existing AWS credentials
 
       2. Continue with detected credentials
-         Use the Bedrock API key from the server environment
+         Use your existing Amazon Bedrock API key
 
       3. Other AWS sign-in methods
          Use another profile, access keys, environment variables, or a
@@ -225,7 +225,7 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
          Enter an access key ID and secret access key
 
       3. Environment variables
-         Use AWS credentials exported in your shell
+         Configure AWS credentials in your environment, then return here
 
       4. Bedrock API key
          Enter a Bedrock API key
@@ -300,7 +300,7 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
     insta::assert_snapshot!(render_visible(&environment_state), @r###"
     > Set up Amazon Bedrock
 
-      AWS credentials detected in the server environment.
+      AWS credentials detected in your environment.
 
     > 1. Continue with detected credentials
 
@@ -328,7 +328,7 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
          Enter an access key ID and secret access key
 
       3. Environment variables
-         Use AWS credentials exported in your shell
+         Configure AWS credentials in your environment, then return here
 
       4. Bedrock API key
          Enter a Bedrock API key
@@ -515,7 +515,7 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     insta::assert_snapshot!(render_visible(&access_keys), @r###"
     > Set up Amazon Bedrock
 
-      Export AWS credentials, then run `codex --no-daemon` in that shell.
+      Configure AWS credentials in your environment, then restart Codex.
 
       Setup guide: https://learn.chatgpt.com/docs/amazon-bedrock
 

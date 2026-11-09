@@ -30,15 +30,11 @@ impl WorkerRuntime {
                 .or_default()
                 .push(turn_id.clone());
         }
-        let client = BackendClient::from_auth_with_runtime(
+        let client = BackendClient::from_auth(
             self.config.chatgpt_base_url.clone(),
             auth,
             http_client_factory,
-            self.runtime_auth.as_ref(),
-            /*headers*/ &Default::default(),
-        )
-        .await
-        .map_err(RequestError::Other)?;
+        );
         let costs = client.query_chatgpt_turn_costs(&threads).await?;
         let mut settled_costs = Vec::new();
         for thread in costs {

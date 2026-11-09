@@ -50,8 +50,6 @@ impl AgentsOverviewView {
             line(
                 if state.connection_notice.is_some() {
                     "Reconnecting…"
-                } else if state.history.is_some() {
-                    "No matching tasks"
                 } else if state.loading && self.rows.is_empty() {
                     "Loading tasks…"
                 } else if state.refresh_failed {
@@ -123,15 +121,7 @@ impl AgentsOverviewView {
                         },
                         style,
                     );
-                    let label = if let Some(search) = &state.history {
-                        if search.loading {
-                            "Searching history…"
-                        } else if search.failed {
-                            "Show more (retry)"
-                        } else {
-                            "Show more matches"
-                        }
-                    } else if state.loading {
+                    let label = if state.loading {
                         "Loading more…"
                     } else if state.refresh_failed {
                         "Show more (retry)"
@@ -170,7 +160,6 @@ impl AgentsOverviewView {
                     })
                     .count();
                 let total = (0..self.rows.len())
-                    .filter(|&i| state.includes_row(&self.rows[i]))
                     .filter(|&candidate| self.same_group(state.grouping, candidate, index))
                     .count();
                 let count = if count == total {

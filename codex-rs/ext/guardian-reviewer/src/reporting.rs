@@ -7,6 +7,8 @@
 use std::time::Duration;
 use std::time::Instant;
 
+use crate::GuardianReviewOutcome;
+use crate::ReviewCompletion;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::GuardianApprovalRequestSource;
 use codex_analytics::GuardianReviewAnalyticsResult;
@@ -20,8 +22,6 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::GuardianAssessmentDecisionSource;
 use codex_protocol::protocol::GuardianAssessmentEvent;
 use codex_protocol::protocol::GuardianAssessmentStatus;
-use crate::GuardianReviewOutcome;
-use crate::ReviewCompletion;
 
 /// Captured action attribution used for both the started and terminal report.
 pub struct ReviewMetadata {

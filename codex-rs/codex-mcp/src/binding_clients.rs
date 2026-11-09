@@ -17,37 +17,14 @@ use tracing::warn;
 use crate::pagination::collect_paginated;
 use crate::rmcp_client::ManagedClient;
 
-/// Items listed by ready servers and names of deferred servers available to query explicitly.
-pub struct McpResourceListing<T> {
-    pub by_server: HashMap<String, Vec<T>>,
-    pub deferred_servers: Vec<String>,
-}
-
-/// The ready clients and dormant server names captured for one model step.
-#[derive(Default)]
+/// The ready clients captured for one model step.
 pub(crate) struct McpBindingClients {
     clients: HashMap<String, Arc<ManagedClient>>,
-    deferred_servers: Vec<String>,
 }
 
 impl McpBindingClients {
-    pub(crate) fn new(
-        clients: HashMap<String, Arc<ManagedClient>>,
-        mut deferred_servers: Vec<String>,
-    ) -> Self {
-        deferred_servers.sort_unstable();
-        Self {
-            clients,
-            deferred_servers,
-        }
-    }
-
-    fn deferred_servers(&self, include_server: impl Fn(&str) -> bool) -> Vec<String> {
-        self.deferred_servers
-            .iter()
-            .filter(|name| include_server(name))
-            .cloned()
-            .collect()
+    pub(crate) fn new(clients: HashMap<String, Arc<ManagedClient>>) -> Self {
+        Self { clients }
     }
 
     pub(crate) fn client(&self, server: &str) -> Option<Arc<ManagedClient>> {
@@ -100,7 +77,7 @@ impl McpBindingClients {
     pub(crate) async fn list_all_resources(
         &self,
         include_server: impl Fn(&str) -> bool,
-    ) -> McpResourceListing<Resource> {
+    ) -> HashMap<String, Vec<Resource>> {
         let mut join_set = JoinSet::new();
         for (server_name, managed) in self
             .clients
@@ -122,16 +99,13 @@ impl McpBindingClients {
                 (server_name, resources)
             });
         }
-        McpResourceListing {
-            by_server: collect_resource_results(&mut join_set, "resources").await,
-            deferred_servers: self.deferred_servers(include_server),
-        }
+        collect_resource_results(&mut join_set, "resources").await
     }
 
     pub(crate) async fn list_all_resource_templates(
         &self,
         include_server: impl Fn(&str) -> bool,
-    ) -> McpResourceListing<ResourceTemplate> {
+    ) -> HashMap<String, Vec<ResourceTemplate>> {
         let mut join_set = JoinSet::new();
         for (server_name, managed) in self
             .clients
@@ -153,10 +127,7 @@ impl McpBindingClients {
                 (server_name, templates)
             });
         }
-        McpResourceListing {
-            by_server: collect_resource_results(&mut join_set, "resource templates").await,
-            deferred_servers: self.deferred_servers(include_server),
-        }
+        collect_resource_results(&mut join_set, "resource templates").await
     }
 }
 

@@ -1148,7 +1148,3 @@ mod tests {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "remote_bundle_runtime_auth_tests.rs"]
-mod runtime_auth_tests;

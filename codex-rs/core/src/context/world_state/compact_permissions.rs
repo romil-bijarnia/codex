@@ -4,6 +4,7 @@ use super::WorldStateSection;
 use super::WorldStateUpdate;
 use crate::context::APPROVED_COMMAND_PREFIX_SAVED_MESSAGE_PREFIX;
 use crate::context::ApprovedCommandPrefixSaved;
+use crate::context::ContextualUserFragment;
 use codex_execpolicy::Policy;
 use codex_protocol::models::format_allow_prefixes;
 use std::collections::BTreeSet;
@@ -50,14 +51,15 @@ impl WorldStateSection for CompactPermissionsState {
                 return (Some(current), Vec::new());
             }
         };
-        let fragment: Option<super::WorldStateFragment> = format_allow_prefixes(added_prefixes)
-            .filter(|prefixes| !prefixes.is_empty())
-            .map(|prefixes| {
-                Box::new(ApprovedCommandPrefixSaved::new(
-                    prefixes,
-                    self.saved_prefix_heading.as_deref(),
-                )) as _
-            });
+        let fragment: Option<Box<dyn ContextualUserFragment>> =
+            format_allow_prefixes(added_prefixes)
+                .filter(|prefixes| !prefixes.is_empty())
+                .map(|prefixes| {
+                    Box::new(ApprovedCommandPrefixSaved::new(
+                        prefixes,
+                        self.saved_prefix_heading.as_deref(),
+                    )) as _
+                });
         (
             Some(current),
             WorldStateUpdate::optional_boxed_fragment(fragment),

@@ -58,17 +58,6 @@ pub(crate) fn init(
     (otel, telemetry)
 }
 
-pub(super) fn monitor_stdin_close() -> tokio::sync::oneshot::Receiver<()> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        if let Err(error) = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink()) {
-            tracing::warn!(%error, "Could not read exec-server parent lifetime pipe");
-        }
-        let _ = sender.send(());
-    });
-    receiver
-}
-
 pub(crate) async fn run_until_shutdown<F, E>(
     run: F,
     parent_lifetime: ParentLifetime,
@@ -80,7 +69,18 @@ where
     let parent_disconnected = match parent_lifetime {
         ParentLifetime::Independent => None,
         ParentLifetime::MonitoredStdin(receiver) => Some(receiver),
-        ParentLifetime::StdinPipe => Some(monitor_stdin_close()),
+        ParentLifetime::StdinPipe => {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                if let Err(error) =
+                    std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink())
+                {
+                    tracing::warn!(%error, "Could not read exec-server parent lifetime pipe");
+                }
+                let _ = sender.send(());
+            });
+            Some(receiver)
+        }
     };
     let parent_disconnected = async {
         match parent_disconnected {

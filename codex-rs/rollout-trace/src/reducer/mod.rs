@@ -82,7 +82,7 @@ pub fn replay_bundle(bundle_dir: impl AsRef<Path>) -> Result<RolloutTrace> {
         pending_code_cell_starts: BTreeMap::new(),
         pending_code_cell_lifecycle_events: BTreeMap::new(),
         pending_agent_interaction_edges: Vec::new(),
-        first_acceptances: BTreeMap::new(),
+        accepted_item_ids: BTreeMap::new(),
     };
 
     let event_log_path = bundle_dir.join(RAW_EVENT_LOG_FILE_NAME);
@@ -144,38 +144,10 @@ pub fn replay_bundle(bundle_dir: impl AsRef<Path>) -> Result<RolloutTrace> {
     // fail before that message is ever reduced. Only after replaying the whole
     // bundle do we know which spawn deliveries need the child-thread fallback.
     reducer.resolve_pending_spawn_edge_fallbacks()?;
-    // Cell starts can be queued until their model output arrives. Link only
-    // materialized cells, after both sides of the dispatch have been replayed.
-    for tool in reducer.rollout.tool_calls.values_mut() {
-        if tool.requester == crate::ToolCallRequester::Model
-            && matches!(&tool.kind, crate::ToolCallKind::Other { name } if name == codex_code_mode::PUBLIC_TOOL_NAME)
-            && let Some(call_id) = &tool.model_visible_call_id
-            && let Some(cell) = reducer.rollout.code_cells.get(
-                &TraceReducer::reduced_code_cell_id_for_model_visible_call(call_id),
-            )
-            && cell.thread_id == tool.thread_id
-            && tool
-                .started_by_codex_turn_id
-                .as_ref()
-                .is_none_or(|turn| turn == &cell.codex_turn_id)
-        {
-            tool.started_code_cell_id = Some(cell.code_cell_id.clone());
-        }
-    }
 
     // Acceptance and response records can arrive in either order. Select history
     // after replay, retaining discarded attempts elsewhere in the graph.
     // Request/checkpoint items include inherited context without local acceptance.
-    for item in reducer.rollout.conversation_items.values_mut() {
-        if let Some(&(at_unix_ms, seq)) = item
-            .responses_item_id
-            .as_ref()
-            .and_then(|id| reducer.first_acceptances.get(&item.thread_id)?.get(id))
-        {
-            item.accepted_at_unix_ms = Some(at_unix_ms);
-            item.accepted_seq = Some(seq);
-        }
-    }
     let context_item_ids: BTreeSet<_> = reducer
         .rollout
         .inference_calls
@@ -191,7 +163,7 @@ pub fn replay_bundle(bundle_dir: impl AsRef<Path>) -> Result<RolloutTrace> {
         .collect();
     for thread in reducer.rollout.threads.values_mut() {
         let accepted_ids = reducer
-            .first_acceptances
+            .accepted_item_ids
             .remove(&thread.thread_id)
             .unwrap_or_default();
         thread.conversation_item_ids.retain(|id| {
@@ -200,7 +172,7 @@ pub fn replay_bundle(bundle_dir: impl AsRef<Path>) -> Result<RolloutTrace> {
                 || item
                     .responses_item_id
                     .as_ref()
-                    .is_some_and(|source_id| accepted_ids.contains_key(source_id))
+                    .is_some_and(|source_id| accepted_ids.contains(source_id))
         });
     }
 
@@ -210,8 +182,8 @@ pub fn replay_bundle(bundle_dir: impl AsRef<Path>) -> Result<RolloutTrace> {
 struct TraceReducer {
     rollout: RolloutTrace,
     bundle_dir: PathBuf,
-    /// First (wall time, sequence) by receiving thread and Responses item ID.
-    first_acceptances: BTreeMap<String, BTreeMap<String, (i64, crate::RawEventSeq)>>,
+    /// Responses IDs accepted by the harness, scoped to the receiving thread.
+    accepted_item_ids: BTreeMap<String, BTreeSet<String>>,
     next_conversation_item_ordinal: u64,
     next_terminal_operation_ordinal: u64,
     /// Latest session for each thread-local runtime handle; each exec replaces it.
@@ -265,7 +237,7 @@ impl TraceReducer {
         let payload_path = self.bundle_dir.join(&payload.path);
         let file = File::open(&payload_path)
             .with_context(|| format!("open payload {}", payload.raw_payload_id))?;
-        serde_json::from_reader(BufReader::new(file))
+        serde_json::from_reader(file)
             .with_context(|| format!("parse payload {}", payload.raw_payload_id))
     }
 
@@ -339,11 +311,10 @@ impl TraceReducer {
                     .thread_id
                     .context("history acceptance has no thread")?;
                 self.thread_mut(&thread_id)?;
-                self.first_acceptances
+                self.accepted_item_ids
                     .entry(thread_id)
                     .or_default()
-                    .entry(item_id)
-                    .or_insert((event.wall_time_unix_ms, event.seq));
+                    .insert(item_id);
             }
             RawTraceEventPayload::InferenceStarted {
                 inference_call_id,
@@ -464,7 +435,7 @@ impl TraceReducer {
                     "code cell start",
                 )?;
                 let reduced_code_cell_id =
-                    Self::reduced_code_cell_id_for_model_visible_call(&model_visible_call_id);
+                    self.reduced_code_cell_id_for_model_visible_call(&model_visible_call_id);
                 self.record_runtime_code_cell_id(
                     &thread_id,
                     &runtime_cell_id,

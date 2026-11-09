@@ -59,8 +59,7 @@ struct ToolCatalogCacheEntry {
 struct ToolCatalogCacheState {
     snapshot: Option<ToolCatalogSnapshot>,
     optional_startup_deadline: Option<OptionalStartupDeadline>,
-    last_catalog_generation: u64,
-    last_modern_discovery_generation: u64,
+    last_accepted_generation: u64,
     disabled_by_server: bool,
 }
 
@@ -79,7 +78,6 @@ struct ToolCatalogSnapshot {
 #[derive(Clone)]
 pub(crate) struct McpToolCatalogCacheContext {
     pub(crate) track_tool_list_changes: bool,
-    pub(crate) before_stdio_discovery: bool,
     entry: Arc<ToolCatalogCacheEntry>,
 }
 
@@ -112,7 +110,6 @@ impl McpToolCatalogCache {
         Some(McpToolCatalogCacheContext {
             entry,
             track_tool_list_changes: false,
-            before_stdio_discovery: false,
         })
     }
 }
@@ -127,16 +124,7 @@ impl Default for ToolCatalogCacheEntry {
 }
 
 impl McpToolCatalogCacheContext {
-    fn accepts_snapshot(
-        &self,
-        state: &ToolCatalogCacheState,
-        snapshot: &ToolCatalogSnapshot,
-    ) -> bool {
-        if self.before_stdio_discovery
-            && state.last_modern_discovery_generation > state.last_catalog_generation
-        {
-            return false;
-        }
+    fn accepts_snapshot(&self, snapshot: &ToolCatalogSnapshot) -> bool {
         // Enabling refresh must not reuse a catalog published without notification tracking.
         snapshot
             .tool_list_revision
@@ -159,11 +147,11 @@ impl McpToolCatalogCacheContext {
         let state = lock_unpoisoned(&self.entry.state);
         let snapshot = state.snapshot.as_ref()?;
         (!state.disabled_by_server
-            && self.accepts_snapshot(&state, snapshot)
+            && self.accepts_snapshot(snapshot)
             && !snapshot.tools.is_empty()
             && snapshot.published_at.elapsed() <= TOOL_CATALOG_CACHE_TTL
             && accepts_tools(&snapshot.tools))
-        .then_some(state.last_catalog_generation)
+        .then_some(state.last_accepted_generation)
     }
 
     pub(crate) fn optional_startup_deadline(
@@ -174,7 +162,7 @@ impl McpToolCatalogCacheContext {
         let mut state = lock_unpoisoned(&self.entry.state);
         if state.disabled_by_server
             || state.snapshot.as_ref().is_some_and(|snapshot| {
-                self.accepts_snapshot(&state, snapshot)
+                self.accepts_snapshot(snapshot)
                     && snapshot.published_at.elapsed() <= TOOL_CATALOG_CACHE_TTL
             })
         {
@@ -219,7 +207,7 @@ impl McpToolCatalogCacheContext {
             || state
                 .snapshot
                 .as_ref()
-                .is_some_and(|snapshot| !self.accepts_snapshot(&state, snapshot))
+                .is_some_and(|snapshot| !self.accepts_snapshot(snapshot))
         {
             return None;
         }
@@ -248,17 +236,10 @@ impl McpToolCatalogCacheContext {
         state.snapshot = None;
     }
 
-    /// A modern handshake rules out older legacy catalogs for discovery. Clients forced to use
-    /// the legacy protocol can still use those catalogs, including legacy fetches in flight.
-    pub(crate) fn record_modern_stdio_discovery(&self, ticket: &McpToolCatalogFetchTicket) {
-        let mut state = lock_unpoisoned(&self.entry.state);
-        if ticket.generation
-            > state
-                .last_catalog_generation
-                .max(state.last_modern_discovery_generation)
-        {
-            state.last_modern_discovery_generation = ticket.generation;
-            state.optional_startup_deadline = None;
+    /// An observed protocol change invalidates a legacy catalog, including any older fetch in flight.
+    pub(crate) fn invalidate_if_newest(&self, ticket: &McpToolCatalogFetchTicket) {
+        if let Some(mut state) = self.accept_generation(ticket.generation) {
+            state.snapshot = None;
         }
     }
 
@@ -268,12 +249,9 @@ impl McpToolCatalogCacheContext {
         tools: &[ToolInfo],
         meta: Option<Arc<serde_json::Value>>,
     ) {
-        let mut state = lock_unpoisoned(&self.entry.state);
-        if state.disabled_by_server || ticket.generation <= state.last_catalog_generation {
+        let Some(mut state) = self.accept_generation(ticket.generation) else {
             return;
-        }
-        state.last_catalog_generation = ticket.generation;
-        state.optional_startup_deadline = None;
+        };
         let mut tools = tools.to_vec();
         for tool in &mut tools {
             // Tool annotations affect approval and parallelism decisions, so only the live
@@ -286,6 +264,16 @@ impl McpToolCatalogCacheContext {
             published_at: Instant::now(),
             tool_list_revision: ticket.tool_list_revision,
         });
+    }
+
+    fn accept_generation(&self, generation: u64) -> Option<MutexGuard<'_, ToolCatalogCacheState>> {
+        let mut state = lock_unpoisoned(&self.entry.state);
+        if state.disabled_by_server || generation <= state.last_accepted_generation {
+            return None;
+        }
+        state.last_accepted_generation = generation;
+        state.optional_startup_deadline = None;
+        Some(state)
     }
 }
 

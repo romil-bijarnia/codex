@@ -162,9 +162,7 @@ impl AppServerSession {
         }
         let session_config = if matches!(
             model_settings,
-            ResumeModelSettings::RestoreFromThread
-                | ResumeModelSettings::PreserveExistingThread
-                | ResumeModelSettings::PreserveSideConversation
+            ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
         ) {
             config.clone()
         } else {

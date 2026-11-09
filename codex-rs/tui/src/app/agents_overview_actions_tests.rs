@@ -29,21 +29,12 @@ async fn pin_action_updates_shared_section_state() -> Result<()> {
             AppEvent::ToggleAgentsOverviewPin { thread_id, pinned },
         ))
         .await?;
-        let pending = app
-            .agents_overview
-            .pending_pin_change
-            .expect("pin request started");
-        let completed = tokio::time::timeout(std::time::Duration::from_secs(15), async {
-            loop {
-                let event = rx.recv().await.expect("pin request completes");
-                if let AppEvent::AgentsOverviewPinToggled { request_id, .. } = &event
-                    && *request_id == pending
-                {
-                    return event;
-                }
-            }
-        })
-        .await?;
+        assert!(app.agents_overview.pending_pin_change.is_some());
+        let completed = rx.recv().await.expect("pin request completes");
+        assert!(matches!(
+            &completed,
+            AppEvent::AgentsOverviewPinToggled { .. }
+        ));
         app.agents_overview
             .refresh_notifications
             .insert(thread_id, Vec::new());
@@ -137,11 +128,9 @@ async fn lifecycle_shortcuts_target_filtered_task_in_any_state() {
         );
         view.handle_key_event(KeyCode::Esc.into());
         view.handle_key_event(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-        view.handle_paste("Target".into());
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(AppEvent::SearchAgentsOverview(..))
-        ));
+        for character in "Target".chars() {
+            view.handle_key_event(KeyCode::Char(character).into());
+        }
         for (key, expected) in [
             (5, AgentsOverviewAction::Archive),
             (6, AgentsOverviewAction::Delete),
@@ -666,7 +655,7 @@ async fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resum
         request_id,
         Ok(AgentsOverviewThreadRefresh {
             cleared_unread: Vec::new(),
-            threads: HashMap::from([(id, Some((thread.clone(), false, None)))]),
+            threads: HashMap::from([(id, Some((thread.clone(), false)))]),
             last_messages: HashMap::new(),
             recent_seed_complete: true,
             discovery: None,
@@ -950,7 +939,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
                 cleared_unread: Vec::new(),
                 threads: stale_threads
                     .into_iter()
-                    .map(|(id, thread)| (id, thread.map(|thread| (thread, false, None))))
+                    .map(|(id, thread)| (id, thread.map(|thread| (thread, false))))
                     .collect(),
                 last_messages: HashMap::new(),
                 recent_seed_complete: true,
@@ -1128,12 +1117,6 @@ async fn fork_shortcut_respects_metadata_editing() {
     for editor in ['r', '/'] {
         view.handle_key_event(KeyCode::Char(editor).into());
         view.handle_key_event(KeyCode::Char('f').into());
-        if editor == '/' {
-            assert!(matches!(
-                rx.try_recv(),
-                Ok(AppEvent::SearchAgentsOverview(..))
-            ));
-        }
         assert!(rx.try_recv().is_err());
         view.handle_key_event(KeyCode::Esc.into());
     }

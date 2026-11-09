@@ -920,7 +920,6 @@ interrupt_message = false
             feature_requirements: Some(Sourced::new(
                 FeatureRequirementsToml {
                     entries: BTreeMap::from([("guardian_approval".to_string(), true)]),
-                    ..Default::default()
                 },
                 RequirementSource::LegacyManagedConfigTomlFromMdm,
             )),
@@ -1001,7 +1000,6 @@ interrupt_message = false
             guardian_extra_policy: None,
             feature_requirements: Some(FeatureRequirementsToml {
                 entries: BTreeMap::from([("guardian_approval".to_string(), true)]),
-                ..Default::default()
             }),
             hooks: None,
             mcp_servers: Some(BTreeMap::from([(

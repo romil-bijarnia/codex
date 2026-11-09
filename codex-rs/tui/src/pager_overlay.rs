@@ -411,14 +411,7 @@ impl TranscriptHistoryState {
     }
 }
 
-pub(crate) struct PagerAction {
-    pub(crate) key: KeyBinding,
-    pub(crate) label: &'static str,
-    pub(crate) run: Box<dyn FnOnce() + Send>,
-}
-
 pub(crate) struct StaticOverlay {
-    pub(crate) action: Option<PagerAction>,
     view: PagerView,
     is_done: bool,
 }
@@ -447,7 +440,6 @@ impl StaticOverlay {
         Self {
             view: PagerView::new(renderables, title, /*scroll_offset*/ 0, keymap),
             is_done: false,
-            action: None,
         }
     }
 
@@ -455,13 +447,10 @@ impl StaticOverlay {
         let line1 = Rect::new(area.x, area.y, area.width, 1);
         let line2 = Rect::new(area.x, area.y.saturating_add(1), area.width, 1);
         render_navigation_hints(line1, buf, &self.view.keymap);
-        let mut pairs = vec![(
+        let pairs: Vec<(Vec<ShortcutHint>, &str)> = vec![(
             first_or_empty(&self.view.keymap, "close", &self.view.keymap.close),
             "close",
         )];
-        if let Some(action) = &self.action {
-            pairs.push((vec![action.key.into()], action.label));
-        }
         render_key_hints(line2, buf, &pairs);
     }
 
@@ -477,19 +466,13 @@ impl StaticOverlay {
 impl StaticOverlay {
     pub(crate) fn handle_event(&mut self, tui: &mut tui::Tui, event: TuiEvent) -> Result<()> {
         match event {
-            TuiEvent::Key(key) => {
-                if self.view.keymap.close.is_pressed(key) {
+            TuiEvent::Key(key_event) => match key_event {
+                e if self.view.keymap.close.is_pressed(e) => {
                     self.is_done = true;
-                } else if key.kind == crossterm::event::KeyEventKind::Press
-                    && let Some(action) = self.action.take_if(|action| action.key.is_press(key))
-                {
-                    self.is_done = true;
-                    (action.run)();
-                } else {
-                    return self.view.handle_key_event(tui, key);
+                    Ok(())
                 }
-                Ok(())
-            }
+                other => self.view.handle_key_event(tui, other),
+            },
             TuiEvent::Draw | TuiEvent::Resume | TuiEvent::Resize(_) | TuiEvent::FocusGained => {
                 tui.draw(u16::MAX, |frame| {
                     self.render(frame.area(), frame.buffer);

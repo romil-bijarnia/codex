@@ -224,17 +224,13 @@ impl Session {
     }
 }
 
-async fn cancel_patch_approval(sess: &Arc<Session>, id: &str, expected_turn_id: Option<&str>) {
-    let Some((pending, _)) = sess.take_pending_approval(id, expected_turn_id).await else {
-        return;
-    };
-    sess.abort_turn_if_active(
-        &pending.turn_id,
-        TurnAbortReason::Interrupted,
-        /*error*/ None,
-    )
-    .await;
-    let _ = pending.sender.send(ReviewDecision::Abort);
+pub async fn patch_approval(sess: &Arc<Session>, id: String, decision: ReviewDecision) {
+    match decision {
+        ReviewDecision::Abort => {
+            sess.interrupt_task().await;
+        }
+        other => sess.notify_approval(&id, other).await,
+    }
 }
 
 pub async fn request_user_input_response(
@@ -304,7 +300,6 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
                 misalignment: None,
                 message: err.to_string(),
                 codex_error_info: Some(CodexErrorInfo::Other),
-                rejected_audio_file_ids: Vec::new(),
             }),
         };
         sess.send_event_raw(event).await;
@@ -312,9 +307,6 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 }
 
 pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
-    if let Some(reporting) = &sess.outcome_reporting {
-        reporting.handoffs.close();
-    }
     let startup_prewarm = {
         let mut state = sess.state.lock().await;
         // Stop admission and take the current warmup together so resume cannot replace it.
@@ -326,9 +318,6 @@ pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
     }
     let _ = sess.conversation.shutdown().await;
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
-    if let Some(reporting) = &sess.outcome_reporting {
-        reporting.handoffs.wait().await;
-    }
     super::async_compaction::shutdown(sess).await;
     let shell_snapshot_prewarm = sess.state.lock().await.shell_snapshot_prewarm.take();
     if let Some(shell_snapshot_prewarm) = shell_snapshot_prewarm {
@@ -411,7 +400,6 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
                 misalignment: None,
                 message: "Failed to shutdown thread persistence".to_string(),
                 codex_error_info: Some(CodexErrorInfo::Other),
-                rejected_audio_file_ids: Vec::new(),
             }),
         };
         sess.send_event_raw(event).await;
@@ -461,7 +449,6 @@ pub async fn review(
                     misalignment: None,
                     message: err.to_string(),
                     codex_error_info: Some(CodexErrorInfo::Other),
-                    rejected_audio_file_ids: Vec::new(),
                 }),
             };
             sess.send_event(&turn_context, event.msg).await;
@@ -476,11 +463,6 @@ pub(super) async fn submission_loop(
 ) {
     // Session shutdown and tree shutdown both use the existing teardown handler.
     let mut shutdown_received = false;
-    let mut catalog_updates = sess.services.models_manager.model_catalog_updates();
-    if let Some(updates) = &mut catalog_updates {
-        // A resumed chat must also consume a catalog fetched before it was opened.
-        updates.mark_changed();
-    }
     let mut mailbox = sess.input_queue.mailbox_updates();
     if let Some(updates) = &mut mailbox {
         updates.mark_changed();
@@ -491,19 +473,6 @@ pub(super) async fn submission_loop(
             _ = sess.services.local_agent_runtime.shutdown.cancelled() => {
                 shutdown_received = shutdown(&sess, super::new_submission_id()).await;
                 break;
-            }
-            update = async {
-                match &mut catalog_updates {
-                    Some(updates) => updates.changed().await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                if update.is_err() {
-                    catalog_updates = None;
-                } else {
-                    super::model_catalog_settings::apply(&sess).await;
-                }
-                continue;
             }
             sub = rx_sub.recv() => match sub {
                 Ok(sub) => sub,
@@ -565,33 +534,15 @@ pub(super) async fn submission_loop(
                                 misalignment: None,
                                 message: err.to_string(),
                                 codex_error_info: Some(CodexErrorInfo::Other),
-                                rejected_audio_file_ids: Vec::new(),
                             }),
                         })
                         .await;
                     }
                     false
                 }
-                Op::RealtimeConversationAttach {
-                    params,
-                    options,
-                    reply,
-                } => {
+                Op::RealtimeConversationAttach { params, reply } => {
                     let result =
-                        crate::realtime_conversation::handle_attach(&sess, sub.id, params, options)
-                            .await;
-                    let _ = reply.send(result);
-                    false
-                }
-                Op::RealtimeConversationAttachStream {
-                    params,
-                    transport,
-                    reply,
-                } => {
-                    let result = crate::realtime_conversation::handle_attach_stream(
-                        &sess, sub.id, params, transport,
-                    )
-                    .await;
+                        crate::realtime_conversation::handle_attach(&sess, sub.id, params).await;
                     let _ = reply.send(result);
                     false
                 }
@@ -700,7 +651,6 @@ pub(super) async fn submission_loop(
                                         misalignment: None,
                                         message,
                                         codex_error_info: Some(CodexErrorInfo::BadRequest),
-                                        rejected_audio_file_ids: Vec::new(),
                                     }),
                                 })
                                 .await;
@@ -741,19 +691,8 @@ pub(super) async fn submission_loop(
                         .await;
                     false
                 }
-                Op::CancelPatchApproval { id, turn_id } => {
-                    cancel_patch_approval(&sess, &id, Some(&turn_id)).await;
-                    false
-                }
-                Op::PatchApproval {
-                    id,
-                    decision: ReviewDecision::Abort,
-                } => {
-                    cancel_patch_approval(&sess, &id, /*expected_turn_id*/ None).await;
-                    false
-                }
                 Op::PatchApproval { id, decision } => {
-                    sess.notify_approval(&id, decision).await;
+                    patch_approval(&sess, id, decision).await;
                     false
                 }
                 Op::UserInputAnswer { id, response } => {

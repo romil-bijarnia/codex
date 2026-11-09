@@ -7,12 +7,11 @@ use crate::context::AdditionalContextToolOutput;
 use crate::context::AdditionalContextUserFragment;
 use crate::context::ContextualUserFragment;
 use codex_context_fragments::MAX_ADDITIONAL_CONTEXT_VALUE_TOKENS;
-use codex_history::CodexHarnessMetadata;
-use codex_history::ResponseItemEnvelope;
 use codex_otel::ADDITIONAL_CONTEXT_COUNT_METRIC;
 use codex_otel::ADDITIONAL_CONTEXT_VALUE_BYTES_BUCKETS;
 use codex_otel::ADDITIONAL_CONTEXT_VALUE_BYTES_METRIC;
 use codex_otel::SessionTelemetry;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::AdditionalContextEntry;
 use codex_protocol::protocol::AdditionalContextKind;
 use codex_utils_string::truncate_middle_with_token_budget;
@@ -53,18 +52,7 @@ impl AdditionalContextStore {
         values: BTreeMap<String, AdditionalContextEntry>,
         format: AdditionalContextFormat,
         telemetry: &SessionTelemetry,
-    ) -> Vec<ResponseItemEnvelope> {
-        self.values.retain(|key, _| values.contains_key(key));
-        self.extend(values, format, telemetry)
-    }
-
-    /// Adds a producer's updates without dropping unrelated client context.
-    pub(crate) fn extend(
-        &mut self,
-        values: BTreeMap<String, AdditionalContextEntry>,
-        format: AdditionalContextFormat,
-        telemetry: &SessionTelemetry,
-    ) -> Vec<ResponseItemEnvelope> {
+    ) -> Vec<ResponseItem> {
         for entry in values.values() {
             Self::record_metrics(entry, telemetry);
         }
@@ -95,29 +83,18 @@ impl AdditionalContextStore {
             .iter()
             .filter(|(key, value)| self.values.get(*key) != Some(*value))
             .map(|(key, entry)| match entry {
-                StoredAdditionalContext::ToolOutput(output) => ResponseItemEnvelope {
-                    item: output.clone().into(),
-                    metadata: Some(CodexHarnessMetadata {
-                        additional_context_tool_output: true,
-                        ..Default::default()
-                    }),
+                StoredAdditionalContext::ToolOutput(output) => output.clone().into(),
+                StoredAdditionalContext::Message(entry) => match entry.kind {
+                    AdditionalContextKind::Untrusted => ContextualUserFragment::into(
+                        AdditionalContextUserFragment::new(key.clone(), entry.value.clone()),
+                    ),
+                    AdditionalContextKind::Application => ContextualUserFragment::into(
+                        AdditionalContextDeveloperFragment::new(key.clone(), entry.value.clone()),
+                    ),
                 },
-                StoredAdditionalContext::Message(entry) => {
-                    ResponseItemEnvelope::new(match entry.kind {
-                        AdditionalContextKind::Untrusted => ContextualUserFragment::into(
-                            AdditionalContextUserFragment::new(key.clone(), entry.value.clone()),
-                        ),
-                        AdditionalContextKind::Application => {
-                            ContextualUserFragment::into(AdditionalContextDeveloperFragment::new(
-                                key.clone(),
-                                entry.value.clone(),
-                            ))
-                        }
-                    })
-                }
             })
             .collect();
-        self.values.extend(values);
+        self.values = values;
         fragments
     }
 
@@ -143,7 +120,7 @@ impl AdditionalContextStore {
             telemetry.histogram_with_boundaries(
                 ADDITIONAL_CONTEXT_VALUE_BYTES_METRIC,
                 i64::try_from(bytes).unwrap_or(i64::MAX),
-                ADDITIONAL_CONTEXT_VALUE_BYTES_BUCKETS.as_slice(),
+                ADDITIONAL_CONTEXT_VALUE_BYTES_BUCKETS,
                 &size_tags,
             );
         }

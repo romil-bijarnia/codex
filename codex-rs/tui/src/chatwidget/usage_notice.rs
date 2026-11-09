@@ -24,7 +24,7 @@ pub(super) struct UsageNoticeState {
     credits: Option<CreditsSnapshot>,
     latest_read_id: u64,
     stale_through: Option<u64>,
-    pub(super) applying_stale_read: bool,
+    applying_stale_read: bool,
 }
 
 impl UsageNoticeState {

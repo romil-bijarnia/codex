@@ -52,7 +52,6 @@ pub(crate) enum StatusDetailsCapitalization {
 }
 
 /// Displays a single-line in-progress status with optional wrapped details.
-#[derive(Clone, Debug)]
 pub(crate) struct StatusIndicatorWidget {
     /// Animated header text (defaults to "Working").
     header: String,

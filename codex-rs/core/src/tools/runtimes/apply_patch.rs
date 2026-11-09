@@ -122,15 +122,13 @@ impl Sandboxable for ApplyPatchRuntime {
     }
 }
 
-
-
 impl ToolRuntime<ApplyPatchRequest, ApplyPatchRuntimeOutput> for ApplyPatchRuntime {
     fn turn_environment<'a>(&self, req: &'a ApplyPatchRequest) -> &'a TurnEnvironment {
         &req.turn_environment
     }
 
     fn uses_executor_managed_process_sandbox(&self, req: &ApplyPatchRequest) -> bool {
-        req.turn_environment.environment().is_remote()
+        req.turn_environment.environment.is_remote()
     }
 
     fn sandbox_cwd<'a>(&self, req: &'a ApplyPatchRequest) -> Option<&'a PathUri> {
@@ -144,7 +142,7 @@ impl ToolRuntime<ApplyPatchRequest, ApplyPatchRuntimeOutput> for ApplyPatchRunti
         ctx: &ToolCtx,
     ) -> Result<ApplyPatchRuntimeOutput, ToolError> {
         let started_at = Instant::now();
-        let fs = req.turn_environment.environment().get_filesystem();
+        let fs = req.turn_environment.environment.get_filesystem();
         let sandbox = Self::file_system_sandbox_context_for_attempt(req, attempt);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();

@@ -213,6 +213,7 @@ where
                 .list_for_turn(SkillListQuery {
                     turn_id: thread_store.level_id().to_string(),
                     executor_roots: Vec::new(),
+                    resolved_executor_roots: Vec::new(),
                     host_snapshot: None,
                     include_host_skills: false,
                     include_bundled_skills: config.bundled_skills_enabled,
@@ -346,7 +347,7 @@ where
             let mcp_resources = session_store
                 .get::<SkillsSessionState>()
                 .and_then(|state| state.mcp_resources.clone());
-            let host_snapshot = HostSkillsSnapshot::for_step(input.step_store, turn_store);
+            let host_snapshot = turn_store.get::<HostSkillsSnapshot>();
             let host_catalog_in_world_state =
                 turn_store.get::<HostSkillsCatalogInWorldState>().is_some();
             let Some(step_state) = input.step_store.get::<SkillsStepState>() else {
@@ -357,6 +358,7 @@ where
             let query = SkillListQuery {
                 turn_id: input.turn_id.clone(),
                 executor_roots: Vec::new(),
+                resolved_executor_roots: Vec::new(),
                 host_snapshot: host_snapshot.clone(),
                 include_host_skills: host_skills.is_none() && !host_catalog_in_world_state,
                 include_bundled_skills: config.bundled_skills_enabled,
@@ -539,14 +541,7 @@ impl<C> SkillsExtension<C> {
         let context = match entry.authority.kind {
             SkillSourceKind::Cloud => SkillReadContext::Cloud { mcp_resources },
             SkillSourceKind::Custom(_) => SkillReadContext::Custom { mcp_resources },
-            SkillSourceKind::Host => SkillReadContext::Host {
-                host_snapshot,
-                accessors: input
-                    .environments
-                    .iter()
-                    .map(|environment| environment.fs)
-                    .collect(),
-            },
+            SkillSourceKind::Host => SkillReadContext::Host { host_snapshot },
             SkillSourceKind::Executor => {
                 let fs = entry
                     .main_prompt

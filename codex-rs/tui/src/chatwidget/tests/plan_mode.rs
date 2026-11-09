@@ -805,7 +805,6 @@ async fn plan_implementation_popup_skips_replayed_turn_complete() {
             items_view: codex_app_server_protocol::TurnItemsView::Full,
             items: vec![ThreadItem::untimed(
                 AppServerThreadItemPayload::AgentMessage {
-                    moderation: None,
                     id: "msg-plan".to_string(),
                     text: "Plan details".to_string(),
                     phase: Some(MessagePhase::FinalAnswer),
@@ -849,7 +848,6 @@ async fn plan_implementation_popup_shows_once_when_replay_precedes_live_turn_com
             items_view: codex_app_server_protocol::TurnItemsView::Full,
             items: vec![ThreadItem::untimed(
                 AppServerThreadItemPayload::AgentMessage {
-                    moderation: None,
                     id: "msg-plan-replay".to_string(),
                     text: "Plan details".to_string(),
                     phase: Some(MessagePhase::FinalAnswer),
@@ -1521,7 +1519,7 @@ async fn plan_slash_command_with_hidden_shell_paste_queued_before_session_submit
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     chat.queue_user_message(UserMessage::from("queued follow-up"));
-    chat.finish_mcp_startup();
+    chat.finish_mcp_startup(Vec::new(), Vec::new());
     assert_eq!(
         chat.queued_user_message_texts(),
         vec![format!("/plan {payload}"), "queued follow-up".to_string()]
@@ -1547,7 +1545,7 @@ async fn rejected_initial_image_does_not_submit_later_queued_prompt() {
     initial_message.remote_image_urls = vec!["https://example.com/image.png".to_string()];
     chat.initial_user_message = Some(initial_message);
     chat.queue_user_message(UserMessage::from("queued follow-up"));
-    chat.finish_mcp_startup();
+    chat.finish_mcp_startup(Vec::new(), Vec::new());
 
     let mut session = plan_test_session(ThreadId::new());
     session.model = current_model;

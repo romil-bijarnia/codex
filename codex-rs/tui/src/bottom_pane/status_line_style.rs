@@ -22,27 +22,17 @@ pub(crate) const STATUS_LINE_SEPARATOR: &str = " · ";
 const STATUS_LINE_COLOR_SATURATION_PERCENT: u16 = 85;
 const STATUS_LINE_COLOR_BRIGHTNESS_PERCENT: u16 = 100;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
-pub(crate) enum StatusLineAccent {
-    #[serde(rename = "status-model")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StatusLineAccent {
     Model,
-    #[serde(rename = "status-path")]
     Path,
-    #[serde(rename = "status-branch")]
     Branch,
-    #[serde(rename = "status-state")]
     State,
-    #[serde(rename = "status-usage")]
     Usage,
-    #[serde(rename = "status-limit")]
     Limit,
-    #[serde(rename = "status-metadata")]
     Metadata,
-    #[serde(rename = "status-mode")]
     Mode,
-    #[serde(rename = "status-thread")]
     Thread,
-    #[serde(rename = "status-progress")]
     Progress,
 }
 
@@ -83,7 +73,7 @@ impl StatusLineAccent {
         }
     }
 
-    pub(crate) fn scopes(self) -> &'static [&'static str] {
+    fn scopes(self) -> &'static [&'static str] {
         match self {
             Self::Model => &["entity.name.type", "support.type", "variable"],
             Self::Path => &["string", "markup.underline.link"],
@@ -98,11 +88,11 @@ impl StatusLineAccent {
         }
     }
 
-    pub(crate) fn fallback_color(self) -> Color {
+    fn fallback_style(self) -> Style {
         match self {
-            Self::Model | Self::State | Self::Metadata | Self::Mode => Color::Cyan,
-            Self::Path | Self::Usage | Self::Progress => Color::Green,
-            Self::Branch | Self::Limit | Self::Thread => Color::Magenta,
+            Self::Model | Self::State | Self::Metadata | Self::Mode => Style::default().cyan(),
+            Self::Path | Self::Usage | Self::Progress => Style::default().green(),
+            Self::Branch | Self::Limit | Self::Thread => Style::default().magenta(),
         }
     }
 }
@@ -157,8 +147,7 @@ where
         } else if use_theme_colors {
             let accent = StatusLineAccent::for_item(item);
             soften_status_line_style(
-                theme_style_for_accent(accent)
-                    .unwrap_or_else(|| Style::default().fg(accent.fallback_color())),
+                theme_style_for_accent(accent).unwrap_or_else(|| accent.fallback_style()),
             )
         } else {
             secondary_text_style()
@@ -168,7 +157,7 @@ where
             if effective_stdout_color_level() == StdoutColorLevel::Ansi16
                 && matches!(foreground, Color::Rgb(..) | Color::Indexed(16..))
             {
-                style.fg(StatusLineAccent::for_item(item).fallback_color())
+                style.patch(StatusLineAccent::for_item(item).fallback_style())
             } else {
                 style.fg(readable_color_on(foreground, /*background*/ None))
             }

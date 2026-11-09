@@ -7,7 +7,6 @@ use codex_core::config::Config;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_login::AuthManager;
-use codex_utils_cli::CliConfigOverrides;
 use std::sync::Arc;
 
 pub fn set_user_agent_suffix(suffix: &str) {
@@ -79,19 +78,16 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
 
 pub async fn load_auth_manager(
     chatgpt_base_url: Option<String>,
-    config_overrides: &CliConfigOverrides,
-) -> anyhow::Result<(Option<Arc<AuthManager>>, HttpClientFactory, Option<Config>)> {
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = match Config::load_with_cli_overrides(overrides).await {
+) -> (Option<Arc<AuthManager>>, HttpClientFactory) {
+    // TODO: pass in cli overrides once cloud tasks properly support them.
+    let config = match Config::load_with_cli_overrides(Vec::new()).await {
         Ok(config) => config,
         Err(error) => {
             append_error_log(format!(
                 "failed to load auth config; using transport-default proxy handling: {error}"
             ));
             let http_client_factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
-            return Ok((None, http_client_factory, None));
+            return (None, http_client_factory);
         }
     };
     let http_client_factory = config.http_client_factory();
@@ -106,14 +102,15 @@ pub async fn load_auth_manager(
         Ok(auth_manager) => auth_manager,
         Err(error) => {
             append_error_log(format!("failed to load auth: {error}"));
-            return Ok((None, http_client_factory, None));
+            return (None, http_client_factory);
         }
     };
-    Ok((Some(auth_manager), http_client_factory, Some(config)))
+    (Some(auth_manager), http_client_factory)
 }
 
-/// Non-authentication headers shared by environment requests. The client resolves auth per GET.
-pub fn build_chatgpt_headers() -> HeaderMap {
+/// Build headers for ChatGPT-backed requests: `User-Agent`, optional `Authorization`,
+/// and optional `ChatGPT-Account-Id`.
+pub async fn build_chatgpt_headers() -> anyhow::Result<HeaderMap> {
     use http::header::HeaderValue;
     use http::header::USER_AGENT;
 
@@ -124,7 +121,13 @@ pub fn build_chatgpt_headers() -> HeaderMap {
         USER_AGENT,
         HeaderValue::from_str(&ua).unwrap_or(HeaderValue::from_static("codex-cli")),
     );
-    headers
+    if let Some(am) = load_auth_manager(/*chatgpt_base_url*/ None).await.0
+        && let Some(auth) = am.auth().await
+        && auth.uses_codex_backend()
+    {
+        headers.extend(codex_model_provider::auth_provider_from_auth(&auth).to_auth_headers()?);
+    }
+    Ok(headers)
 }
 
 /// Construct a browser-friendly task URL for the given backend base URL.

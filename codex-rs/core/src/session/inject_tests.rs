@@ -33,10 +33,7 @@ async fn harness_authored_configuration_updates_preserve_metadata_and_resume() {
         )
         .await;
 
-    let metadata = expected.metadata.as_mut().unwrap();
-    metadata.history_sequence = Some(1);
-    metadata.sampled_through_sequence = Some(0);
-    metadata.mcp_attribution = Some(
+    expected.metadata.as_mut().unwrap().mcp_attribution = Some(
         session
             .services
             .executed_tool_calls

@@ -668,9 +668,7 @@ async fn process_sse_with_treatment(
                 let error = error.into_api_error();
                 if matches!(
                     error,
-                    ApiError::FlexUnavailable
-                        | ApiError::SessionBudgetExceeded
-                        | ApiError::ResponseIncomplete(_)
+                    ApiError::FlexUnavailable | ApiError::ResponseIncomplete(_)
                 ) {
                     let _ = tx_event.send(Err(error)).await;
                     return;

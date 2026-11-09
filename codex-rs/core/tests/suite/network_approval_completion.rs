@@ -1,4 +1,4 @@
-//! Exercises remote network launch policy and approval cleanup at process exit.
+//! Exercises remote network launch policy, including owner hooks and MXC's local-binding default.
 
 use super::accept_initialized_exec_server;
 use super::read_exec_server_json;
@@ -9,9 +9,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use codex_config::test_support::CloudConfigBundleFixture;
 use codex_core::TurnInputRequest;
+use codex_core::config::NetworkProxySpec;
 use codex_exec_server::ExecParams;
-use codex_network_proxy::EnvironmentNetworkPolicy;
-use codex_network_proxy::NetworkProxyConfig;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::items::CommandExecutionStatus;
 use codex_protocol::items::TurnItem;
@@ -24,7 +23,6 @@ use codex_protocol::user_input::UserInput;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
-use core_test_support::responses::mount_response_handler;
 use core_test_support::responses::mount_response_once_match;
 use core_test_support::responses::mount_sse_once_match;
 use core_test_support::responses::sse;
@@ -34,7 +32,6 @@ use core_test_support::startup::STARTUP_TIMEOUT;
 use core_test_support::test_codex::environment_config_for_selection;
 use core_test_support::test_codex::test_codex;
 use core_test_support::test_codex::turn_permission_fields;
-use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -46,12 +43,6 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_tungstenite::WebSocketStream;
 
-#[derive(Clone, Copy)]
-enum ProxyOwner {
-    Controller(&'static str),
-    Executor,
-}
-
 #[test_case(SandboxType::WindowsRestrictedToken, "allow_local_binding = true", Ok(true), false; "explicit_local_binding")]
 #[test_case(SandboxType::WindowsMxc, "", Ok(true), false; "mxc_default_local_binding")]
 #[test_case(SandboxType::WindowsMxc, "allow_local_binding = false", Err("MXC cannot enforce allow_local_binding=false"), false; "mxc_rejects_false")]
@@ -61,32 +52,6 @@ enum ProxyOwner {
 async fn remote_local_binding_policy_and_review_cleanup(
     sandbox_type: SandboxType,
     local_binding: &'static str,
-    expected_local_binding: Result<bool, &'static str>,
-    prefer_mxc: bool,
-) -> Result<()> {
-    run_remote_review_cleanup(
-        sandbox_type,
-        ProxyOwner::Controller(local_binding),
-        expected_local_binding,
-        prefer_mxc,
-    )
-    .await
-}
-
-#[tokio::test]
-async fn exec_command_returns_before_denial_grace_for_executor_owned_proxy() -> Result<()> {
-    run_remote_review_cleanup(
-        SandboxType::WindowsRestrictedToken,
-        ProxyOwner::Executor,
-        Ok(false),
-        /*prefer_mxc*/ false,
-    )
-    .await
-}
-
-async fn run_remote_review_cleanup(
-    sandbox_type: SandboxType,
-    proxy_owner: ProxyOwner,
     expected_local_binding: Result<bool, &'static str>,
     prefer_mxc: bool,
 ) -> Result<()> {
@@ -121,21 +86,19 @@ async fn run_remote_review_cleanup(
             .set_delay(Duration::from_secs(/*secs*/ 60)),
     )
     .await;
-    let (result_tx, result_rx) = std::sync::mpsc::channel();
-    mount_response_handler(&server, move |request| {
-        let output = request
-            .function_call_output_text(call_id)
-            .expect("exec_command result");
-        result_tx
-            .send(output)
-            .expect("test is waiting for the tool result");
-        sse_response(sse(vec![
+    let final_response = mount_sse_once_match(
+        &server,
+        |request: &wiremock::Request| {
+            let body = review_body(request);
+            body.pointer("/client_metadata/x-openai-subagent") != Some(&json!("guardian"))
+                && body.to_string().contains("pending-network-at-exit")
+        },
+        sse(vec![
             ev_assistant_message("done", "done"),
             ev_completed("done"),
-        ]))
-    })
+        ]),
+    )
     .await;
-    let (allow_exit, exit_allowed) = tokio::sync::oneshot::channel();
     let exec_server = tokio::spawn(async move {
         let mut websocket = accept_initialized_exec_server(listener).await;
         let hook = accept_process_start(&mut websocket).await;
@@ -175,7 +138,7 @@ async fn run_remote_review_cleanup(
             "params": {"processId": process_id, "request": {"protocol": "https_connect", "host": host, "port": 443}}
         })).await;
         timeout(Duration::from_secs(/*secs*/ 10), async {
-            while exit_allowed.is_empty() || !pending_review.requests().iter().any(|request| {
+            while !pending_review.requests().iter().any(|request| {
                 request
                     .body_json()
                     .pointer("/client_metadata/x-openai-subagent")
@@ -190,11 +153,7 @@ async fn run_remote_review_cleanup(
             }
         })
         .await
-        .expect("command and network review should start before process exit");
-        if matches!(proxy_owner, ProxyOwner::Executor) {
-            // The foreground result must reach the model while the denial grace is frozen.
-            tokio::time::pause();
-        }
+        .expect("Guardian must start before process completion");
         for message in [
             json!({"method": "process/output", "params": {"processId": process_id, "seq": 1, "stream": "stdout", "chunk": BASE64_STANDARD.encode("build complete\n")}}),
             json!({"method": "process/exited", "params": {"processId": process_id, "seq": 2, "exitCode": 0, "sandboxDenied": false}}),
@@ -222,19 +181,18 @@ async fn run_remote_review_cleanup(
             }
         }
     });
-    let mut builder = test_codex().with_exec_server_url(exec_server_url);
-    if let ProxyOwner::Controller(local_binding) = proxy_owner {
-        builder = builder
-            .with_cloud_config_bundle(
-                CloudConfigBundleFixture::loader_with_enterprise_requirement(format!(
-                    "[experimental_network]\nenabled = true\n{local_binding}"
-                )),
-            )
-            .with_pre_build_hook(move |home| {
-                fs::write(
-                    home.join("config.toml"),
-                    format!(
-                        r#"default_permissions = "workspace"
+    let test = test_codex()
+        .with_exec_server_url(exec_server_url)
+        .with_cloud_config_bundle(
+            CloudConfigBundleFixture::loader_with_enterprise_requirement(format!(
+                "[experimental_network]\nenabled = true\n{local_binding}"
+            )),
+        )
+        .with_pre_build_hook(move |home| {
+            fs::write(
+                home.join("config.toml"),
+                format!(
+                    r#"default_permissions = "workspace"
 [permissions.workspace.filesystem]
 ":minimal" = "read"
 [permissions.workspace.network]
@@ -242,20 +200,11 @@ enabled = true
 mode = "full"
 {local_binding}
 "#
-                    ),
-                )
-                .expect("managed network config");
-            });
-    }
-    let test = builder
+                ),
+            )
+            .expect("managed network config");
+        })
         .with_config(move |config| {
-            if matches!(proxy_owner, ProxyOwner::Executor) {
-                config.permissions.network = None;
-                config
-                    .permissions
-                    .set_permission_profile(PermissionProfile::workspace_write())
-                    .expect("set executor-only test permissions");
-            }
             config.project_doc_max_bytes = 0;
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
             config.permissions.windows_sandbox_type = sandbox_type;
@@ -279,21 +228,12 @@ mode = "full"
         .pop()
         .expect("remote environment");
     let mut config = environment_config_for_selection(&test.config, &selection);
-    let controller = test.config.permissions.network.as_ref();
-    assert_eq!(
-        controller.is_some(),
-        matches!(proxy_owner, ProxyOwner::Controller(_))
-    );
-    config.network_policy = Some(match controller {
-        Some(spec) => spec.environment_policy(),
-        None => EnvironmentNetworkPolicy::from_config(
-            &NetworkProxyConfig {
-                enabled: true,
-                ..Default::default()
-            },
-            /*managed_allowed_domains_only*/ false,
-        ),
-    });
+    config.network_policy = test
+        .config
+        .permissions
+        .network
+        .as_ref()
+        .map(NetworkProxySpec::environment_policy);
     config.environment_hooks = serde_json::from_value(json!({
         "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "exit 0"}]}],
     }))?;
@@ -302,10 +242,6 @@ mode = "full"
         test.session_configured.permission_profile.clone(),
         test.config.cwd.as_path(),
     );
-    // A blocking receive keeps Tokio from advancing the paused clock during socket I/O.
-    // The real-time timeout lets the test fail if exec_command waits for the grace period.
-    let tool_returned =
-        tokio::task::spawn_blocking(move || result_rx.recv_timeout(STARTUP_TIMEOUT));
     test.codex
         .start_or_steer_turn(
             TurnInputRequest::user_input(vec![UserInput::Text {
@@ -321,21 +257,15 @@ mode = "full"
             }),
         )
         .await?;
-    if matches!(proxy_owner, ProxyOwner::Executor) {
-        // Finish command startup before freezing the clock for the post-exit check.
-        wait_for_event(
-            &test.codex,
-            |event| matches!(event, EventMsg::ExecCommandBegin(event) if event.call_id == call_id),
-        )
-        .await;
-    }
-    let _ = allow_exit.send(());
-    let output = tool_returned
-        .await?
-        .context("model did not receive the exec_command result")?;
-    if matches!(proxy_owner, ProxyOwner::Executor) {
-        tokio::time::resume();
-    }
+    timeout(Duration::from_secs(/*secs*/ 15), async {
+        while final_response.function_call_output_text(call_id).is_none() {
+            tokio::time::sleep(Duration::from_millis(/*millis*/ 10)).await;
+        }
+    })
+    .await?;
+    let output = final_response
+        .function_call_output_text(call_id)
+        .context("tool output")?;
     if let Err(expected_error) = expected_local_binding {
         assert!(output.contains(expected_error), "{output}");
         exec_server.abort();

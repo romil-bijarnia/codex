@@ -13,7 +13,6 @@ use grouping::model_name;
 
 use super::agents_overview::AGENTS_OVERVIEW_VIEW_ID;
 use super::agents_overview_details::AgentsOverviewDetails;
-use super::agents_overview_discovery::HistorySearch;
 use super::agents_overview_discovery::supports_shared_pinning;
 use crate::app_event::AgentsOverviewAction;
 use crate::app_event::AppEvent;
@@ -108,7 +107,6 @@ fn is_subagent(thread: &Thread) -> bool {
 
 #[derive(Clone)]
 pub(super) struct AgentsOverviewRow {
-    pub(super) search_id: Option<uuid::Uuid>,
     pub(super) details: AgentsOverviewDetails,
     pub(super) thread: Thread,
     pub(super) thread_id: ThreadId,
@@ -175,9 +173,7 @@ pub(super) struct AgentsOverviewViewState {
     /// Browse only while the server holds its lifecycle lock.
     pub(super) removal: Option<AgentsOverviewAction>,
     pub(super) server_version_notice: Option<String>,
-    pub(super) search: String,
-    pub(super) history: Option<HistorySearch>,
-    browse_selection: Option<ThreadId>,
+    search: String,
     searching: bool,
     pub(super) grouping: AgentsOverviewGrouping,
     pub(super) rename_target: Option<ThreadId>,
@@ -196,29 +192,6 @@ impl AgentsOverviewViewState {
         self.input = input;
     }
 
-    pub(super) fn restart_history_search(&mut self) {
-        self.history =
-            (!self.search.is_empty() && self.connection_notice.is_none()).then(|| HistorySearch {
-                id: uuid::Uuid::new_v4(),
-                target: self.history.as_ref().map_or(10, |search| search.target),
-                ..Default::default()
-            });
-    }
-
-    fn includes_row(&self, row: &AgentsOverviewRow) -> bool {
-        row.search_id.is_none()
-            || row.search_id == self.history.as_ref().map(|search| search.id)
-            || self.rename_target == Some(row.thread_id)
-    }
-
-    fn more_available(&self) -> bool {
-        self.history
-            .as_ref()
-            .map_or(self.has_more && !self.searching, |search| {
-                search.cursor.has_more()
-            })
-    }
-
     pub(super) fn editing_metadata(&self) -> bool {
         self.searching || self.rename_target.is_some()
     }
@@ -231,7 +204,6 @@ pub(super) struct AgentsOverviewView {
     directory_group_keys: Vec<PathBuf>,
     pub(super) pinned_thread_ranks: Option<HashMap<ThreadId, usize>>,
     pub(super) pin_action_pending: bool,
-    pub(super) can_return_to_chat: bool,
     selected: usize,
     state: Arc<Mutex<AgentsOverviewViewState>>,
     app_event_tx: AppEventSender,
@@ -309,7 +281,6 @@ impl AgentsOverviewView {
             directory_group_keys,
             pinned_thread_ranks: None,
             pin_action_pending: false,
-            can_return_to_chat: false,
             selected,
             state,
             app_event_tx,
@@ -389,36 +360,7 @@ impl AgentsOverviewView {
         self.state().show_more_selected = self.selected == usize::MAX;
     }
 
-    pub(super) fn load_search_matches(&self, additional: usize) {
-        if self.state().history.is_none() {
-            return;
-        }
-        let visible = self.visible_indices().len();
-        let mut state = self.state();
-        if state.more_available()
-            && let Some(search) = &mut state.history
-            && !search.loading
-        {
-            if additional > 0 {
-                search.target = visible + additional;
-                search.failed = false;
-            }
-            if search.failed || visible >= search.target {
-                return;
-            }
-            search.loading = true;
-            self.app_event_tx.send(AppEvent::SearchAgentsOverview(
-                search.id,
-                search.target - visible,
-            ));
-        }
-    }
-
     fn activate(&mut self) {
-        if self.selected == usize::MAX && self.state().searching {
-            self.load_search_matches(/*additional*/ 10);
-            return;
-        }
         if self.selected == usize::MAX && self.state().has_more {
             if !self.state().loading {
                 self.state().loading = true;
@@ -448,7 +390,6 @@ impl AgentsOverviewView {
                 });
             if self.state().searching {
                 let mut state = self.state();
-                state.history = None;
                 state.search.clear();
                 state.searching = false;
             }
@@ -460,12 +401,9 @@ impl AgentsOverviewView {
         let searching = state.searching;
         if searching {
             edit(&mut state.search);
-            state.restart_history_search();
         }
         drop(state);
         if searching {
-            self.load_search_matches(/*additional*/ 10);
-            self.state().show_more_selected = false;
             self.selected = self
                 .selectable_indices()
                 .first()
@@ -553,12 +491,7 @@ impl AgentsOverviewView {
                 })
                 .collect::<Vec<_>>()
         };
-        let preview = super::agents_overview_details::preview_markdown(
-            row.details
-                .latest_prompt
-                .as_deref()
-                .unwrap_or(&row.thread.preview),
-        );
+        let preview = super::agents_overview_details::preview_markdown(&row.thread.preview);
         let prompt_start = crate::wrapping::word_wrap_lines(lines.clone(), width).len();
         lines.extend([Line::default(), Line::from("Prompt".dim())]);
         let prompt = crate::markdown_render::render_markdown_lines_with_width_and_cwd(
@@ -653,19 +586,11 @@ impl BottomPaneView for AgentsOverviewView {
     fn on_ctrl_c(&mut self) -> CancellationEvent {
         let mut state = self.state();
         if state.editing_metadata() {
-            let restore = state.searching.then_some(state.browse_selection);
-            state.history = None;
             state.searching = false;
             state.rename_target = None;
             state.search.clear();
             state.input.set_text_clearing_elements("");
             drop(state);
-            if let Some(selected) = restore {
-                self.selected = selected
-                    .and_then(|id| self.rows.iter().position(|row| row.thread_id == id))
-                    .unwrap_or(usize::MAX);
-                self.state().show_more_selected = self.selected == usize::MAX;
-            }
             self.reconcile_command_center_selection();
             return CancellationEvent::Handled;
         }
@@ -723,12 +648,9 @@ impl BottomPaneView for AgentsOverviewView {
         if self.agents_keymap.search.is_pressed(key) {
             let mut state = self.state();
             if state.rename_target.is_none() {
-                if state.searching {
-                    drop(state);
-                    self.on_ctrl_c();
-                } else {
-                    state.browse_selection = self.rows.get(self.selected).map(|row| row.thread_id);
-                    state.searching = true;
+                state.searching = !state.searching;
+                if !state.searching {
+                    state.search.clear();
                 }
             }
             return;
@@ -816,7 +738,6 @@ impl BottomPaneView for AgentsOverviewView {
                         row.thread.name.as_deref().unwrap_or_default(),
                         &self.editor_keymap,
                     );
-                    state.history = None;
                     state.search.clear();
                     state.searching = false;
                     state.rename_target = Some(row.thread_id);
@@ -875,9 +796,7 @@ impl BottomPaneView for AgentsOverviewView {
                 }
                 ListAction::Accept => self.activate(),
                 ListAction::Cancel => {
-                    if self.can_return_to_chat
-                        && matches!(self.on_ctrl_c(), CancellationEvent::NotHandled)
-                    {
+                    if matches!(self.on_ctrl_c(), CancellationEvent::NotHandled) {
                         self.state().completion = Some(ViewCompletion::Cancelled);
                     }
                 }

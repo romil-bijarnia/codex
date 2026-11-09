@@ -173,8 +173,6 @@ fn stuck_collector_does_not_block_runtime_shutdown() -> Result<()> {
             drop(server);
             Ok::<_, anyhow::Error>(())
         })?;
-        let shutdown_marker = std::path::PathBuf::from(shutdown_marker);
-        std::fs::write(shutdown_marker.with_extension("started"), "")?;
         drop(runtime);
         std::fs::write(shutdown_marker, "runtime dropped")?;
         return Ok(());
@@ -190,26 +188,16 @@ fn stuck_collector_does_not_block_runtime_shutdown() -> Result<()> {
         ])
         .env(CHILD_ENV, &shutdown_marker)
         .spawn()?;
-    let shutdown_started = shutdown_marker.with_extension("started");
-    let startup_deadline = std::time::Instant::now() + Duration::from_secs(60);
-    let mut shutdown_deadline = None;
+    let deadline = std::time::Instant::now() + Duration::from_secs(/*secs*/ 10);
     loop {
         if let Some(status) = child.try_wait()? {
             assert!(status.success(), "metrics subprocess failed: {status}");
             assert_eq!(std::fs::read_to_string(shutdown_marker)?, "runtime dropped");
             return Ok(());
         }
-        let now = std::time::Instant::now();
-        if shutdown_deadline.is_none() && shutdown_started.exists() {
-            shutdown_deadline = Some(now + Duration::from_secs(10));
-        }
-        if now >= shutdown_deadline.unwrap_or(startup_deadline) {
+        if std::time::Instant::now() >= deadline {
             child.kill()?;
             child.wait()?;
-            anyhow::ensure!(
-                shutdown_deadline.is_some(),
-                "metrics subprocess startup timed out"
-            );
             anyhow::bail!("a stuck metrics collector blocked runtime shutdown");
         }
         std::thread::sleep(Duration::from_millis(/*millis*/ 10));

@@ -19,7 +19,6 @@ use codex_api::ResponseEvent;
 use codex_api::ResponsesApiRequest;
 use codex_api::TransportError;
 use codex_extension_api::ExtensionMetrics;
-use codex_login::AuthOwner;
 use codex_login::UnauthorizedRecovery;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
@@ -37,7 +36,7 @@ const RESPONSES_LITE_METADATA_KEY: &str =
 const TURN_METADATA_KEY: &str = "x-codex-turn-metadata";
 
 pub(super) struct SamplingExecution {
-    pub(super) auth_owner: Option<AuthOwner>,
+    pub(super) auth_owner_generation: Option<u64>,
     pub(super) cyber_access_program: Option<CyberAccessProgram>,
     pub(super) config: Arc<LunaSamplerConfig>,
     pub(super) connections: Arc<ConnectionPool>,
@@ -156,7 +155,6 @@ impl SamplingExecution {
                 | ApiError::ResponseIncomplete(_)
                 | ApiError::QuotaExceeded
                 | ApiError::UsageNotIncluded
-                | ApiError::SessionBudgetExceeded
                 | ApiError::RateLimit(_)
                 | ApiError::InvalidRequest { .. }
                 | ApiError::InvalidAudioInput { .. }
@@ -184,24 +182,34 @@ impl SamplingExecution {
         completion: &mut RetainedCompletion,
         telemetry: &mut SamplingTelemetry,
     ) -> Result<String, LunaSamplerError> {
-        let owner = self.auth_owner.clone();
+        let auth_changes = self
+            .config
+            .provider
+            .auth_manager()
+            .filter(|_| self.config.provider.info().auth.is_none())
+            .map(|manager| manager.auth_change_state_receiver());
+        let owner_generation = self.auth_owner_generation;
         let account_changed_error = || {
             LunaSamplerError::Provider(
                 std::io::Error::other("account changed during Luna classification").into(),
             )
         };
         let ensure_account_owner = || {
-            if owner.as_ref().is_some_and(|owner| !owner.is_current()) {
+            if auth_changes
+                .as_ref()
+                .map(|changes| changes.borrow().owner_generation)
+                != owner_generation
+            {
                 return Err(account_changed_error());
             }
             Ok(())
         };
-        let owner_changed = async {
-            let Some(owner) = owner.as_ref() else {
+        let mut owner_changes = auth_changes.clone();
+        let owner_changed = async move {
+            let Some(changes) = owner_changes.as_mut() else {
                 return std::future::pending::<()>().await;
             };
-            let mut changes = owner.changes();
-            while owner.is_current() {
+            while Some(changes.borrow_and_update().owner_generation) == owner_generation {
                 if changes.changed().await.is_err() {
                     break;
                 }
@@ -236,12 +244,6 @@ impl SamplingExecution {
                     return Err(error);
                 }
             };
-            if owner
-                .as_ref()
-                .is_some_and(|owner| lease.auth_owner.as_ref() != Some(owner))
-            {
-                return Err(account_changed_error());
-            }
             self.request.access_programs = self.cyber_access_program.map(Into::into);
             ensure_account_owner()?;
             self.request.service_tier = if lease.request_kind == RequestMode::GuardianClassifier {

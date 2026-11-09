@@ -31,7 +31,6 @@ use crate::connection::JsonRpcConnectionEvent;
 use crate::connection::JsonRpcTransport;
 use crate::connection::WEBSOCKET_KEEPALIVE_INTERVAL;
 use crate::noise_channel::InitiatorHandshake;
-use crate::noise_channel::NoiseChannelError;
 use crate::noise_channel::NoiseChannelIdentity;
 use crate::noise_channel::NoiseChannelPublicKey;
 use crate::noise_channel::NoiseTransport;
@@ -74,7 +73,7 @@ pub(crate) struct NoiseHarnessConnectionArgs {
 /// transport is ready for application messages.
 pub(crate) struct NoiseHarnessConnection {
     pub(crate) connection: JsonRpcConnection,
-    pub(crate) handshake_ready: oneshot::Receiver<Result<(), ExecServerError>>,
+    pub(crate) handshake_ready: oneshot::Receiver<()>,
     pub(crate) stream_id: String,
     pub(crate) handshake_started: Instant,
 }
@@ -278,20 +277,9 @@ where
                                 "Noise harness handshake completed"
                             );
                             if let Some(handshake_ready_tx) = handshake_ready_tx.take() {
-                                let _ = handshake_ready_tx.send(Ok(()));
+                                let _ = handshake_ready_tx.send(());
                             }
                             break transport;
-                        }
-                        Err(NoiseChannelError::RegistryAuthenticationRejected) => {
-                            record_handshake_failure("registry_authentication_rejected");
-                            if let Some(handshake_ready_tx) = handshake_ready_tx.take() {
-                                let _ = handshake_ready_tx.send(Err(ExecServerError::EnvironmentRegistryAuth(
-                                    "executor credentials rejected".to_string(),
-                                )));
-                            }
-                            send_disconnected(&incoming_tx, &disconnected_tx,
-                                "environment registry rejected executor credentials".to_string());
-                            return;
                         }
                         Err(error) => {
                             record_handshake_failure("handshake_finish");

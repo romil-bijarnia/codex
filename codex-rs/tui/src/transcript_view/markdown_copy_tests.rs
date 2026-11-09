@@ -402,15 +402,9 @@ fn full_reply_caption_preserves_links_and_partial_selections() {
 
 #[test]
 fn mixed_user_prose_preserves_literal_text_without_code_fences() {
-    let prompt = "    Explain *literal*\nnext <tag>";
-    let element = "*literal*";
-    let start = prompt.find(element).unwrap();
     let cell = crate::history_cell::new_user_prompt(
-        prompt.into(),
-        vec![codex_protocol::user_input::TextElement::new(
-            (start..start + element.len()).into(),
-            Some(element.into()),
-        )],
+        "    Explain *literal*\nnext <tag>".into(),
+        Vec::new(),
         Vec::new(),
         vec!["https://example.com/image.png".into()],
     );

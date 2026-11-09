@@ -3378,12 +3378,8 @@ async fn start_concurrent_network_requests(
     let environment = test.executor_environment().selection();
     let mut calls = Vec::new();
     for &(id, port) in requests {
-        // One request stays connected while the test finishes the other approvals.
-        let command = network_proxy_request_command(
-            &format!("{NETWORK_TEST_HOST}:{port}"),
-            "PROXY",
-            Duration::from_secs(60),
-        );
+        let command =
+            network_proxy_request_command(&format!("{NETWORK_TEST_HOST}:{port}"), "PROXY");
         let args = network_probe_args(&command, &environment.environment_id);
         calls.push(ev_function_call(id, "exec_command", &args.to_string()));
     }
@@ -3554,13 +3550,12 @@ fn assert_network_probe_allowed(responses: &ResponseMock, id: &str) {
 }
 
 fn remote_network_proxy_request_command(marker: &str) -> String {
-    network_proxy_request_command(NETWORK_TEST_HOST, marker, Duration::from_secs(10))
+    network_proxy_request_command(NETWORK_TEST_HOST, marker)
 }
 
-fn network_proxy_request_command(host: &str, marker: &str, read_timeout: Duration) -> String {
-    let read_timeout_secs = read_timeout.as_secs();
+fn network_proxy_request_command(host: &str, marker: &str) -> String {
     format!(
-        "python3 -c \"import os,socket,urllib.parse; proxy = urllib.parse.urlparse(os.environ['HTTP_PROXY']); sock = socket.create_connection((proxy.hostname, proxy.port), timeout=10); sock.settimeout({read_timeout_secs}); sock.sendall(b'GET http://{host} HTTP/1.1\\r\\nHost: {host}\\r\\nConnection: close\\r\\n\\r\\n'); print('{marker}:' + sock.makefile('rb').readline().decode(errors='replace'))\""
+        "python3 -c \"import os,socket,urllib.parse; proxy = urllib.parse.urlparse(os.environ['HTTP_PROXY']); sock = socket.create_connection((proxy.hostname, proxy.port), timeout=10); sock.sendall(b'GET http://{host} HTTP/1.1\\r\\nHost: {host}\\r\\nConnection: close\\r\\n\\r\\n'); print('{marker}:' + sock.makefile('rb').readline().decode(errors='replace'))\""
     )
 }
 

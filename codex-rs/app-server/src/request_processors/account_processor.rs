@@ -17,14 +17,12 @@ use codex_model_provider::is_supported_amazon_bedrock_region;
 use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_rmcp_client::EnterpriseOAuthCredentialGuard;
 
-mod backend_client;
 mod bedrock_gov_cloud;
 mod bedrock_setup;
 mod enterprise_login;
 mod gateway_oauth;
 mod gcp_setup;
 mod rate_limit_resets;
-mod security_setup;
 mod workspace_routing;
 mod workspace_switching;
 
@@ -118,8 +116,7 @@ pub(crate) struct AccountRequestProcessor {
     workspace_routing_fetches: Arc<Mutex<workspace_routing::WorkspaceRoutingFetches>>,
     workspace_routing_shutdown: CancellationToken,
     gateway_login: Arc<std::sync::Mutex<Option<gateway_oauth::ActiveGatewayLogin>>>,
-    gateway_clients:
-        Arc<std::sync::Mutex<HashMap<String, Arc<codex_model_provider::GatewayAuthManager>>>>,
+    gateway_client: Arc<std::sync::Mutex<Option<Arc<codex_login::GatewayAuthManager>>>>,
     _gateway_notifications: Arc<tokio_util::task::AbortOnDropHandle<()>>,
     pub(super) enterprise_login: Arc<enterprise_login::EnterpriseLoginState>,
 }
@@ -153,7 +150,7 @@ impl AccountRequestProcessor {
             model_catalog,
             active_login: Arc::new(Mutex::new(None)),
             gateway_login: Arc::new(std::sync::Mutex::new(/*t*/ None)),
-            gateway_clients: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            gateway_client: Arc::new(std::sync::Mutex::new(/*t*/ None)),
             workspace_routing: Arc::new(Mutex::new(None)),
             workspace_routing_fetches: Arc::new(Mutex::new(HashMap::new())),
             workspace_routing_shutdown: CancellationToken::new(),
@@ -293,7 +290,6 @@ impl AccountRequestProcessor {
             .await
         {
             Ok(config) => {
-                let runtime_auth = thread_manager.runtime_auth_for_config(&config);
                 Self::spawn_effective_plugins_changed_task(
                     Arc::clone(thread_manager),
                     config_manager.clone(),
@@ -315,15 +311,12 @@ impl AccountRequestProcessor {
                         &plugins_config,
                         Some(Arc::clone(&on_effective_plugins_changed)),
                     );
-                if let Err(err) = runtime_auth {
-                    warn!("failed to initialize runtime auth for remote plugin refresh: {err}");
-                    return;
-                }
                 thread_manager
                     .plugins_manager()
                     .maybe_start_remote_plugin_caches_refresh(
                         &plugins_config,
                         auth,
+                        /*prefetch_recommendations*/ true,
                         Some(on_effective_plugins_changed),
                     );
             }
@@ -1193,7 +1186,11 @@ impl AccountRequestProcessor {
             ));
         }
 
-        let client = self.backend_client(&auth, http_client_factory).await?;
+        let client = BackendClient::from_auth(
+            self.config.chatgpt_base_url.clone(),
+            &auth,
+            http_client_factory,
+        );
 
         let usage_request = async {
             if params.supports_luna_reserve
@@ -1306,7 +1303,11 @@ impl AccountRequestProcessor {
             ));
         }
 
-        let client = self.backend_client(&auth, http_client_factory).await?;
+        let client = BackendClient::from_auth(
+            self.config.chatgpt_base_url.clone(),
+            &auth,
+            http_client_factory,
+        );
         if let Some(thread_id) = thread_id {
             let thread_id = thread_id.to_string();
             let usage = tokio::time::timeout(
@@ -1390,7 +1391,11 @@ impl AccountRequestProcessor {
             ));
         }
 
-        let client = self.backend_client(&auth, http_client_factory).await?;
+        let client = BackendClient::from_auth(
+            self.config.chatgpt_base_url.clone(),
+            &auth,
+            http_client_factory,
+        );
         let messages = tokio::time::timeout(
             ACCOUNT_WORKSPACE_MESSAGES_FETCH_TIMEOUT,
             client.list_workspace_messages(),
@@ -1480,7 +1485,11 @@ impl AccountRequestProcessor {
             ));
         }
 
-        let client = self.backend_client(&auth, http_client_factory).await?;
+        let client = BackendClient::from_auth(
+            self.config.chatgpt_base_url.clone(),
+            &auth,
+            http_client_factory,
+        );
 
         match client
             .send_add_credits_nudge_email(Self::backend_credit_type(params.credit_type))
@@ -1554,10 +1563,7 @@ pub(crate) async fn logout_configured_account(
 ) -> Result<Config, JSONRPCErrorError> {
     // Another process may have changed the persisted workspace. Reload both
     // account authority and its policy before selecting a grant to remove.
-    auth_manager
-        .reload_with_cached_auth()
-        .await
-        .map_err(|err| internal_error(format!("logout failed: {err}")))?;
+    auth_manager.reload().await;
     config_manager.update_managed_config_loader(Arc::clone(auth_manager), fallback_config);
     let config = config_manager
         .load_latest_config(/*fallback_cwd*/ None)
@@ -1710,7 +1716,6 @@ mod tests {
                 status,
                 content_type: "application/json".to_string(),
                 body: "{}".to_string(),
-                identity_error_code: None,
             };
             assert_eq!(workspace_messages_feature_disabled(&err), expected);
         }

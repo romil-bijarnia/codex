@@ -583,9 +583,9 @@ where
                 self.metrics.clone(),
             ),
             GoalToolExecutor::create(
-                &runtime,
-                self.thread_manager.clone(),
+                runtime.thread_id(),
                 Arc::clone(&self.state_dbs),
+                runtime.accounting_state(),
                 self.analytics.clone(),
                 self.event_emitter.clone(),
                 self.metrics.clone(),

@@ -80,7 +80,6 @@ use codex_app_server_protocol::experimental_required_message;
 use codex_arg0::Arg0DispatchPaths;
 use codex_code_mode::CodeModeSessionProvider;
 use codex_core::ThreadManager;
-use codex_core::ThreadStoreBuilder;
 use codex_core::config::Config;
 use codex_core::config::ThreadStoreConfig;
 use codex_exec_server::EnvironmentManager;
@@ -90,7 +89,6 @@ use codex_feedback::CodexFeedback;
 use codex_goal_extension::GoalService;
 use codex_home::CodexHomeUserInstructionsProvider;
 use codex_login::AuthManager;
-use codex_models_manager::manager::ModelCatalogSettings;
 use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_protocol::ThreadId;
 use codex_protocol::mcp::ClientMcpExtensions;
@@ -98,11 +96,9 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_queue_extension::QueuedItemService;
 use codex_rollout::StateDbHandle;
-use codex_runtime_agent_instance::RuntimeAuthSlot;
 use codex_state::log_db::LogDbLayer;
 use codex_thread_store::LocalQueueStore;
 use codex_thread_store::QueueStore;
-use codex_thread_store::ThreadStoreError;
 use tokio::sync::Mutex;
 use tokio::sync::Semaphore;
 use tokio::sync::broadcast;
@@ -276,7 +272,6 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) startup_warnings_tx: mpsc::UnboundedSender<String>,
     pub(crate) session_source: SessionSource,
     pub(crate) auth_manager: Arc<AuthManager>,
-    pub(crate) runtime_auth_slot: Option<RuntimeAuthSlot>,
     pub(crate) user_verification: Arc<crate::user_verification::Service>,
     pub(crate) installation_id: String,
     pub(crate) code_mode_session_provider: Option<Arc<dyn CodeModeSessionProvider>>,
@@ -306,7 +301,6 @@ impl MessageProcessor {
             startup_warnings_tx,
             session_source,
             auth_manager,
-            runtime_auth_slot,
             user_verification,
             installation_id,
             code_mode_session_provider,
@@ -323,16 +317,7 @@ impl MessageProcessor {
         // The thread store is intentionally process-scoped. Config reloads can
         // affect per-thread behavior, but they must not move newly started,
         // resumed, or forked threads to a different persistence backend/root.
-        let sqlite = config.sqlite_config().clone();
-        let thread_store = ThreadStoreBuilder::from_config(config.as_ref(), state_db.clone())
-            .with_additional_cleanup(move |thread_ids| {
-                let sqlite = sqlite.clone();
-                Box::pin(async move {
-                    crate::delete_agent_message_boards(&sqlite, &thread_ids).await?;
-                    Ok(())
-                })
-            })
-            .build();
+        let thread_store = codex_core::thread_store_from_config(config.as_ref(), state_db.clone());
         // Queue persistence requires SQLite, so in-memory thread stores and
         // app servers without a state database do not have a queue backend.
         let queue_store: Option<Arc<dyn QueueStore>> = match &config.experimental_thread_store {
@@ -346,6 +331,7 @@ impl MessageProcessor {
         let restriction_product = session_source.restriction_product();
         let executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider> = Arc::new(
             codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
+                Arc::clone(&environment_manager_for_extensions),
                 restriction_product,
             ),
         );
@@ -364,15 +350,10 @@ impl MessageProcessor {
                     Arc::clone(&extension_event_sink),
                 ))
             });
-            let startup = codex_core::build_startup_models(
-                config.as_ref(),
-                auth_manager.clone(),
-                installation_id,
-                Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
-            );
             let manager = ThreadManager::new(
                 config.as_ref(),
-                startup,
+                auth_manager.clone(),
+                codex_core::build_models_manager(config.as_ref(), auth_manager.clone()),
                 codex_core::CodexAppsToolsCache::default(),
                 session_source,
                 environment_manager,
@@ -402,6 +383,7 @@ impl MessageProcessor {
                 codex_core::passthrough_image_store(),
                 Arc::clone(&thread_store),
                 codex_core::local_agent_graph_store_from_state_db(state_db.as_ref()),
+                installation_id,
                 Some(app_server_attestation_provider(
                     outgoing.clone(),
                     thread_state_manager.clone(),
@@ -417,23 +399,16 @@ impl MessageProcessor {
                 None => manager,
             }
         });
-        let runtime_auth = thread_manager.runtime_auth_manager();
-        if let (Some(slot), Some(runtime)) = (runtime_auth_slot, &runtime_auth) {
-            // Analytics starts before the harness. Bind its requests to the harness registration.
-            slot.get_or_init(|| Arc::clone(runtime));
-        }
         let model_catalog = Arc::new(crate::model_catalog::ModelCatalog::new(
             config_manager.clone(),
             startup_cwd,
             Arc::clone(&config),
-            Arc::clone(&thread_manager),
+            thread_manager.get_models_manager(),
+            Arc::clone(&auth_manager),
         ));
         let models_refresh_worker = crate::models_refresh_worker::spawn(&model_catalog);
-        let turn_cost_worker = TurnCostWorker::spawn(
-            Arc::clone(&config),
-            Arc::clone(&auth_manager),
-            runtime_auth.map(|runtime| (runtime, config.runtime_auth_mode)),
-        );
+        let turn_cost_worker =
+            TurnCostWorker::spawn(Arc::clone(&config), Arc::clone(&auth_manager));
         thread_manager
             .plugins_manager()
             .set_analytics_events_client(analytics_events_client.clone());
@@ -473,6 +448,7 @@ impl MessageProcessor {
             Arc::clone(&model_catalog),
         );
         let apps_processor = AppsRequestProcessor::new(
+            auth_manager.clone(),
             Arc::clone(&thread_manager),
             outgoing.clone(),
             config_manager.clone(),
@@ -548,7 +524,7 @@ impl MessageProcessor {
             Arc::clone(&thread_list_state_permit),
         );
         let thread_processor = ThreadRequestProcessor::new(
-            auth_manager,
+            auth_manager.clone(),
             Arc::clone(&thread_manager),
             outgoing.clone(),
             arg0_paths.clone(),
@@ -568,6 +544,7 @@ impl MessageProcessor {
             sample_responses,
         );
         let turn_processor = TurnRequestProcessor::new(
+            auth_manager,
             Arc::clone(&thread_manager),
             outgoing.clone(),
             analytics_events_client.clone(),
@@ -580,6 +557,7 @@ impl MessageProcessor {
             turn_cost_worker.as_ref().map(TurnCostWorker::handle),
         );
         if let Some(startup_config) = plugin_startup_tasks {
+            // Keep plugin startup warmups aligned at app-server startup.
             let reload_config = match startup_config {
                 PluginStartupConfig::Current => {
                     plugin_config_reload::for_cwd(config_manager.clone(), config.cwd.clone())
@@ -594,6 +572,7 @@ impl MessageProcessor {
                 .plugins_manager()
                 .maybe_start_plugin_startup_tasks_for_config(
                     &config.plugins_config_input(),
+                    config.features.enabled(Feature::PluginDiscoveryPrefetch),
                     reload_config,
                     Some(on_effective_plugins_changed),
                     startup_warnings_tx,
@@ -1336,16 +1315,6 @@ impl MessageProcessor {
                 .unwatch(connection_id, params)
                 .await
                 .map(|response| Some(response.into())),
-            ClientRequest::ModelProviderList { params, .. } => self
-                .config_processor
-                .model_provider_list(params)
-                .await
-                .map(|r| Some(r.into())),
-            ClientRequest::ModelProviderConfigWrite { params, .. } => self
-                .config_processor
-                .model_provider_config_write(params)
-                .await
-                .map(|r| Some(r.into())),
             ClientRequest::ModelProviderCapabilitiesRead { params: _, .. } => self
                 .config_processor
                 .model_provider_capabilities_read()
@@ -1615,9 +1584,7 @@ impl MessageProcessor {
                 self.thread_processor.thread_turns_list(params).await
             }
             ClientRequest::ThreadItemsList { params, .. } => {
-                self.thread_processor
-                    .thread_items_list(&request_id, params)
-                    .await
+                self.thread_processor.thread_items_list(params).await
             }
             ClientRequest::ThreadItemsRead { params, .. } => {
                 self.thread_processor.thread_items_read(params).await
@@ -1863,13 +1830,12 @@ impl MessageProcessor {
                     .bedrock_check_gov_cloud_requirements()
                     .await
             }
-            ClientRequest::GatewayOAuthRead { params, .. } => Box::pin(
-                self.account_processor
-                    .gateway_oauth_read(params.unwrap_or_default()),
-            )
-            .await
-            .map(|response| Some(response.into())),
-            ClientRequest::GatewayOAuthLogin { params, .. } => {
+            ClientRequest::GatewayOAuthRead { .. } => {
+                Box::pin(self.account_processor.gateway_oauth_read())
+                    .await
+                    .map(|response| Some(response.into()))
+            }
+            ClientRequest::GatewayOAuthLogin { .. } => {
                 if session
                     .opted_out_notification_methods()
                     .contains("account/gatewayOAuth/changed")
@@ -1878,11 +1844,10 @@ impl MessageProcessor {
                         "Gateway login requires account/gatewayOAuth/changed notifications",
                     ))
                 } else {
-                    Box::pin(self.account_processor.gateway_oauth_login(
-                        params.unwrap_or_default(),
-                        connection_id,
-                        &session.rpc_gate,
-                    ))
+                    Box::pin(
+                        self.account_processor
+                            .gateway_oauth_login(connection_id, &session.rpc_gate),
+                    )
                     .await
                     .map(|response| Some(response.into()))
                 }
@@ -1916,12 +1881,6 @@ impl MessageProcessor {
             ClientRequest::GetAuthStatus { params, .. } => {
                 self.account_processor.get_auth_status(params).await
             }
-            ClientRequest::GetAccountSecuritySetup { .. } => Ok(Some(
-                self.account_processor
-                    .get_account_security_setup()
-                    .await
-                    .into(),
-            )),
             ClientRequest::GetAccountRateLimits { params, .. } => {
                 self.account_processor.get_account_rate_limits(params).await
             }

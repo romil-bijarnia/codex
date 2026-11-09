@@ -32,12 +32,10 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
                 },
             ),
         )?;
-        // Give each editor its own app server and wait for the thread before sending Ctrl+G.
         let args = if fullscreen {
-            vec!["--no-daemon", "-c", "sandbox_mode=\"read-only\""]
+            vec!["-c", "sandbox_mode=\"read-only\""]
         } else {
             vec![
-                "--no-daemon",
                 "-c",
                 "sandbox_mode=\"read-only\"",
                 "-c",
@@ -60,8 +58,7 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
         }
         ensure!(
             editor.with_extension("sh.ready").exists(),
-            "editor did not start (fullscreen={fullscreen}, output={editor_output:?}); screen:\n{}",
-            terminal.screen_contents()
+            "editor did not start"
         );
 
         let mut visible = None;

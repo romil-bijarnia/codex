@@ -9,7 +9,7 @@ use super::MCP_TYPESCRIPT_PREAMBLE;
 use super::TOOL_SEARCH_GUIDANCE;
 use super::ToolDefinition;
 use super::UNIFIED_IMAGE_HELPER_DESCRIPTION;
-use super::build_exec_tool_description_and_definitions;
+use super::build_exec_tool_description;
 use codex_protocol::ToolName;
 use codex_protocol::openai_models::CodeModeToolMessages;
 use codex_protocol::openai_models::ToolMessage;
@@ -29,7 +29,7 @@ fn exec_override_renders_only_known_literal_placeholders() {
             UNIFIED_IMAGE_HELPER_DESCRIPTION,
         ),
     ] {
-        let (description, _) = build_exec_tool_description_and_definitions(
+        let description = build_exec_tool_description(
             &[],
             &[],
             &BTreeMap::new(),
@@ -37,7 +37,6 @@ fn exec_override_renders_only_known_literal_placeholders() {
             /*code_mode_only*/ false,
             image_detail_visibility,
             DeferredToolDiscovery::Catalog,
-            /*incremental_exec_enabled*/ false,
             Some(&CodeModeToolMessages {
                 exec: Some(ToolMessage {
                     description: Some(" \nDefaults to 10000 ms. {{ default_exec_yield_time_ms }} ms.\n{{ image_helper }}\n{{ unknown }} {{default_exec_yield_time_ms}}\t ".to_string()),
@@ -60,7 +59,7 @@ fn exec_override_renders_only_known_literal_placeholders() {
 fn exec_override_preserves_empty_and_whitespace_only_text() {
     for description_override in ["", " \n\t "] {
         assert_eq!(
-            build_exec_tool_description_and_definitions(
+            build_exec_tool_description(
                 &[],
                 &[],
                 &BTreeMap::new(),
@@ -68,7 +67,6 @@ fn exec_override_preserves_empty_and_whitespace_only_text() {
                 /*code_mode_only*/ true,
                 ImageDetailVisibility::Visible,
                 DeferredToolDiscovery::Catalog,
-                /*incremental_exec_enabled*/ false,
                 Some(&CodeModeToolMessages {
                     exec: Some(ToolMessage {
                         description: Some(description_override.to_string()),
@@ -80,8 +78,7 @@ fn exec_override_preserves_empty_and_whitespace_only_text() {
                     mcp_typescript_preamble: Some("No MCP tools; omit this.".to_string()),
                     ..Default::default()
                 }),
-            )
-            .0,
+            ),
             [
                 description_override,
                 "No deferred tools; omit this.",
@@ -153,7 +150,7 @@ fn exec_override_preserves_runtime_sections() {
         ),
     ] {
         assert_eq!(
-            build_exec_tool_description_and_definitions(
+            build_exec_tool_description(
                 &enabled_tools,
                 &deferred_tools,
                 &BTreeMap::new(),
@@ -161,7 +158,6 @@ fn exec_override_preserves_runtime_sections() {
                 code_mode_only,
                 ImageDetailVisibility::Visible,
                 DeferredToolDiscovery::Catalog,
-                /*incremental_exec_enabled*/ false,
                 Some(&CodeModeToolMessages {
                     exec: Some(ToolMessage {
                         description: Some(String::new()),
@@ -171,8 +167,7 @@ fn exec_override_preserves_runtime_sections() {
                     mcp_typescript_preamble: preamble.map(str::to_string),
                     ..Default::default()
                 }),
-            )
-            .0,
+            ),
             expected,
         );
     }
@@ -202,7 +197,7 @@ fn ranked_search_guidance_honors_overrides() {
             (Some(""), String::new()),
             (Some("Catalog discovery."), "Catalog discovery.".to_string()),
         ] {
-            let (description, _) = build_exec_tool_description_and_definitions(
+            let description = build_exec_tool_description(
                 &[],
                 &deferred_tools,
                 &BTreeMap::new(),
@@ -210,7 +205,6 @@ fn ranked_search_guidance_honors_overrides() {
                 code_mode_only,
                 ImageDetailVisibility::Visible,
                 DeferredToolDiscovery::RankedSearch,
-                /*incremental_exec_enabled*/ false,
                 Some(&CodeModeToolMessages {
                     exec: Some(ToolMessage {
                         description: Some(String::new()),
@@ -238,7 +232,7 @@ fn mcp_types_stay_stable_when_a_deferred_tool_changes_its_output_schema() {
         output_schema: None,
     };
     let render = |tool: &ToolDefinition, preamble: Option<&str>| {
-        build_exec_tool_description_and_definitions(
+        build_exec_tool_description(
             &[],
             std::slice::from_ref(tool),
             &BTreeMap::new(),
@@ -246,13 +240,11 @@ fn mcp_types_stay_stable_when_a_deferred_tool_changes_its_output_schema() {
             /*code_mode_only*/ true,
             ImageDetailVisibility::Visible,
             DeferredToolDiscovery::Catalog,
-            /*incremental_exec_enabled*/ false,
             Some(&CodeModeToolMessages {
                 mcp_typescript_preamble: preamble.map(str::to_string),
                 ..Default::default()
             }),
         )
-        .0
     };
     // Keep one deferred tool throughout to isolate this from the independent
     // discovery guidance transition when the entire deferred catalog empties.
@@ -283,7 +275,7 @@ fn nested_guidance_survives_catalog_changes_and_respects_overrides() {
         output_schema: None,
     }];
     let render = |tools: &[ToolDefinition], code_mode_only, guidance: Option<&str>| {
-        build_exec_tool_description_and_definitions(
+        build_exec_tool_description(
             &[],
             tools,
             &BTreeMap::new(),
@@ -291,7 +283,6 @@ fn nested_guidance_survives_catalog_changes_and_respects_overrides() {
             code_mode_only,
             ImageDetailVisibility::Visible,
             DeferredToolDiscovery::Catalog,
-            /*incremental_exec_enabled*/ false,
             Some(&CodeModeToolMessages {
                 exec: Some(ToolMessage {
                     description: Some(String::new()),
@@ -302,7 +293,6 @@ fn nested_guidance_survives_catalog_changes_and_respects_overrides() {
                 ..Default::default()
             }),
         )
-        .0
     };
     for code_mode_only in [false, true] {
         for (guidance, expected) in [

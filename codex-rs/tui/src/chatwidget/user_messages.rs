@@ -64,7 +64,6 @@ pub(super) enum ShellEscapePolicy {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum UserMessageSource {
     Prompt,
-    DirectEnter,
     QuestionAnswer,
     SafetyRecourse,
 }
@@ -87,13 +86,6 @@ pub(super) struct QueuedUserMessage {
 }
 
 impl QueuedUserMessage {
-    pub(super) fn unconfirmed_user_message_id(&self) -> Option<&str> {
-        match &self.delivery {
-            MessageDelivery::Unconfirmed(id) => id.as_deref(),
-            MessageDelivery::Unsent => None,
-        }
-    }
-
     pub(super) fn new(user_message: UserMessage, action: QueuedInputAction) -> Self {
         Self {
             user_message,
@@ -173,6 +165,7 @@ pub(crate) struct ThreadInputState {
     pub(crate) reconnect_pending: bool,
     pub(super) user_turn_pending_start: bool,
     pub(super) pending_user_message_client_id: Option<String>,
+    pub(super) pending_user_message_history_record: Option<UserMessageHistoryRecord>,
     pub(super) submit_pending_steers_after_interrupt: bool,
     pub(super) current_collaboration_mode: CollaborationMode,
     pub(super) active_collaboration_mask: Option<CollaborationModeMask>,
@@ -217,9 +210,6 @@ impl From<&str> for UserMessage {
 pub(crate) struct PendingSteer {
     /// Preserved across request retries and thread switches until this submission commits.
     pub(crate) client_id: String,
-    /// The admission identifies the turn whose interruption can discard this input.
-    pub(super) admitted_turn_id: Option<String>,
-    pub(super) optimistically_rendered: bool,
     pub(super) user_message: UserMessage,
     pub(super) history_record: UserMessageHistoryRecord,
     pub(super) source: UserMessageSource,
@@ -863,42 +853,7 @@ impl ChatWidget {
     }
 }
 
-pub(super) fn remove_confirmed_queued_messages(
-    messages: &mut VecDeque<QueuedUserMessage>,
-    history: &mut VecDeque<UserMessageHistoryRecord>,
-    confirmed_ids: &[String],
-) {
-    let mut index = 0;
-    messages.retain(|message| {
-        let confirmed = message
-            .unconfirmed_user_message_id()
-            .is_some_and(|id| confirmed_ids.iter().any(|confirmed_id| confirmed_id == id));
-        if confirmed {
-            history.remove(index);
-        } else {
-            index += 1;
-        }
-        !confirmed
-    });
-}
-
 impl ThreadInputState {
-    pub(crate) fn reconcile_confirmed_messages(&mut self, confirmed_ids: &[String]) {
-        self.pending_steers
-            .retain(|steer| !confirmed_ids.contains(&steer.client_id));
-        remove_confirmed_queued_messages(
-            &mut self.queued_user_messages,
-            &mut self.queued_user_message_history_records,
-            confirmed_ids,
-        );
-    }
-
-    pub(crate) fn has_unsent_input(&self) -> bool {
-        self.composer.is_some()
-            || !self.queued_user_messages.is_empty()
-            || !self.rejected_steers_queue.is_empty()
-    }
-
     pub(crate) fn has_unconfirmed_messages(&self) -> bool {
         self.queued_user_messages
             .iter()

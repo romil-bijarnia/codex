@@ -436,6 +436,7 @@ async fn restore_thread_input_state_restores_pending_steers_without_downgrading_
             reconnect_pending: false,
             user_turn_pending_start: false,
             pending_user_message_client_id: None,
+            pending_user_message_history_record: None,
             submit_pending_steers_after_interrupt: false,
             current_collaboration_mode: chat.current_collaboration_mode.clone(),
             active_collaboration_mask: chat.active_collaboration_mask.clone(),
@@ -989,7 +990,6 @@ async fn manual_interrupt_restores_pending_steer_mention_bindings_to_composer() 
         )],
         Vec::new(),
         mention_bindings.clone(),
-        crate::bottom_pane::ShellPrefixHandling::Interpret,
     );
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 

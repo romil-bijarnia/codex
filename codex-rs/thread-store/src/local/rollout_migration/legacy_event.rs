@@ -158,16 +158,7 @@ pub(super) fn completed_item(
     let result = match event {
         EventMsg::AgentMessage(event) if !event.message.is_empty() => Some((
             TurnItem::AgentMessage(AgentMessageItem {
-                moderation: event.moderation.as_ref().map(|decision| {
-                    codex_protocol::items::AgentMessageModeration {
-                        moderated: decision.moderated,
-                        display: decision.display.clone(),
-                    }
-                }),
-                id: event
-                    .moderation
-                    .as_ref()
-                    .map_or(next_item_id()?, |decision| decision.item_id.clone()),
+                id: next_item_id()?,
                 content: vec![AgentMessageContent::Text {
                     text: event.message.clone(),
                 }],

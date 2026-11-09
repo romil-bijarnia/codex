@@ -107,7 +107,6 @@ pub(crate) struct OnboardingScreenArgs {
     pub show_login_screen: bool,
     pub bedrock_setup_enabled: bool,
     pub gcp_setup_enabled: bool,
-    pub gateway_setup_enabled: bool,
     pub login_status: LoginStatus,
     pub app_server_target: crate::AppServerTarget,
     pub app_server_request_handle: Option<AppServerRequestHandle>,
@@ -117,7 +116,6 @@ pub(crate) struct OnboardingScreenArgs {
 #[derive(Default)]
 pub(crate) struct OnboardingResult {
     pub directory_trust_persisted: bool,
-    pub selected_gateway: Option<String>,
     pub should_exit: bool,
 }
 
@@ -137,7 +135,6 @@ impl OnboardingScreen {
             show_login_screen,
             bedrock_setup_enabled,
             gcp_setup_enabled,
-            gateway_setup_enabled,
             login_status,
             app_server_target,
             app_server_request_handle,
@@ -191,8 +188,6 @@ impl OnboardingScreen {
                     auth_config,
                     bedrock_setup_enabled,
                     gcp_setup_enabled,
-                    gateway_setup_enabled,
-                    gateway: None,
                     animations_enabled: local_settings.tui.animations
                         && local_settings.tui.effects.shimmer,
                     animations_suppressed: std::cell::Cell::new(false),
@@ -311,7 +306,7 @@ impl OnboardingScreen {
         }
     }
 
-    pub(super) fn auth_widget_mut(&mut self) -> Option<&mut AuthModeWidget> {
+    fn auth_widget_mut(&mut self) -> Option<&mut AuthModeWidget> {
         self.steps.iter_mut().find_map(|step| match step {
             Step::Auth(widget) => Some(widget),
             Step::Welcome(_) | Step::TrustDirectory(_) | Step::GovCloudGuidance { .. } => None,
@@ -323,11 +318,6 @@ impl OnboardingScreen {
             ServerNotification::AccountLoginCompleted(notification) => {
                 if let Some(widget) = self.auth_widget_mut() {
                     widget.on_account_login_completed(notification);
-                }
-            }
-            ServerNotification::GatewayOAuthChanged(notification) => {
-                if let Some(widget) = self.auth_widget_mut() {
-                    widget.on_gateway_oauth_changed(notification);
                 }
             }
             ServerNotification::AccountUpdated(notification) => {
@@ -609,7 +599,7 @@ pub(crate) async fn run_onboarding_app(
     run_onboarding_screen(screen, request_handle, app_server, tui).await
 }
 
-pub(super) async fn run_onboarding_screen(
+async fn run_onboarding_screen(
     onboarding_screen: OnboardingScreen,
     app_server_request_handle: Option<AppServerRequestHandle>,
     app_server: Option<&mut AppServerSession>,
@@ -656,12 +646,6 @@ async fn run_onboarding_screen_inner(
 
     while !onboarding_screen.is_done() {
         tokio::select! {
-            () = async {
-                match onboarding_screen.auth_widget_mut() {
-                    Some(auth) => auth.advance_gateway_request().await,
-                    None => std::future::pending().await,
-                }
-            } => {}
             event = tui_events.next() => {
                 if let Some(event) = event {
                     tui.screen_size_for_event(&event)?;
@@ -794,8 +778,7 @@ async fn run_onboarding_screen_inner(
                         AppServerEvent::Disconnected { message } => {
                             return Err(color_eyre::eyre::eyre!(message));
                         }
-                        AppServerEvent::ThreadStreamDisconnected(_)
-                        | AppServerEvent::Lagged { .. }
+                        AppServerEvent::Lagged { .. }
                         | AppServerEvent::ServerRequest(_) => {}
                     }
                 }
@@ -816,16 +799,6 @@ async fn run_onboarding_screen_inner(
     }
     Ok(OnboardingResult {
         directory_trust_persisted,
-        selected_gateway: onboarding_screen.auth_widget_mut().and_then(|widget| {
-            match &*widget
-                .sign_in_state
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-            {
-                SignInState::GatewaySelected(id) => Some(id.clone()),
-                _ => None,
-            }
-        }),
         should_exit: onboarding_screen.should_exit(),
     })
 }

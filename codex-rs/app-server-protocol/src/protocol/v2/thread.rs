@@ -939,8 +939,6 @@ pub struct QueuedSubmission {
     pub id: String,
     pub input: Vec<UserInput>,
     pub client_user_message_id: String,
-    /// Metadata retained with this input, including across reconnect and restoration.
-    pub responsesapi_client_metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -950,9 +948,6 @@ pub struct ThreadQueueAddParams {
     pub thread_id: String,
     pub input: Vec<UserInput>,
     pub client_user_message_id: String,
-    /// ResponsesAPI metadata captured from the client submitting this input.
-    #[ts(optional = nullable)]
-    pub responsesapi_client_metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -991,9 +986,6 @@ pub struct ThreadQueueUpdateParams {
     pub thread_id: String,
     pub queued_submission_id: String,
     pub input: Vec<UserInput>,
-    /// Non-empty metadata replaces the input's metadata; omission or an empty map preserves it.
-    #[ts(optional = nullable)]
-    pub responsesapi_client_metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -1435,9 +1427,6 @@ pub struct ThreadSectionDeleteResponse {}
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadListParams {
-    /// Show local history visible to the current ChatGPT account. Defaults to false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub current_account_only: bool,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,
@@ -1526,9 +1515,6 @@ pub struct ThreadListParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadSearchParams {
-    /// Show local history visible to the current ChatGPT account. Defaults to false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub current_account_only: bool,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,
@@ -1816,7 +1802,7 @@ pub struct ThreadTurnsListResponse {
     pub backwards_cursor: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadItemsListParams {
@@ -1835,25 +1821,6 @@ pub struct ThreadItemsListParams {
     /// Optional item pagination direction; defaults to ascending.
     #[ts(optional = nullable)]
     pub sort_direction: Option<SortDirection>,
-    /// For a single turn, choose which saved outputs to fetch separately by item ID.
-    #[experimental(nested)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub defer_output: Option<ThreadItemOutputDeferral>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct ThreadItemOutputDeferral {
-    /// Defer nonempty output from successful commands.
-    #[experimental("thread/items/list.deferOutput.commandExecution")]
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub command_execution: bool,
-    /// Defer nonempty plain-text results from successful MCP tool calls.
-    #[experimental("thread/items/list.deferOutput.mcpToolCall")]
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub mcp_tool_call: bool,
 }
 
 /// Starting position for an item-history page.
@@ -1877,17 +1844,13 @@ pub enum ThreadItemsListAnchor {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadItemEntry {
     /// Turn containing this item.
     pub turn_id: String,
     pub item: ThreadItem,
-    /// The saved output was omitted. Fetch the complete item with `thread/items/read`.
-    #[experimental("thread/items/list.outputDeferred")]
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub output_deferred: bool,
     /// Unix timestamp (milliseconds) when the item started, if recorded by the producer.
     #[ts(type = "number | null")]
     pub started_at_ms: Option<i64>,
@@ -1896,30 +1859,13 @@ pub struct ThreadItemEntry {
     pub completed_at_ms: Option<i64>,
 }
 
-/// Identifies the item to fetch with `thread/items/read` to obtain its full output.
-#[derive(Debug, thiserror::Error)]
-#[error("output for item {item_id} in turn {turn_id} is deferred")]
-pub struct DeferredItemOutput {
-    pub turn_id: String,
-    pub item_id: String,
-}
-
-impl TryFrom<ThreadItemEntry> for ThreadItem {
-    type Error = DeferredItemOutput;
-
-    fn try_from(entry: ThreadItemEntry) -> Result<Self, Self::Error> {
-        if entry.output_deferred {
-            return Err(DeferredItemOutput {
-                item_id: entry.item.id().to_owned(),
-                turn_id: entry.turn_id,
-            });
-        }
-
-        Ok(Self {
+impl From<ThreadItemEntry> for ThreadItem {
+    fn from(entry: ThreadItemEntry) -> Self {
+        Self {
             started_at_ms: entry.item.started_at_ms.or(entry.started_at_ms),
             completed_at_ms: entry.item.completed_at_ms.or(entry.completed_at_ms),
             ..entry.item
-        })
+        }
     }
 }
 

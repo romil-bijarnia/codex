@@ -1,4 +1,5 @@
 use super::auth::RemoteControlConnectionAuth;
+use super::auth::request_client;
 use super::enroll::RemoteControlEnrollment;
 use super::enroll::RemoteControlServerTokenRefreshRequirement;
 use super::enroll::format_headers;
@@ -240,7 +241,8 @@ where
     Request: Serialize,
     Response: DeserializeOwned,
 {
-    let (client, auth_headers) = auth.request_context(url).await?;
+    let client = request_client(&auth.http_client_factory, url).await?;
+    let auth_headers = auth.request_headers()?;
     let response = client
         .post(url)
         .timeout(timeout)

@@ -164,7 +164,8 @@ impl App {
                 .await
         {
             self.chat_widget.add_error_message(
-                "Could not switch to GPT-6-Sol at Extra high reasoning; Daybreak was not enabled.".into(),
+                "Could not switch to GPT-6-Sol at Extra high reasoning; Daybreak was not enabled."
+                    .into(),
             );
             return;
         }

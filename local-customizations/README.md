@@ -1,12 +1,13 @@
 # Local CLI customizations
 
-The primary source is `romil-bijarnia/codex`, branch `main`, with
-`openai/codex` as `upstream`. The native customizations and helpers are ordinary
+The primary source is `romil-bijarnia/codex`, branch `main`, based on the official
+stable `rust-v0.167.0` release. The native customizations and helpers are ordinary
 tracked source files. The local checkout is `$HOME/Work/codex`.
 
-Use [WORKFLOW.md](WORKFLOW.md). GitHub's Sync fork updates the source; it does
-not compile or install the CLI. Build tooling in `distribution/` is retained
-for deliberate builds, and its workflow is manual rather than push-triggered.
+Use [WORKFLOW.md](WORKFLOW.md). Stable upgrades must use release tags rather than
+unreleased upstream main. The build in `distribution/` verifies the exact tag,
+commit, source workspace version and official resource checksum. The native
+version is `0.167.0`; complete package provenance includes the custom source SHA.
 The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,
 not current installation instructions or evidence about the selected Linux build.
 

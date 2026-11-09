@@ -6,19 +6,18 @@ import io
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
 import tarfile
 
-from common import ROOT, CONFIG, REPO, TARGET, api, atomic_write, output, release_tag, run, sha256, source_revision, source_root
+from common import ROOT, CONFIG, REPO, TARGET, api, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, stable_package_version
 
 
 def plan(commit=None):
     commit = source_revision(commit)
     return {'source_commit': commit, 'source_branch': CONFIG['source_branch'],
-            'release_tag': release_tag(commit), 'target': TARGET}
+            'release_tag': release_tag(commit), 'target': TARGET, **stable_release_pin()}
 
 
 def prepare(source, commit):
@@ -44,25 +43,45 @@ def prepare(source, commit):
 
 
 def upstream_base(source):
-    """Record ancestry without merging or changing the requested source tree."""
-    run(['git', '-C', source, 'remote', 'add', 'upstream',
-         'https://github.com/' + CONFIG['upstream_repository'] + '.git'])
-    run(['git', '-C', source, 'fetch', '--quiet', '--no-tags', 'upstream', CONFIG['upstream_branch']])
-    return output(['git', '-C', source, 'merge-base', 'HEAD', 'FETCH_HEAD'])
+    """Verify the pinned tag; prior development ancestry is not the source base."""
+    pin = stable_release_pin()
+    run(['git', '-C', source, 'fetch', '--quiet', '--no-tags',
+         'https://github.com/' + CONFIG['upstream_repository'] + '.git',
+         'refs/tags/' + pin['upstream_release']])
+    actual = output(['git', '-C', source, 'rev-parse', 'FETCH_HEAD^{commit}'])
+    if actual != pin['upstream_commit']:
+        raise RuntimeError('The upstream stable tag does not resolve to the pinned commit.')
+    return actual
 
 
 def official_resources(folder):
+    pin = stable_release_pin()
+    release = api(f"repos/{CONFIG['upstream_repository']}/releases/tags/{pin['upstream_release']}")
+    if (release.get('tag_name') != pin['upstream_release']
+            or release.get('prerelease') is not False or release.get('draft') is not False):
+        raise RuntimeError('The resource release is not the exact pinned public stable release.')
     name = 'codex-package-' + CONFIG['resource_target'] + '.tar.gz'
-    for release in api(f"repos/{CONFIG['upstream_repository']}/releases?per_page=15"):
-        asset = next((a for a in release['assets'] if a['name'] == name), None)
-        if asset:
-            run(['gh', 'release', 'download', release['tag_name'], '--repo', CONFIG['upstream_repository'], '--pattern', name, '--dir', folder])
-            path = folder / name
-            expected = asset.get('digest') or ''
-            if expected.startswith('sha256:') and sha256(path) != expected[7:]:
-                raise RuntimeError('Official resource package failed its published checksum.')
-            return release, path
-    raise RuntimeError('No official package with the matching Linux ARM64 resources was found.')
+    assets = [asset for asset in release['assets'] if asset['name'] == name]
+    if len(assets) != 1:
+        raise RuntimeError('The pinned stable release has no unique matching resource package.')
+    expected = pin['official_resources_sha256']
+    if assets[0].get('digest') != 'sha256:' + expected:
+        raise RuntimeError('The official stable resource digest differs from the pinned checksum.')
+    run(['gh', 'release', 'download', pin['upstream_release'], '--repo',
+         CONFIG['upstream_repository'], '--pattern', name, '--dir', folder])
+    path = Path(folder) / name
+    if sha256(path) != expected:
+        raise RuntimeError('Official stable resource package failed its pinned checksum.')
+    return release, path
+
+
+def verify_workspace_version(source, version):
+    # Stable tags already carry their release version. Do not turn a development
+    # checkout into an apparently stable executable by changing only its label.
+    import tomllib
+    actual = tomllib.loads((Path(source) / 'codex-rs/Cargo.toml').read_text())['workspace']['package']['version']
+    if actual != version:
+        raise RuntimeError(f'Source workspace version is {actual}, not stable {version}; refusing to relabel it.')
 
 
 def archive_package(package, output_dir, manifest):
@@ -94,10 +113,10 @@ def package_manifest(package, build_plan, **extra):
 def publish(output_dir, manifest):
     tag = manifest['release_tag']
     body = (f"Source: {REPO}@{manifest['source_commit']}\n\n"
-            f"Included upstream: openai/codex@{manifest['upstream_commit']}\n\n"
-            "Built from committed personal source after ordinary Git merges. Profile settings and running sessions are not replaced.\n")
+            f"Stable base: {manifest['upstream_release']} (openai/codex@{manifest['upstream_commit']})\n\n"
+            "Built from the pinned stable release plus committed personal changes. Profile settings and running sessions are not replaced.\n")
     args = ['gh', 'release', 'create', tag, '--repo', REPO, '--target', manifest['source_commit'],
-            '--prerelease', '--latest=false', '--title', manifest['version'], '--notes', body,
+            '--latest=false', '--title', manifest['version'], '--notes', body,
             output_dir / manifest['asset'], output_dir / 'release-manifest.json']
     run(args)
 
@@ -123,30 +142,20 @@ def source_times(source, restore=False):
 
 def build(work, build_plan, output_dir):
     commit = source_revision(build_plan['source_commit'])
+    pin = stable_release_pin()
+    if any(build_plan.get(key) != value for key, value in pin.items()):
+        raise RuntimeError("The build plan does not match this source revision's stable release pin.")
     if output(['git', '-C', source_root(), 'rev-parse', 'HEAD']) != commit:
         raise RuntimeError('Check out the requested source commit before building; its own recipe and checks must be used.')
     if output(['git', '-C', source_root(), 'status', '--porcelain']):
         raise RuntimeError('Commit or resolve source changes before building a reproducible package; no files were overwritten.')
     work.mkdir(parents=True, exist_ok=False)
     source = prepare(work / 'source', commit)
+    cargo_version = pin['compiled_version']
+    verify_workspace_version(source, cargo_version)
     build_plan = dict(build_plan, upstream_commit=upstream_base(source))
     release, resource_archive = official_resources(work)
-    version_base = re.match(r'rust-v(\d+\.\d+\.\d+)', release['tag_name']).group(1)
-    # Constant within an upstream series: do not invalidate every workspace crate for each timestamp.
-    cargo_version = version_base + '-dev'
     import tomllib
-    cargo = source / 'codex-rs/Cargo.toml'
-    old = tomllib.loads(cargo.read_text())['workspace']['package']['version']
-    text = cargo.read_text();section = text.index('[workspace.package]');tail = text[section:]
-    tail = tail.replace(f'version = "{old}"', f'version = "{cargo_version}"', 1)
-    cargo.write_text(text[:section] + tail)
-    lockfile = source / 'codex-rs/Cargo.lock'
-    pieces = lockfile.read_text().split('[[package]]')
-    for i in range(1, len(pieces)):
-        entry = tomllib.loads('[[package]]' + pieces[i])['package'][0]
-        if entry.get('version') == old and 'source' not in entry:
-            pieces[i] = pieces[i].replace(f'version = "{old}"', f'version = "{cargo_version}"', 1)
-    lockfile.write_text('[[package]]'.join(pieces))
     toolchain = tomllib.loads((source / 'codex-rs/rust-toolchain.toml').read_text())['toolchain']['channel']
     run(['rustup', 'toolchain', 'install', toolchain, '--profile', 'minimal'])
     env = dict(os.environ, RUSTUP_TOOLCHAIN=toolchain, CODEX_REPO_ROOT=str(source),
@@ -178,8 +187,7 @@ def build(work, build_plan, output_dir):
         (package / 'bin' / name).unlink(missing_ok=True);shutil.copy2(target / name, package / 'bin' / name)
     (package / 'codex-resources/bwrap').unlink(missing_ok=True);shutil.copy2(target / 'bwrap', package / 'codex-resources/bwrap')
     metadata = json.loads(metadata_files[0].read_text())
-    date = datetime.now(timezone.utc).strftime('%Y%m%d')
-    metadata.update(target=TARGET, version=f"{version_base}-dev.{date}+romil.{commit[:12]}")
+    metadata.update(target=TARGET, version=stable_package_version(commit))
     metadata_files[0].write_text(json.dumps(metadata, indent=2) + '\n')
     shutil.copytree(source / 'local-customizations', package / 'customizations')
     qa_home = work / 'qa-home';(qa_home / '.codex').mkdir(parents=True)
