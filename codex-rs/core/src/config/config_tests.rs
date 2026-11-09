@@ -555,14 +555,14 @@ enabled = false
 }
 
 #[tokio::test]
-async fn load_config_resolves_experimental_request_user_input_enabled() -> std::io::Result<()> {
+async fn load_config_disables_structured_user_input_even_when_requested() -> std::io::Result<()> {
     let codex_home = tempdir()?;
     let config = Config::load_from_base_config_with_overrides(
         ConfigToml {
             tools: Some(ToolsToml {
                 web_search: None,
                 experimental_request_user_input: Some(ExperimentalRequestUserInput {
-                    enabled: false,
+                    enabled: true,
                 }),
                 update_plan: None,
                 ..Default::default()

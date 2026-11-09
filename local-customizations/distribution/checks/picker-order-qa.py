@@ -100,7 +100,7 @@ trust_level = "trusted"
         assert contexts, 'The fixture did not record an actual turn context.'
         context = contexts[-1]
         assert context['approval_policy'] == 'never', context
-        assert context['approvals_reviewer'] == 'auto_review', context
+        assert context['approvals_reviewer'] == 'user', context
         assert context['permission_profile']['type'] == 'disabled', context
         report['effective_permissions'] = {
             key: context[key] for key in

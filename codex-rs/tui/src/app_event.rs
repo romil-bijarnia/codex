@@ -1469,9 +1469,6 @@ pub(crate) enum AppEvent {
         thread_id: Option<ThreadId>,
     },
 
-    /// Show the cyber auto-review notice after the model selection confirmation.
-    CyberModelAutoReviewNotice,
-
     /// Read the owning server preference before showing the voice picker.
     OpenRealtimeSettings,
     OpenRealtimeSoundDevices,

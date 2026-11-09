@@ -1,8 +1,7 @@
 EL2 Control selects the existing `:danger-full-access` profile with
-`approval_policy = "never"` and `approvals_reviewer = "auto_review"`. Selecting it
-replaces the previous approval settings instead of inheriting them. With
-normal approvals disabled, automatic review handles separate strict tool checks
-without adding user approval prompts.
+`approval_policy = "never"` and `approvals_reviewer = "user"`. Selecting it
+replaces the previous approval settings instead of inheriting them. Normal
+approvals remain disabled and no automatic reviewer is selected.
 
 The footer renders EL2 Control in crimson red (`#FF5F6D`) when status-line
 colours are enabled, using bright red on 16-colour terminals. The existing
@@ -14,10 +13,10 @@ The owner installation uses the same saved defaults in `config.toml`:
 default_permissions = ":danger-full-access"
 sandbox_mode = "danger-full-access"
 approval_policy = "never"
-approvals_reviewer = "auto_review"
+approvals_reviewer = "user"
 
 [apps._default]
-approvals_reviewer = "auto_review"
+approvals_reviewer = "user"
 default_tools_approval_mode = "approve"
 ```
 

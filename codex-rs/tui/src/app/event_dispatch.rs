@@ -2883,11 +2883,6 @@ impl App {
                     self.chat_widget.recall_quick_dial(slot);
                 }
             }
-            AppEvent::CyberModelAutoReviewNotice => {
-                self.chat_widget.add_warning_message(
-                    "Cyber models default to \"Approve for me\" for safety reasons.".to_string(),
-                );
-            }
             AppEvent::PluginUninstallLoaded {
                 cwd,
                 plugin_id: _plugin_id,

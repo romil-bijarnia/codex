@@ -566,29 +566,6 @@ fn bypass_hook_trust_startup_warning_snapshot() {
 }
 
 #[tokio::test]
-async fn cyber_model_auto_review_notice_snapshot() -> Result<()> {
-    let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-    let mut app_server =
-        crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-
-    app.handle_event(
-        &mut tui,
-        &mut app_server,
-        AppEvent::CyberModelAutoReviewNotice,
-    )
-    .await?;
-
-    let cell = match app_event_rx.try_recv() {
-        Ok(AppEvent::InsertHistoryCell(cell)) => cell,
-        other => panic!("expected InsertHistoryCell event, got {other:?}"),
-    };
-    let rendered = lines_to_single_string(&cell.transcript_lines(/*width*/ 80));
-    assert_app_snapshot!("cyber_model_auto_review_notice", rendered);
-    Ok(())
-}
-
-#[tokio::test]
 #[serial_test::serial]
 async fn external_editor_writable_directory_rejected_snapshot() -> Result<()> {
     struct RestoreVisual(Option<std::ffi::OsString>);
@@ -11986,127 +11963,27 @@ async fn override_turn_context_sends_thread_settings_update() {
 }
 
 #[tokio::test]
-async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
-    Box::pin(async {
-        let (mut app, mut events, _) = make_test_app_with_channels().await;
-        app.config
-            .permissions
-            .approval_policy
-            .set(AskForApproval::UnlessTrusted.to_core())
-            .expect("set approval policy");
-        app.chat_widget
-            .set_approval_policy(AskForApproval::UnlessTrusted);
-        let mut model = app
-            .model_catalog
-            .try_list_models()
-            .expect("model catalog")
-            .into_iter()
-            .find(|model| model.model == "gpt-5.5")
-            .expect("gpt-5.5 model");
-        model.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
-        app.model_catalog = Arc::new(ModelCatalog::new(vec![model]));
+async fn selecting_cyber_model_preserves_current_permissions() {
+    let mut app = make_test_app().await;
+    let mut model = app
+        .model_catalog
+        .try_list_models()
+        .expect("model catalog")
+        .into_iter()
+        .find(|model| model.model == "gpt-5.5")
+        .expect("gpt-5.5 model");
+    model.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
+    app.model_catalog = Arc::new(ModelCatalog::new(vec![model]));
+    app.active_thread_id = Some(ThreadId::new());
 
-        let mut app_server =
-            crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
-                .await
-                .expect("embedded app server");
-        let started = app_server
-            .start_thread(app.chat_widget.config_ref())
-            .await
-            .expect("thread/start should succeed");
-        assert_eq!(
-            started.session.approval_policy,
-            AskForApproval::UnlessTrusted
-        );
-        assert_eq!(started.session.approvals_reviewer, ApprovalsReviewer::User);
-        let thread_id = started.session.thread_id;
-        app.chat_widget
-            .handle_thread_session_quiet(started.session.clone());
-        app.enqueue_primary_thread_session(started.session, started.turns)
-            .await
-            .expect("primary thread should be registered");
+    let params = app
+        .active_thread_model_setting_update_params("gpt-5.5".to_string())
+        .expect("active thread should produce update params");
 
-        let mut tui = crate::tui::test_support::make_test_tui().expect("test tui");
-        let previous_model = app.chat_widget.current_model().to_string();
-        app.pending_server_profiles.insert(
-            thread_id,
-            PermissionProfileSelection {
-                profile_id: "server-only".into(),
-                approval_policy: None,
-                approvals_reviewer: None,
-                display_label: "server-only".into(),
-            },
-        );
-        app.handle_event(
-            &mut tui,
-            &mut app_server,
-            AppEvent::ApplyAdvancedReasoning {
-                model: "gpt-5.5".to_string(),
-                effort: ReasoningEffortConfig::High,
-            },
-        )
-        .await
-        .expect("pending permission selection should block the cyber model");
-        assert_eq!(app.chat_widget.current_model(), previous_model);
-        let previous_selection = app.pending_server_profiles.remove(&thread_id).unwrap();
-        app.agents_overview
-            .requested_permission_profiles
-            .insert(thread_id, previous_selection);
-        app.handle_event(
-            &mut tui,
-            &mut app_server,
-            AppEvent::UpdateModel("gpt-5.5".to_string()),
-        )
-        .await
-        .expect("model selection should succeed");
-
-        assert!(app.pending_server_profiles.contains_key(&thread_id));
-        assert!(
-            !app.agents_overview
-                .requested_permission_profiles
-                .contains_key(&thread_id)
-        );
-        while events.try_recv().is_ok() {}
-        // Until the cyber model's permissions are confirmed, do not offer another selection.
-        app.chat_widget.handle_paste("/permissions".into());
-        app.chat_widget.handle_key_event(KeyCode::Enter.into());
-        let event = std::iter::from_fn(|| events.try_recv().ok())
-            .find(|event| matches!(event, AppEvent::OpenPermissionsPopup))
-            .expect("slash permissions goes through app permission guards");
-        app.handle_event(&mut tui, &mut app_server, event)
-            .await
-            .expect("permissions menu");
-        insta::assert_snapshot!(
-            next_history_message(&mut events),
-            @"■ Wait for permissions to update before changing permissions."
-        );
-        let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
-        assert_eq!(
-            notification.thread_settings.approval_policy,
-            AskForApproval::OnRequest
-        );
-        assert_eq!(
-            notification.thread_settings.approvals_reviewer.to_core(),
-            ApprovalsReviewer::AutoReview
-        );
-        assert_eq!(
-            notification
-                .thread_settings
-                .active_permission_profile
-                .as_ref()
-                .expect("active permission profile")
-                .id,
-            codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE
-        );
-        app.enqueue_thread_notification(
-            thread_id,
-            ServerNotification::ThreadSettingsUpdated(notification),
-        )
-        .await
-        .expect("settings notification should apply");
-        assert!(!app.pending_server_profiles.contains_key(&thread_id));
-    })
-    .await;
+    assert_eq!(params.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(params.approval_policy, None);
+    assert_eq!(params.approvals_reviewer, None);
+    assert_eq!(params.permissions, None);
 }
 
 #[tokio::test]
@@ -12242,117 +12119,6 @@ async fn changing_cyber_model_reasoning_preserves_selected_permissions() {
             );
             assert_eq!(settings.collaboration_mode.settings.model, model_name);
         }
-    })
-    .await;
-}
-
-#[tokio::test]
-async fn selecting_cyber_model_falls_back_to_user_when_auto_review_is_unavailable() {
-    let mut app = make_test_app().await;
-    let mut model = app
-        .model_catalog
-        .try_list_models()
-        .expect("model catalog")
-        .into_iter()
-        .find(|model| model.model == "gpt-5.5")
-        .expect("gpt-5.5 model");
-    model.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
-    app.model_catalog = Arc::new(ModelCatalog::new(vec![model]));
-    let _ = app.config.features.disable(Feature::GuardianApproval);
-    app.chat_widget
-        .set_feature_enabled(Feature::GuardianApproval, /*enabled*/ false);
-    app.active_thread_id = Some(ThreadId::new());
-
-    let params = app
-        .active_thread_model_setting_update_params("gpt-5.5".to_string())
-        .expect("active thread should produce update params");
-
-    assert_eq!(
-        params.approval_policy,
-        Some(codex_app_server_protocol::AskForApproval::OnRequest)
-    );
-    assert_eq!(
-        params.approvals_reviewer,
-        Some(codex_app_server_protocol::ApprovalsReviewer::User)
-    );
-}
-
-#[tokio::test]
-async fn selecting_cyber_model_respects_auto_review_requirements() {
-    Box::pin(async {
-        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-        let requirements_toml = codex_config::ConfigRequirementsToml {
-            allowed_approval_policies: Some(vec![AskForApproval::UnlessTrusted.to_core()]),
-            ..Default::default()
-        };
-        let mut requirements_with_sources = codex_config::ConfigRequirementsWithSources::default();
-        requirements_with_sources.merge_unset_fields(
-            codex_config::RequirementSource::Unknown,
-            requirements_toml.clone(),
-        );
-        let requirements = codex_config::ConfigRequirements::try_from(requirements_with_sources)
-            .expect("reviewer requirements");
-        app.config.config_layer_stack =
-            codex_config::ConfigLayerStack::new(Vec::new(), requirements, requirements_toml)
-                .expect("auto-review requirements stack");
-        app.config
-            .permissions
-            .approval_policy
-            .set(AskForApproval::UnlessTrusted.to_core())
-            .expect("set approval policy");
-        app.chat_widget
-            .set_approval_policy(AskForApproval::UnlessTrusted);
-        app.chat_widget.sync_plugin_mentions_config(&app.config);
-
-        let mut model = app
-            .model_catalog
-            .try_list_models()
-            .expect("model catalog")
-            .into_iter()
-            .find(|model| model.model == "gpt-5.5")
-            .expect("gpt-5.5 model");
-        model.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
-        app.model_catalog = Arc::new(ModelCatalog::new(vec![model]));
-
-        let mut app_server =
-            crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
-                .await
-                .expect("embedded app server");
-        let started = app_server
-            .start_thread(app.chat_widget.config_ref())
-            .await
-            .expect("thread/start should succeed");
-        assert_eq!(
-            started.session.approval_policy,
-            AskForApproval::UnlessTrusted
-        );
-        let thread_id = started.session.thread_id;
-        app.enqueue_primary_thread_session(started.session, started.turns)
-            .await
-            .expect("primary thread should be registered");
-
-        let mut tui = crate::tui::test_support::make_test_tui().expect("test tui");
-        app.handle_event(
-            &mut tui,
-            &mut app_server,
-            AppEvent::UpdateModel("gpt-5.5".to_string()),
-        )
-        .await
-        .expect("model selection should succeed");
-
-        let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
-        assert_eq!(
-            notification.thread_settings.approval_policy,
-            AskForApproval::UnlessTrusted
-        );
-        assert_eq!(
-            notification.thread_settings.approvals_reviewer.to_core(),
-            ApprovalsReviewer::User
-        );
-        assert!(
-            std::iter::from_fn(|| app_event_rx.try_recv().ok())
-                .all(|event| !matches!(event, AppEvent::CyberModelAutoReviewNotice))
-        );
     })
     .await;
 }

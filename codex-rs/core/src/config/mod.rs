@@ -2872,12 +2872,9 @@ fn resolve_web_search_config(config_toml: &ConfigToml) -> Option<WebSearchConfig
         .map(Into::into)
 }
 
-fn resolve_experimental_request_user_input_enabled(config_toml: &ConfigToml) -> bool {
-    config_toml
-        .tools
-        .as_ref()
-        .and_then(|tools| tools.experimental_request_user_input.as_ref())
-        .is_none_or(|config| config.enabled)
+fn resolve_experimental_request_user_input_enabled(_config_toml: &ConfigToml) -> bool {
+    // Personal builds use ordinary chat text for clarifying questions.
+    false
 }
 
 fn resolve_update_plan_enabled(config_toml: &ConfigToml) -> bool {

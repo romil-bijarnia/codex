@@ -337,7 +337,6 @@ mod permission_popups;
 mod permission_shortcuts;
 mod permissions_menu;
 pub(crate) use self::permissions_menu::auto_review_available;
-pub(crate) use self::permissions_menu::cyber_model_approval_reviewer;
 mod backend_banners;
 mod compaction;
 mod luna_reserve_model;
