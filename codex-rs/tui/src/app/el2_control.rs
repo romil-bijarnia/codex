@@ -78,7 +78,7 @@ impl App {
             profile_id: codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS
                 .to_string(),
             approval_policy: Some(AskForApproval::Never),
-            approvals_reviewer: Some(ApprovalsReviewer::User),
+            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
             display_label: crate::el2_control::LABEL.to_string(),
         };
         if self.select_permission_profile(app_server, selection).await {
