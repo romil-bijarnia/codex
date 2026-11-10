@@ -3,8 +3,8 @@
   "source_model": "gpt-6.1-sol",
   "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "stock_words": 3320,
-  "compact_sha256": "239bf6d424b43295b35be228027e4cc73962d2c0ad5ca27251595d97de37d186",
-  "compact_words": 561,
+  "compact_sha256": "4110d9886dd4b83f14a6e0a1ac5e59d26ab6d64de7c6280b0b5960c87811821d",
+  "compact_words": 716,
   "prior_added_execution_block_words": 328,
   "mode": "compact global base replacement",
   "stock_updates": "require deliberate review; not automatically copied into the compact file",
@@ -39,5 +39,6 @@
   "intent_retention_update": "Interpret follow-ups in context, incorporate corrections, discard rejected interpretations, and check the technical route against the actual requirements.",
   "task_continuity_update": "Failure reports steer rather than cancel authorised work; explicit stop and method restrictions remain binding.",
   "agent_question_routing": "Use direct agent messages, not human-input forms, for another agent.",
-  "autonomy_update": "Choose ordinary actions within authorised scope; delegate independent work under the standing AGENTS.md instruction; avoid approval theatre, repeated apologies and redundant work."
+  "autonomy_update": "Choose ordinary actions within authorised scope; delegate independent work under the standing AGENTS.md instruction; avoid approval theatre, repeated apologies and redundant work.",
+  "outcome_ownership_update": "Own authorised outcomes across follow-ups; resolve in-scope defects and poor defaults; verify practical results proportionately; bring only genuine user decisions with evidence and a recommendation."
 }

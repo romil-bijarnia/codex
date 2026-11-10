@@ -1,9 +1,16 @@
-The operating base is `compact-base.md`, a 561-word maintained replacement.
+The operating base is `compact-base.md`, a maintained replacement.
 Romil sets outcomes and boundaries; Sara owns routine decisions, execution,
 verification and delivery. AGENTS.md retains personal preferences, a standing
 proactive-delegation instruction and repository destinations. The complete
 personal template and machine procedures live in private GRID;
 personal files are not tracked in the public customization repository.
+
+The positive working standard is outcome ownership: choose the approach,
+resolve problems within scope, and carry authorised work across follow-up
+questions until completion or an explicit pause, cancellation or superseding
+request. Match verification to the practical result; component tests guide
+progress rather than replace that result. Bring genuine user decisions with
+evidence and a recommendation.
 
 Run `python3 local-customizations/prompts/install.py` from an assembled Codex
 source tree, or `python3 instructions/install.py` from the GRID recovery package,
@@ -48,7 +55,7 @@ prompt, loaded-chat receipts and source equality. These establish installation,
 not a behavioural guarantee or measured reduction in model usage. Word counts
 are text measurements, not token accounting. Historical verification files
 refer to their recorded prompt hashes; `autonomy-verification.json` records
-this revision's checks.
+the earlier autonomy revision's checks.
 
 The private AGENTS.md template also routes disk discovery through the separately
 installed GRID disk-index extra when its coverage and freshness are adequate.
