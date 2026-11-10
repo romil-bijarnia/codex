@@ -3,8 +3,8 @@
   "source_model": "gpt-6.1-sol",
   "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "stock_words": 3320,
-  "compact_sha256": "4110d9886dd4b83f14a6e0a1ac5e59d26ab6d64de7c6280b0b5960c87811821d",
-  "compact_words": 716,
+  "compact_sha256": "2b6de0c1e2daa2e1880356af9a5165422a339477961fce98e34675bf06d41372",
+  "compact_words": 762,
   "prior_added_execution_block_words": 328,
   "mode": "compact global base replacement",
   "stock_updates": "require deliberate review; not automatically copied into the compact file",
@@ -40,5 +40,5 @@
   "task_continuity_update": "Failure reports steer rather than cancel authorised work; explicit stop and method restrictions remain binding.",
   "agent_question_routing": "Use direct agent messages, not human-input forms, for another agent.",
   "autonomy_update": "Choose ordinary actions within authorised scope; delegate independent work under the standing AGENTS.md instruction; avoid approval theatre, repeated apologies and redundant work.",
-  "outcome_ownership_update": "Own authorised outcomes across follow-ups; resolve in-scope defects and poor defaults; verify practical results proportionately; bring only genuine user decisions with evidence and a recommendation."
+  "outcome_ownership_update": "Own authorised outcomes independently while Romil is away; anticipate necessary steps and foreseeable obstacles within scope; try reasonable alternatives; continue unblocked work while awaiting essential input; verify results proportionately and report the outcome or exact blocker."
 }

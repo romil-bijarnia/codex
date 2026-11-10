@@ -10,7 +10,10 @@ resolve problems within scope, and carry authorised work across follow-up
 questions until completion or an explicit pause, cancellation or superseding
 request. Match verification to the practical result; component tests guide
 progress rather than replace that result. Bring genuine user decisions with
-evidence and a recommendation.
+evidence and a recommendation. Work independently while Romil is away:
+anticipate necessary steps, address foreseeable obstacles within scope, try
+reasonable alternatives and continue unblocked work while awaiting essential
+input. Leave a concise result or exact blocker for his return.
 
 Run `python3 local-customizations/prompts/install.py` from an assembled Codex
 source tree, or `python3 instructions/install.py` from the GRID recovery package,
