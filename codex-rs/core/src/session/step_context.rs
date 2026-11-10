@@ -22,6 +22,8 @@ use tokio_util::sync::CancellationToken;
 /// Request-scoped state that may change between model sampling requests.
 #[derive(Clone)]
 pub(crate) struct StepContext {
+    /// Final serving value for this invocation; retained by its code cell across waits.
+    pub(crate) serving_assessment: Option<Arc<crate::guardian::ServingAssessment>>,
     pub(crate) turn: Arc<TurnContext>,
     /// Preempts this request and yields its code-mode observations when user input arrives.
     pub(crate) preempt: Option<CancellationToken>,

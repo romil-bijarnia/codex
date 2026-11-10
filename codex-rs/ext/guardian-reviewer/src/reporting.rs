@@ -4,16 +4,16 @@
 //! completion captures one monotonic duration for latency reporting while retaining
 //! the actual wall-clock completion timestamp for event ordering.
 
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::GuardianReviewOutcome;
-use crate::ReviewCompletion;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::GuardianApprovalRequestSource;
 use codex_analytics::GuardianReviewAnalyticsResult;
 use codex_analytics::GuardianReviewTrackContext;
 use codex_analytics::GuardianReviewedAction;
+use codex_extension_api::ExtensionData;
 use codex_otel::SessionTelemetry;
 use codex_protocol::approvals::GuardianAssessmentAction;
 use codex_protocol::approvals::GuardianReviewReason;
@@ -22,6 +22,13 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::GuardianAssessmentDecisionSource;
 use codex_protocol::protocol::GuardianAssessmentEvent;
 use codex_protocol::protocol::GuardianAssessmentStatus;
+use tokio::sync::Mutex;
+
+use crate::GuardianRejectionCircuitBreaker;
+use crate::GuardianRejectionCircuitBreakerAction;
+use crate::GuardianRejectionCircuitBreakerPolicy;
+use crate::GuardianReviewOutcome;
+use crate::ReviewCompletion;
 
 /// Captured action attribution used for both the started and terminal report.
 pub struct ReviewMetadata {
@@ -132,3 +139,48 @@ impl ReviewReport {
         analytics.track_guardian_review(&self.tracking, result, completed_at_ms, elapsed);
     }
 }
+
+/// Thread-scoped accounting shared by synchronous and cached approvals.
+#[derive(Default)]
+pub struct ReviewDenials(Mutex<GuardianRejectionCircuitBreaker>);
+
+impl ReviewDenials {
+    pub fn for_thread(store: &ExtensionData) -> Arc<Self> {
+        store.get_or_init(Self::default)
+    }
+
+    pub async fn clear_turn(store: &ExtensionData, turn_id: &str) {
+        if let Some(state) = store.get::<Self>() {
+            state.0.lock().await.clear_turn(turn_id);
+        }
+    }
+
+    pub async fn record_non_denial(&self, turn_id: &str) {
+        self.0.lock().await.record_non_denial(turn_id);
+    }
+
+    /// Returns a warning exactly once when this turn reaches its denial limit.
+    pub async fn record_denial(&self, turn_id: &str, model: &ModelInfo) -> Option<String> {
+        let action = self
+            .0
+            .lock()
+            .await
+            .record_denial(turn_id, GuardianRejectionCircuitBreakerPolicy::from(model));
+        match action {
+            GuardianRejectionCircuitBreakerAction::Continue => None,
+            GuardianRejectionCircuitBreakerAction::InterruptTurn {
+                consecutive_denials,
+                recent_denials,
+            } => {
+                let window = crate::AUTO_REVIEW_DENIAL_WINDOW_SIZE;
+                Some(format!(
+                    "Automatic approval review rejected too many approval requests for this turn ({consecutive_denials} consecutive, {recent_denials} in the last {window} reviews); interrupting the turn."
+                ))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "reporting_tests.rs"]
+mod tests;

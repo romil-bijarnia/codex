@@ -509,6 +509,41 @@ pub fn with_app_plugin_sources(
     connectors
 }
 
+pub(crate) fn mcp_approvals_reviewer_from_layers(
+    config_layer_stack: &codex_config::ConfigLayerStack,
+    default_reviewer: ApprovalsReviewer,
+    _model: Option<&str>,
+    server_name: &str,
+    connector_id: Option<&str>,
+    link_id: Option<&str>,
+) -> ApprovalsReviewer {
+    // Honor the selected reviewer and explicit per-app overrides. Merely
+    // selecting a model must not switch the user's approval mode.
+    let requirements = config_layer_stack.requirements();
+    let app_reviewer = if server_name == CODEX_APPS_MCP_SERVER_NAME {
+        apps_config_from_layer_stack(config_layer_stack).and_then(|apps_config| {
+            let app = connector_id.and_then(|connector_id| apps_config.apps.get(connector_id));
+            link_id
+                .and_then(|link_id| app?.links.as_ref()?.links.get(link_id))
+                .and_then(|link| link.approvals_reviewer)
+                .or_else(|| app.and_then(|app| app.approvals_reviewer))
+                .or_else(|| {
+                    apps_config
+                        .default
+                        .and_then(|defaults| defaults.approvals_reviewer)
+                })
+        })
+    } else {
+        None
+    };
+    if let Some(reviewer) = app_reviewer
+        && requirements.approvals_reviewer.can_set(&reviewer).is_ok()
+    {
+        return reviewer;
+    }
+    default_reviewer
+}
+
 #[cfg(test)]
 #[path = "connectors_tests.rs"]
 mod tests;

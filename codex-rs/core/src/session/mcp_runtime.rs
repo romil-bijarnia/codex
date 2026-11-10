@@ -122,7 +122,7 @@ impl Session {
             &desired,
             mcp_projection,
             /*ready_selected_capability_roots*/ &[],
-            None,
+            Some(self.mcp_elicitation_reviewer()),
         )
         .instrument(info_span!(
             "session_init.mcp_manager_init",

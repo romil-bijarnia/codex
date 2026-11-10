@@ -311,6 +311,7 @@ use self::turn_context::TurnContext;
 mod rollout_reconstruction_tests;
 
 use crate::exec_policy::ExecPolicyUpdateError;
+use crate::guardian::GuardianReviewSessionManager;
 use crate::mcp::McpEnvironmentScope;
 use crate::mcp::McpManager;
 use crate::mcp::McpThreadIdentity;
@@ -2478,6 +2479,13 @@ impl Session {
             ));
     }
 
+    /// Returns the reviewer pool installed by the Guardian extension.
+    pub(crate) fn guardian_review_session(&self) -> Option<Arc<GuardianReviewSessionManager>> {
+        self.services
+            .thread_extension_data
+            .get::<GuardianReviewSessionManager>()
+    }
+
     pub(crate) async fn is_private_guardian_reviewer(&self) -> bool {
         self.state
             .lock()
@@ -4197,6 +4205,7 @@ impl Session {
         }
         let (executor_hook_sources, mcp, tool_router, extension_data) = prepared_tools??;
         Ok(Arc::new(StepContext {
+            serving_assessment: None,
             preempt: turn_context
                 .config
                 .features

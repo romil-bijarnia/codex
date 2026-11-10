@@ -104,6 +104,9 @@ pub(crate) fn thread_extensions(
         git_attribution_base_url,
         http_client_factory,
     );
+    // Keep synchronous approval review available without installing the
+    // asynchronous serving scorer or forcing a different permission mode.
+    codex_guardian_v2::install_reviewer(&mut builder, thread_manager);
     codex_memories_extension::install(&mut builder, codex_otel::global());
     codex_mcp_extension::install(&mut builder);
     codex_mcp_extension::install_plugins(&mut builder, environment_manager);

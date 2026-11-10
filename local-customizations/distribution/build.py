@@ -209,7 +209,7 @@ def build(work, build_plan, output_dir):
     voice_output = work / 'checks/voice-runtime.json';voice_output.parent.mkdir(parents=True, exist_ok=True)
     voice_output.write_text(json.dumps(voice_report, indent=2) + '\n')
     suites = [VOICE_CHECK]
-    for name, script, extra in [('defaults','defaults-qa.py',[]),('daybreak-defaults','daybreak-defaults-qa.py',[]),('picker-display','picker-order-qa.py',['--display-only']),('integrations-portable','terminal-integrations-qa.py',['--without-bundled-renderer']),('regressions','cli-regression-qa.py',['--source',str(source)]),('steering','steering-qa.py',[])]:
+    for name, script, extra in [('defaults','defaults-qa.py',[]),('daybreak-defaults','daybreak-defaults-qa.py',[]),('picker-display','picker-order-qa.py',['--display-only']),('integrations-portable','terminal-integrations-qa.py',['--without-bundled-renderer']),('regressions','cli-regression-qa.py',['--source',str(source)]),('mcp-approvals','mcp-review-qa.py',[]),('steering','steering-qa.py',[])]:
         run([python, ROOT / 'checks' / script, package / 'bin/codex', work / 'checks' / name, *extra], env=test_env)
         suites.append(name)
     manifest = package_manifest(package, build_plan, check_suites=suites, real_model_requests=0,

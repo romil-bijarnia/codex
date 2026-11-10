@@ -4,6 +4,8 @@
 
 mod approval_request;
 mod coverage;
+mod decision;
+mod feedback;
 mod input_budget;
 mod permissions;
 mod prompt;
@@ -15,11 +17,17 @@ pub(crate) use permissions::for_tool as tool_permission_context;
 mod request_budget;
 pub(crate) use request_budget::ExhaustedReviewBudget;
 pub(crate) use request_budget::prepare_prompt as prepare_guardian_prompt;
+mod review;
+mod review_session;
 mod reviewer_config;
 pub(crate) use reviewer_config::resolve_review_model;
 mod routing;
 pub(crate) use routing::ParentResponse;
 pub(crate) use routing::PendingReviewRouting;
+mod runtime;
+mod score_authorization;
+pub use score_authorization::ScoreAuthorization;
+pub(crate) use score_authorization::ServingAssessment;
 #[cfg(test)]
 pub(crate) mod test_host;
 
@@ -48,8 +56,20 @@ pub(crate) use approval_request::GuardianNetworkAccessTrigger;
 pub(crate) use approval_request::guardian_approval_request_to_json;
 pub(crate) use codex_guardian_reviewer::guardian_truncate_text;
 pub(crate) use codex_guardian_reviewer::is_basic_session_source;
+pub(crate) use decision::decide_approval;
+pub(crate) use decision::spawn_approval_decision;
+pub(crate) use review::GuardianReviewOptions;
+pub(crate) use review::new_guardian_review_id;
+pub(crate) use review::routes_approval_policy_to_guardian;
+pub use review_session::GuardianReviewSession;
+pub(crate) use review_session::GuardianReviewSessionManager;
+pub use review_session::GuardianReviewState;
+pub use review_session::PreparedGuardianContext;
+pub use review_session::prepare_review_prewarm;
 
 pub(crate) use codex_guardian_reviewer::prompt_cache_key_override_for_review_session;
+pub(crate) use runtime::ReviewAction;
+pub(crate) use runtime::from_approval_action;
 
 pub(crate) use codex_guardian_reviewer::GUARDIAN_REVIEWER_NAME;
 pub(crate) use codex_guardian_reviewer::REVIEW_TIMEOUT as GUARDIAN_REVIEW_TIMEOUT;
@@ -70,6 +90,7 @@ pub(crate) use codex_guardian_reviewer::GUARDIAN_MAX_NODE_REPL_TOOL_RESULT_TOKEN
 /// MCP elicitations use their live invocation's issuing step when available, otherwise turn inputs.
 #[derive(Clone)]
 pub(crate) struct GuardianReviewContext {
+    pub(crate) serving_assessment: Option<Arc<ServingAssessment>>,
     /// The latest response ID and its connection affinity when review was requested.
     pub(crate) parent_response: Option<Arc<ParentResponse>>,
     turn: Arc<TurnContext>,
@@ -113,6 +134,7 @@ impl GuardianReviewContext {
         environments: &TurnEnvironmentSnapshot,
     ) -> Self {
         Self {
+            serving_assessment: None,
             parent_response: turn.extension_data.get::<ParentResponse>(),
             environments: environments.clone(),
             project_instructions: None,
@@ -138,6 +160,7 @@ impl GuardianReviewContext {
 impl From<&Arc<StepContext>> for GuardianReviewContext {
     fn from(step: &Arc<StepContext>) -> Self {
         Self {
+            serving_assessment: step.serving_assessment.clone(),
             parent_response: step.turn.extension_data.get::<ParentResponse>(),
             turn: Arc::clone(&step.turn),
             environments: step.environments.clone(),
@@ -155,6 +178,7 @@ impl From<&Arc<StepContext>> for GuardianReviewContext {
 impl From<Arc<TurnContext>> for GuardianReviewContext {
     fn from(turn: Arc<TurnContext>) -> Self {
         Self {
+            serving_assessment: None,
             parent_response: turn.extension_data.get::<ParentResponse>(),
             environments: turn.initial_environments.clone(),
             project_instructions: None,
