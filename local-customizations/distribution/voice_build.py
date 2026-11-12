@@ -23,6 +23,13 @@ NATIVE_LIBRARIES = {
     'GSTREAMER_AUDIO_1_0': 'gstaudio-1.0',
 }
 
+# GLib's regex dependency is bundled with the verified runtime but is not
+# represented by a Rust system-deps key. Link it explicitly so a newer host
+# GLib/PCRE2 pair cannot be selected ahead of the package's matching pair.
+RUNTIME_LINK_LIBRARIES = {
+    'pcre2-8': 'libpcre2-8.so.0',
+}
+
 
 def build_voice_host(source, package, env, work):
     """Build from the repository root with the app's unchanged source stamp.
@@ -42,6 +49,12 @@ def build_voice_host(source, package, env, work):
         if not path.is_file() or path.resolve() != path:
             raise RuntimeError(f'The verified native voice library is missing or indirect: {path}')
         libraries[key] = path
+    runtime_links = {}
+    for name, filename in RUNTIME_LINK_LIBRARIES.items():
+        path = library_dir / filename
+        if not path.is_file() or path.resolve() != path:
+            raise RuntimeError(f'The verified native voice library is missing or indirect: {path}')
+        runtime_links[name] = path
 
     aliases = Path(work).resolve() / 'voice-link-inputs'
     aliases.mkdir(parents=True, exist_ok=False)
@@ -54,6 +67,24 @@ def build_voice_host(source, package, env, work):
                           prefix + '_LIB': name,
                           prefix + '_SEARCH_NATIVE': str(aliases),
                           prefix + '_LINK': 'dynamic'})
+    for name, path in runtime_links.items():
+        (aliases / ('lib' + name + '.so')).symlink_to(path)
+
+    # Cargo can otherwise place host /usr/lib ahead of the verified aliases
+    # when another native dependency contributes a search path. Restrict the
+    # reordering and the explicit PCRE2 edge to the final voice executable.
+    linker = aliases / 'voice-cc.py'
+    linker.write_text(
+        '#!/usr/bin/env python3\n'
+        'import os, sys\n'
+        f'aliases = {str(aliases)!r}\n'
+        'args = sys.argv[1:]\n'
+        "if any('codex_voice_host' in arg for arg in args):\n"
+        "    args = ['-L' + aliases, *args, '-Wl,--no-as-needed', '-lpcre2-8']\n"
+        "os.execv('/usr/bin/cc', ['/usr/bin/cc', *args])\n"
+    )
+    linker.chmod(0o700)
+    build_env['CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'] = str(linker)
 
     run(['cargo', 'rustc', '--locked', '--release', '-p', 'codex-voice-host',
          '--bin', 'codex-voice-host', '--',

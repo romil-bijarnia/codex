@@ -21,6 +21,8 @@ class VoiceBuildTests(unittest.TestCase):
         self.lib.mkdir(parents=True)
         for name in voice_build.NATIVE_LIBRARIES.values():
             (self.lib / ('lib' + name + '.so.0')).write_bytes(name.encode())
+        for name, filename in voice_build.RUNTIME_LINK_LIBRARIES.items():
+            (self.lib / filename).write_bytes(name.encode())
         self.env = {'STABLE_GIT_COMMIT': 'a' * 40,
                     'CARGO_TARGET_DIR': str(self.root / 'target'),
                     'RUSTFLAGS': '-C opt-level=3',
@@ -54,6 +56,17 @@ class VoiceBuildTests(unittest.TestCase):
                 self.assertTrue(alias.is_symlink())
                 self.assertEqual(alias.resolve(), self.lib / ('lib' + name + '.so.0'))
                 self.assertFalse(alias.is_relative_to(self.package))
+        aliases = Path(native_env['SYSTEM_DEPS_GLIB_2_0_SEARCH_NATIVE'])
+        for name, filename in voice_build.RUNTIME_LINK_LIBRARIES.items():
+            alias = aliases / ('lib' + name + '.so')
+            self.assertTrue(alias.is_symlink())
+            self.assertEqual(alias.resolve(), self.lib / filename)
+        linker = Path(native_env['CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'])
+        self.assertEqual(linker.parent, aliases)
+        self.assertTrue(linker.stat().st_mode & 0o100)
+        contents = linker.read_text()
+        self.assertIn("codex_voice_host", contents)
+        self.assertIn("-lpcre2-8", contents)
 
     def test_loader_flags_apply_only_to_the_final_helper(self):
         with patch.object(voice_build, 'run') as run:
@@ -68,6 +81,14 @@ class VoiceBuildTests(unittest.TestCase):
 
     def test_missing_library_is_rejected_before_building_or_staging_aliases(self):
         (self.lib / 'libgstapp-1.0.so.0').unlink()
+        with patch.object(voice_build, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'native voice library is missing'):
+                voice_build.build_voice_host(self.source, self.package, self.env, self.work)
+        run.assert_not_called()
+        self.assertFalse(self.work.exists())
+
+    def test_missing_runtime_link_library_is_rejected_before_building(self):
+        (self.lib / 'libpcre2-8.so.0').unlink()
         with patch.object(voice_build, 'run') as run:
             with self.assertRaisesRegex(RuntimeError, 'native voice library is missing'):
                 voice_build.build_voice_host(self.source, self.package, self.env, self.work)
