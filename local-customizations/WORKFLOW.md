@@ -4,8 +4,8 @@
 
 - Repository: https://github.com/romil-bijarnia/codex
 - Only working/default branch: `main`.
-- Current official baseline: `rust-v0.167.0`.
-- Baseline commit: `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`.
+- Current official baseline: `rust-v0.167.2`.
+- Baseline commit: `ce21072c90d32c40af7a55b60b2fb35c84a43a6a`.
 - Local checkout: `$HOME/Work/codex`.
 - Native customizations, launchers, helpers and prompt sources are ordinary Git files.
 
@@ -19,6 +19,10 @@ merge-base against upstream main does not identify the version being built.
 Save custom changes normally on `main` and push them to `origin/main`.
 Do not use GitHub's **Sync fork / Update branch** against upstream main for a
 stable-version upgrade: main includes unreleased development changes.
+
+GitHub's fork ahead/behind banner compares against upstream main, not the pinned
+stable release. Remaining development-main divergence is expected and does not
+mean the stable-release merge is unresolved.
 
 For an upstream upgrade, select the next non-prerelease official release, port
 the retained custom changes onto that release's actual source, and update the
@@ -75,7 +79,7 @@ codex custom-status
 Normal launches execute the selected complete package. Running terminal clients
 retain their loaded executable; the shared backend only rolls over after observed
 idle time. Do not terminate active chats merely to change the footer version.
-The CLI reports `0.167.0`; package metadata uses `0.167.0+romil.<source SHA>` so
+The CLI reports `0.167.2`; package metadata uses `0.167.2+romil.<source SHA>` so
 custom provenance is retained without a development-version label.
 
 ## Data and recovery

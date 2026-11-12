@@ -65,7 +65,7 @@ class VoiceTests(unittest.TestCase):
         receipts = {name: (root / name).read_bytes() for name in ('runtime.json', 'sources.json')}
         (package / 'bin').mkdir();(package / 'bin/codex').write_bytes(b'custom CLI')
         (package / 'codex-package.json').write_text(json.dumps({'target': common.TARGET,
-            'version': '0.167.0+romil.' + self.source[:12]}))
+            'version': '0.167.2+romil.' + self.source[:12]}))
         helper = root / 'bin/codex-voice-host';helper.write_bytes(b'custom same-source helper')
         result = subprocess.CompletedProcess([], 0, self.source + '\n', '')
         with patch.object(voice.subprocess, 'run', return_value=result):

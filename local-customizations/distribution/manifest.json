@@ -6,7 +6,7 @@
   "target": "aarch64-unknown-linux-gnu",
   "resource_target": "aarch64-unknown-linux-musl",
   "upstream_channel": "stable",
-  "upstream_release": "rust-v0.167.0",
-  "upstream_commit": "086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a",
-  "resource_sha256": "0de261ecf1e7f3028a7952f03fca2093f749277d38590b78bb32f8567756bbb7"
+  "upstream_release": "rust-v0.167.2",
+  "upstream_commit": "ce21072c90d32c40af7a55b60b2fb35c84a43a6a",
+  "resource_sha256": "56b08c1214e062a5b61684bacb5033c4372a01062a47c87c49a32be83af70695"
 }
