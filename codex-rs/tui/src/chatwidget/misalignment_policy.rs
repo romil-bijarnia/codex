@@ -3,6 +3,7 @@
 
 use super::*;
 use codex_app_server_protocol::MisalignmentErrorDetails;
+use codex_app_server_protocol::MisalignmentSteer;
 
 const PRECAUTION_VIEW: &str = "misalignment_precaution";
 
@@ -37,8 +38,33 @@ pub(crate) enum MisalignmentTurnSource {
 
 const MISALIGNMENT_POLICY_TITLE: &str = "Chat stopped as a precaution";
 const MISALIGNMENT_POLICY_DESCRIPTION: &str = "We couldn’t confirm the agent was acting safely and following your instructions. To continue working, start or resume another chat.";
+const OWNER_CONTINUATION_ERROR_TYPE: &str = "owner_requested_same_thread_continuation";
+const OWNER_CONTINUATION_EXPLANATION: &str = "The hosted service stopped this conversation without returning review findings. This harness lets you explicitly continue the same ordinary Astra or Sol chat instead of forcing a new conversation.";
+pub(crate) const OWNER_CONTINUATION_MESSAGE: &str = "Continue this existing conversation. The user explicitly authorizes continuing from the latest instruction within the current scope.";
 
 impl ChatWidget {
+    fn owner_can_continue_same_thread_without_findings(&self) -> bool {
+        if self.daybreak_enabled {
+            return false;
+        }
+        let model = self.current_model();
+        model.starts_with("gpt-6-astra")
+            || model.starts_with("gpt-6.1-sol")
+            || model.starts_with("gpt-6-sol")
+    }
+
+    fn owner_continuation_details(&self) -> Option<MisalignmentErrorDetails> {
+        self.owner_can_continue_same_thread_without_findings()
+            .then(|| MisalignmentErrorDetails {
+                error_type: Some(OWNER_CONTINUATION_ERROR_TYPE.to_string()),
+                review_target: None,
+                detailed_explanation: Some(OWNER_CONTINUATION_EXPLANATION.to_string()),
+                steer: Some(MisalignmentSteer {
+                    message: OWNER_CONTINUATION_MESSAGE.to_string(),
+                }),
+            })
+    }
+
     pub(crate) fn has_misalignment_policy_violation(&self) -> bool {
         self.misalignment_policy_violation.is_some()
     }
@@ -73,12 +99,14 @@ impl ChatWidget {
         }
         // Bound memory-only findings and newly submitted model input. Never truncate a steer.
         let missing_details = details.is_none();
-        let details = details.filter(|details| {
-            details
-                .detailed_explanation
-                .as_ref()
-                .is_some_and(|text| !text.trim().is_empty() && text.len() <= 64 * 1024)
-        });
+        let details = details
+            .or_else(|| self.owner_continuation_details())
+            .filter(|details| {
+                details
+                    .detailed_explanation
+                    .as_ref()
+                    .is_some_and(|text| !text.trim().is_empty() && text.len() <= 64 * 1024)
+            });
         if let Some(current) = &self.misalignment_policy_violation
             // A parent-thread precaution cannot become a continuable side-thread warning.
             && (current.turn_id.is_none()
@@ -125,7 +153,41 @@ impl ChatWidget {
             return;
         }
         self.bottom_pane.dismiss_view_by_id(PRECAUTION_VIEW);
-        let mut items = vec![
+        let review = self
+            .misalignment_policy_violation
+            .as_ref()
+            .and_then(|violation| violation.review.clone());
+        let owner_continuation = review.as_ref().is_some_and(|review| {
+            review.details.error_type.as_deref() == Some(OWNER_CONTINUATION_ERROR_TYPE)
+        });
+        let mut items = Vec::new();
+        if let Some(review) = &review {
+            if !owner_continuation {
+                let review = Arc::clone(review);
+                items.push(SelectionItem {
+                    name: "Review findings".to_string(),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::ReviewMisalignment(Arc::clone(&review)));
+                    })],
+                    ..Default::default()
+                });
+            }
+            if review.continuation_message().is_some() {
+                let review = Arc::clone(review);
+                items.push(SelectionItem {
+                    name: "Continue this chat".to_string(),
+                    description: Some(
+                        "Keep this thread and ask the selected model to resume".into(),
+                    ),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::ContinueMisalignment(Arc::clone(&review)));
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                });
+            }
+        }
+        items.extend([
             SelectionItem {
                 name: "New chat".to_string(),
                 actions: vec![Box::new(|tx| tx.send(AppEvent::NewSession { name: None }))],
@@ -133,42 +195,30 @@ impl ChatWidget {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Resume another chat".to_string(),
-                actions: vec![Box::new(|tx| tx.send(AppEvent::OpenResumePicker))],
-                ..Default::default()
-            },
-        ];
-        let review = self
-            .misalignment_policy_violation
-            .as_ref()
-            .and_then(|violation| violation.review.clone());
-        if let Some(review) = &review {
-            let review = Arc::clone(review);
-            items.insert(
-                0,
-                SelectionItem {
-                    name: "Review findings".to_string(),
-                    actions: vec![Box::new(move |tx| {
-                        tx.send(AppEvent::ReviewMisalignment(Arc::clone(&review)));
-                    })],
-                    ..Default::default()
-                },
-            );
-        }
-        items.insert(
-            1,
-            SelectionItem {
                 name: "Agent command center".to_string(),
                 actions: vec![Box::new(|tx| tx.send(AppEvent::OpenAgentsOverview))],
                 ..Default::default()
             },
-        );
+            SelectionItem {
+                name: "Resume another chat".to_string(),
+                actions: vec![Box::new(|tx| tx.send(AppEvent::OpenResumePicker))],
+                ..Default::default()
+            },
+        ]);
         self.bottom_pane.show_selection_view(SelectionViewParams {
             view_id: Some(PRECAUTION_VIEW),
             header: Box::new(
                 Paragraph::new(vec![
-                    Line::from(if review.is_some() { "Chat paused as a precaution" } else { MISALIGNMENT_POLICY_TITLE }).bold(),
-                    Line::from(if review.is_some() {
+                    Line::from(if owner_continuation {
+                        "Continue this existing chat?"
+                    } else if review.is_some() {
+                        "Chat paused as a precaution"
+                    } else {
+                        MISALIGNMENT_POLICY_TITLE
+                    }).bold(),
+                    Line::from(if owner_continuation {
+                        "The hosted service returned no findings. You decide whether this Astra or Sol chat continues."
+                    } else if review.is_some() {
                         "We couldn’t confirm the agent was interpreting your instructions correctly. Review what we detected before deciding to continue."
                     } else { MISALIGNMENT_POLICY_DESCRIPTION }).dim(),
                 ])

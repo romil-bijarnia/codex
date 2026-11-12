@@ -1,5 +1,6 @@
 ---
 source: tui/src/app/tests/misalignment_policy_tests.rs
+assertion_line: 205
 expression: "format!(\"{errors}\\n{}\", render_bottom_popup(&app.chat_widget, 80))"
 ---
 ■ Couldn’t continue this chat. Review its latest status before trying again.
@@ -9,6 +10,7 @@ expression: "format!(\"{errors}\\n{}\", render_bottom_popup(&app.chat_widget, 80
 
 
 › 1. Review findings
-  2. Agent command center
+  2. Continue this chat    Keep this thread and ask the selected model to resume
   3. New chat
-  4. Resume another chat
+  4. Agent command center
+  5. Resume another chat

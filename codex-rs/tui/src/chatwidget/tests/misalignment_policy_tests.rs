@@ -253,6 +253,37 @@ fn select_review(
 }
 
 #[tokio::test]
+async fn ordinary_astra_and_sol_can_continue_the_same_chat_without_server_findings() {
+    for model in ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol"] {
+        let (mut chat, mut rx, _) = make_chatwidget_manual(Some(model)).await;
+        chat.set_daybreak_enabled(false);
+        chat.thread_id = Some(ThreadId::new());
+        handle_turn_started(&mut chat, "turn-1");
+
+        chat.on_misalignment_error(Some("turn-1".to_string()), /*details*/ None);
+
+        let popup = render_bottom_popup(&chat, /*width*/ 80);
+        assert!(
+            popup.contains("Continue this existing chat?"),
+            "{model}: {popup}"
+        );
+        assert!(popup.contains("Continue this chat"), "{model}: {popup}");
+        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+        let review = std::iter::from_fn(|| rx.try_recv().ok())
+            .find_map(|event| match event {
+                AppEvent::ContinueMisalignment(review) => Some(review),
+                _ => None,
+            })
+            .expect("same-chat continuation action");
+        assert_eq!(
+            review.continuation_message(),
+            Some(crate::chatwidget::misalignment_policy::OWNER_CONTINUATION_MESSAGE)
+        );
+        assert!(chat.is_current_misalignment_review(&review));
+    }
+}
+
+#[tokio::test]
 async fn misalignment_review_requires_current_findings() {
     let (mut chat, mut rx, _) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
