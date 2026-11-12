@@ -205,6 +205,7 @@ async fn native_goal_pause_scopes_worker_interruption(pause: bool) -> Result<()>
     let server = tokio::spawn(async move { axum::serve(listener, router).await });
     let home = TempDir::new()?;
     MockResponsesConfig::new(&uri)
+        .with_model("gpt-6.1-sol")
         .with_provider_config("supports_websockets = false")
         .enable_feature(Feature::Goals)
         .enable_feature(Feature::Collab)
