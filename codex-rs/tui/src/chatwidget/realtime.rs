@@ -274,6 +274,11 @@ impl ChatWidget {
             return;
         }
 
+        if self.has_misalignment_policy_violation() {
+            self.show_misalignment_policy_precaution();
+            return;
+        }
+
         if self.side_conversation_active() {
             self.add_error_message(
                 "Voice mode is unavailable in side conversations. Return to the main thread first."

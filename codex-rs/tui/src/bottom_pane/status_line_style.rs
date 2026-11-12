@@ -408,9 +408,11 @@ mod tests {
                 ],
                 /*use_theme_colors*/ true,
                 /*thread_id*/ None,
+                /*pull_request_url*/ None,
                 |_| Some(Style::default().magenta()),
             )
-            .expect("status line");
+            .expect("status line")
+            .line;
 
             assert_eq!(line.spans[0].style.fg, Some(Color::Magenta));
             assert_eq!(
@@ -438,9 +440,11 @@ mod tests {
                 [(StatusLineItem::Permissions, "Full Access".to_string())],
                 /*use_theme_colors*/ true,
                 /*thread_id*/ None,
+                /*pull_request_url*/ None,
                 |_| panic!("permission colors must not use the syntax theme"),
             )
-            .expect("status line");
+            .expect("status line")
+            .line;
 
             assert_eq!(
                 line.spans[0].style.fg,
@@ -458,9 +462,11 @@ mod tests {
             [(StatusLineItem::Permissions, "Full Access".to_string())],
             /*use_theme_colors*/ false,
             /*thread_id*/ None,
+            /*pull_request_url*/ None,
             |_| panic!("monochrome status lines must not use theme colors"),
         )
-        .expect("status line");
+        .expect("status line")
+        .line;
 
         assert_eq!(line.spans[0].style, secondary_text_style());
     }

@@ -176,6 +176,9 @@ impl ChatWidget {
         pending_pastes: Vec<(String, String)>,
         source: UserMessageSource,
     ) -> bool {
+        if self.has_misalignment_policy_violation() {
+            return false;
+        }
         if self.config.features.enabled(Feature::SteerOnly) {
             return match action {
                 QueuedInputAction::ParseSlash => {
@@ -305,6 +308,7 @@ impl ChatWidget {
         }
         if !self.is_session_configured()
             || self.fork_in_progress
+            || self.has_misalignment_policy_violation()
             || self.input_queue.submissions_paused()
             || self.input_queue.rate_limit_recovery_pending
             || self.input_queue.recovered_queue

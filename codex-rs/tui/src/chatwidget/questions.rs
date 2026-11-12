@@ -144,6 +144,9 @@ impl ChatWidget {
                     self.add_error_message(PARENT_OWNED_INPUT_MESSAGE.to_string());
                     return true;
                 }
+                if self.has_misalignment_policy_violation() {
+                    return true;
+                }
                 let main = self.bottom_pane.composer_draft_snapshot();
                 let accepted = if queued
                     || self.input_queue.submissions_paused()

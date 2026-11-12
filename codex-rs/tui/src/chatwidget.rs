@@ -295,6 +295,9 @@ use self::interrupts::InterruptManager;
 mod keymap_picker;
 mod mcp_startup;
 use self::mcp_startup::McpStartupStatus;
+mod misalignment_policy;
+pub(crate) use misalignment_policy::MisalignmentReview;
+pub(crate) use misalignment_policy::MisalignmentTurnSource;
 mod pets;
 pub(crate) use self::pets::ConfiguredPetLoadGeneration;
 mod session_flow;
@@ -689,6 +692,7 @@ pub(crate) struct ChatWidget {
     provider_error: Option<codex_app_server_protocol::ModelProviderError>,
     /// Covers both queued and executing forks so repeated shortcuts cannot queue another one.
     pub(crate) fork_in_progress: bool,
+    misalignment_policy_violation: Option<misalignment_policy::MisalignmentViolation>,
     normal_placeholder_text: String,
     side_placeholder_text: String,
     forked_from: Option<ThreadId>,
@@ -1865,6 +1869,9 @@ impl ChatWidget {
         T: Into<AppCommand>,
     {
         let op: AppCommand = op.into();
+        if self.rejects_misalignment_policy_op(&op) {
+            return false;
+        }
         if self.blocks_direct_input
             && matches!(
                 &op,

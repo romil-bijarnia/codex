@@ -128,6 +128,27 @@ impl App {
             );
             return Ok(AppRunControl::Continue);
         }
+        if self.chat_widget.has_misalignment_policy_violation()
+            && matches!(
+                event,
+                AppEvent::OpenAgentPicker
+                    | AppEvent::SelectAgentThread(_)
+                    | AppEvent::StartSide { .. }
+                    | AppEvent::ForkCurrentSession { .. }
+                    | AppEvent::StartManagedWorktree {
+                        mode: crate::app_event::ManagedWorktreeMode::Fork,
+                        ..
+                    }
+                    | AppEvent::RevertSessionForPromptEdit { .. }
+                    | AppEvent::SetThreadGoalDraft { .. }
+                    | AppEvent::SetThreadGoalStatus {
+                        status: ThreadGoalStatus::Active,
+                        ..
+                    }
+            )
+        {
+            return Ok(AppRunControl::Continue);
+        }
         if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
             self.verify_managed_daemon().await;
         }
@@ -173,6 +194,15 @@ impl App {
                 // Keep this RPC future out of the event loop's stack frame.
                 Box::pin(self.finish_user_verification(app_server, thread_id, server_name, request_id, attempt_id, result)).await?;
             }
+            AppEvent::ReviewMisalignment(review) => {
+                self.open_misalignment_review(tui, review);
+            }
+            AppEvent::ContinueMisalignment(review) => {
+                self.continue_misalignment(app_server, review).await;
+            }
+            AppEvent::CloseMisalignmentReview => {
+                self.chat_widget.show_misalignment_policy_precaution()
+            }
             AppEvent::SkillsListLoaded { ref cwd, .. }
                 if cwds_differ(cwd, self.config.cwd.as_path()) =>
             {
@@ -186,6 +216,9 @@ impl App {
                     /*initial_user_message*/ None, name,
                 )
                 .await;
+                if self.chat_widget.has_misalignment_policy_violation() {
+                    self.chat_widget.show_misalignment_policy_precaution();
+                }
             }
             AppEvent::ContinueProviderChat { thread_id } => {
                 // A queued shortcut must still refer to the locked chat on screen.
