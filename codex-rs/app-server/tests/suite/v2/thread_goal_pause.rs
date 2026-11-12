@@ -209,10 +209,11 @@ async fn native_goal_pause_scopes_worker_interruption(pause: bool) -> Result<()>
         .with_provider_config("supports_websockets = false")
         .enable_feature(Feature::Goals)
         .enable_feature(Feature::Collab)
-        .enable_feature(Feature::MultiAgentV2)
         .disable_feature(Feature::EnableRequestCompression)
         // Three resident child slots leave one idle worker loaded and evict the other.
-        .with_extra_config("[agents]\nmax_concurrent_threads_per_session = 4")
+        .with_extra_config(
+            "[features.multi_agent_v2]\nenabled = true\nmax_concurrent_threads_per_session = 4",
+        )
         .write(home.path())?;
     let mut app = TestAppServer::builder()
         .with_codex_home(home.path())
