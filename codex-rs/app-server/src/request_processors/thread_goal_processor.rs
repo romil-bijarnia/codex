@@ -9,6 +9,8 @@ use codex_goal_extension::GoalService;
 use codex_goal_extension::GoalServiceError;
 use codex_goal_extension::GoalSetRequest;
 use codex_goal_extension::GoalTokenBudgetUpdate;
+use codex_protocol::protocol::AgentStatus;
+use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_rollout::RolloutRecorder;
@@ -239,6 +241,10 @@ impl ThreadGoalRequestProcessor {
             warn!("failed to persist goal update for live thread {thread_id}: {err}");
         }
 
+        if status == Some(codex_protocol::protocol::ThreadGoalStatus::Paused) {
+            self.interrupt_active_goal_descendants(thread_id).await;
+        }
+
         self.outgoing
             .send_response(
                 request_id.clone(),
@@ -249,6 +255,40 @@ impl ThreadGoalRequestProcessor {
             .await;
         outcome.apply_runtime_effects(&self.goal_service).await;
         Ok(())
+    }
+
+    async fn interrupt_active_goal_descendants(&self, root_thread_id: ThreadId) {
+        let descendants = match self
+            .thread_manager
+            .list_agent_subtree_thread_ids(root_thread_id)
+            .await
+        {
+            Ok(descendants) => descendants,
+            Err(err) => {
+                warn!("failed to list goal descendants while pausing {root_thread_id}: {err}");
+                return;
+            }
+        };
+        for thread_id in descendants {
+            if thread_id == root_thread_id {
+                continue;
+            }
+            // Do not resume an unloaded saved child just to interrupt it.
+            let Ok(thread) = self.thread_manager.get_thread(thread_id).await else {
+                continue;
+            };
+            if !matches!(
+                thread.agent_status().await,
+                AgentStatus::PendingInit | AgentStatus::Running
+            ) {
+                continue;
+            }
+            if let Err(err) = thread.submit(Op::Interrupt).await {
+                warn!(
+                    "failed to interrupt goal descendant {thread_id} while pausing {root_thread_id}: {err}"
+                );
+            }
+        }
     }
 
     async fn thread_goal_get_inner(
