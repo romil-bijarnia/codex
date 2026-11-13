@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc as blocking;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 use futures::future::AbortHandle;
@@ -281,6 +282,8 @@ async fn run(
     let mut connected = false;
     let mut poll = tokio::time::interval(Duration::from_millis(/*millis*/ 50));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_diagnostics = crate::AudioDiagnostics::default();
+    let mut diagnostics_reported_at: Option<Instant> = None;
     loop {
         tokio::select! {
             biased;
@@ -321,6 +324,15 @@ async fn run(
                 let audio = report_failure(ConnectionError::AudioSession, host.inspect_audio().await)?;
                 state.microphone.fetch_max(audio.microphone_peak, Ordering::Release);
                 state.speaker.fetch_max(audio.speaker_peak, Ordering::Release);
+                // Typed numeric counters only, at most once per second. Never
+                // expose native stderr, SDP, device names, audio or transcripts.
+                if audio.diagnostics != last_diagnostics
+                    && diagnostics_reported_at.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
+                {
+                    tracing::info!(diagnostics = ?audio.diagnostics, "voice playback counters");
+                    last_diagnostics = audio.diagnostics;
+                    diagnostics_reported_at = Some(Instant::now());
+                }
             }
         }
     }

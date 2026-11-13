@@ -245,3 +245,99 @@ async fn voice_mute_shortcut_reaches_the_active_widget() -> Result<()> {
     server.shutdown().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn voice_mute_shortcut_reaches_the_owner_while_selecting_transcript() -> Result<()> {
+    for binding in ["f9", "f9 m"] {
+        let (mut app, mut events, _) = make_test_app_with_channels().await;
+        app.keymap = RuntimeKeymap::from_config(&toml::from_str(&format!(
+            "[chat]\ntoggle_voice_mute = '{binding}'"
+        ))?)
+        .expect("valid mute shortcut");
+        crate::chatwidget::activate_voice_for_thread(&mut app.chat_widget, ThreadId::new());
+        app.transcript_cells = vec![std::sync::Arc::new(
+            crate::history_cell::PlainHistoryCell::new(vec!["transcript row".into()]),
+        )];
+        let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        tui.set_owned_screen(/*owned*/ true)?;
+        app.render_owned_transcript(
+            &mut tui,
+            ratatui::layout::Size::new(/*width*/ 80, /*height*/ 12),
+        )?;
+        assert!(app.transcript_view.begin_select_mode(&app.transcript_cells));
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            tui::TuiEvent::Key(KeyEvent::new(KeyCode::F(9), KeyModifiers::NONE)),
+        )
+        .await?;
+        if binding == "f9 m" {
+            assert!(app.key_chord_matcher.is_pending());
+            app.handle_tui_event(
+                &mut tui,
+                &mut server,
+                tui::TuiEvent::Key(KeyCode::Char('m').into()),
+            )
+            .await?;
+        }
+        assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+            matches!(event, AppEvent::InsertHistoryCell(cell) if cell.display_lines(/*width*/ 80)
+            .iter().any(|line| line.to_string().contains("Start voice mode before muting")))
+        }));
+        assert!(app.transcript_view.is_select_mode());
+        server.shutdown().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn voice_mute_function_key_stays_available_in_transcript_focus_contexts() -> Result<()> {
+    let (mut app, _, _) = make_test_app_with_channels().await;
+    let mute = crate::keymap::keymap_action_id("chat", "toggle_voice_mute").unwrap();
+    crate::chatwidget::activate_voice_for_thread(&mut app.chat_widget, ThreadId::new());
+    app.transcript_cells = vec![std::sync::Arc::new(
+        crate::history_cell::PlainHistoryCell::new(vec!["transcript row".into()]),
+    )];
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(/*owned*/ true)?;
+    app.open_transcript_overlay(&mut tui);
+    app.render_owned_transcript(
+        &mut tui,
+        ratatui::layout::Size::new(/*width*/ 80, /*height*/ 12),
+    )?;
+    assert!(app.active_keymap_contexts().contains_action(mute));
+    assert!(app.transcript_view.begin_select_mode(&app.transcript_cells));
+    assert!(app.active_keymap_contexts().contains_action(mute));
+    app.transcript_view.begin_search();
+    assert!(app.active_keymap_contexts().contains_action(mute));
+    app.chat_widget.reset_realtime_conversation();
+    assert!(!app.active_keymap_contexts().contains_action(mute));
+    Ok(())
+}
+
+#[tokio::test]
+async fn voice_mute_does_not_toggle_on_key_repeat_or_release() -> Result<()> {
+    let (mut app, mut events, _) = make_test_app_with_channels().await;
+    crate::chatwidget::activate_voice_for_thread(&mut app.chat_widget, ThreadId::new());
+    let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    for kind in [KeyEventKind::Repeat, KeyEventKind::Release] {
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            tui::TuiEvent::Key(KeyEvent::new_with_kind(
+                KeyCode::F(9),
+                KeyModifiers::NONE,
+                kind,
+            )),
+        )
+        .await?;
+        assert!(!std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+            matches!(event, AppEvent::InsertHistoryCell(cell) if cell.display_lines(/*width*/ 80)
+                .iter().any(|line| line.to_string().contains("Start voice mode before muting")))
+        }));
+    }
+    server.shutdown().await?;
+    Ok(())
+}

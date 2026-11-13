@@ -133,6 +133,82 @@ fn jitter_buffer_preserves_packets_delivered_in_a_burst() {
 }
 
 #[test]
+fn loss_is_concealed_and_counted_while_reordered_packets_are_preserved() {
+    init_audio_runtime();
+    let mut encoder = opus::Encoder::new(
+        /*sample_rate*/ 48_000,
+        opus::Channels::Mono,
+        opus::Application::Voip,
+    )
+    .unwrap();
+    let packets: Vec<_> = (0..18u16)
+        .map(|sequence| {
+            let samples: Vec<_> = (0..960)
+                .map(|n| ((usize::from(sequence) * 960 + n) as f32 * 0.07).sin() * 0.2)
+                .collect();
+            let mut encoded = vec![0; 4096];
+            let len = encoder.encode_float(&samples, &mut encoded).unwrap();
+            encoded.truncate(len);
+            encoded
+        })
+        .collect();
+    let buffers = Arc::new(Buffers::new(
+        /*input_rate*/ 48_000, /*output_rate*/ 48_000,
+    ));
+    buffers.set_speaker_disabled(/*disabled*/ false).unwrap();
+    let port = PlaybackPort::new(buffers.clone(), /*rate*/ 48_000);
+    let playout = Playout::new(port.writer()).unwrap();
+    assert_eq!(playout.stats(), PlayoutStats::default());
+    let (mut incoming, mut ingress) = Incoming::new();
+    incoming.set_suppressed(/*suppressed*/ false).unwrap();
+    let mut order: Vec<_> = (0..18u16).filter(|sequence| *sequence != 8).collect();
+    order.swap(5, 6);
+    order.insert(7, 5);
+    // Deliver a bounded burst with one hole, an adjacent reorder and a duplicate.
+    // There is no device, network or sender pacing dependency in this fixture.
+    for sequence in order {
+        ingress
+            .handle_read(TaggedPacket {
+                now: Instant::now(),
+                transport: Default::default(),
+                message: Packet::Rtp(rtc::rtp::Packet {
+                    header: rtc::rtp::header::Header {
+                        version: 2,
+                        payload_type: crate::audio_track::OPUS_PAYLOAD_TYPE,
+                        sequence_number: sequence,
+                        timestamp: u32::from(sequence) * 960,
+                        ssrc: 7,
+                        ..Default::default()
+                    },
+                    payload: packets[usize::from(sequence)].clone().into(),
+                }),
+            })
+            .unwrap();
+        playout.push(incoming.take().unwrap().unwrap()).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(/*secs*/ 3);
+    let mut playback = Playback::default();
+    let mut rendered = 0;
+    loop {
+        rendered += (0..960).filter_map(|_| playback.next(&buffers)).count();
+        playout.check().unwrap();
+        let stats = playout.stats();
+        if rendered >= 18 * 960 || Instant::now() >= deadline {
+            assert_eq!(stats.rtp_lost, 1);
+            assert_eq!(stats.rtp_late, 0);
+            assert_eq!(stats.rtp_duplicates, 1);
+            assert_eq!(stats.concealed_samples, 960);
+            break;
+        }
+        std::thread::park_timeout(Duration::from_millis(/*millis*/ 1));
+    }
+    assert_eq!(rendered, 18 * 960, "audio must continue after the gap");
+    buffers.set_speaker_disabled(/*disabled*/ true).unwrap();
+    drop(playout);
+    assert!(!buffers.failed.load(Ordering::Acquire));
+}
+
+#[test]
 fn real_decoder_renders_current_rtp_and_rejects_pre_epoch_arrivals() {
     init_audio_runtime();
     let mut encoder = opus::Encoder::new(

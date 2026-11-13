@@ -13,6 +13,7 @@ pub use protocol::AudioControls;
 pub use protocol::AudioDevice;
 pub use protocol::AudioDeviceKind;
 pub use protocol::AudioDeviceSelection;
+pub use protocol::AudioDiagnostics;
 pub use protocol::AudioState;
 pub use protocol::MAX_FRAME_BYTES;
 pub use protocol::Message;

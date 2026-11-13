@@ -104,6 +104,9 @@ impl PlaybackWriter {
             if Instant::now() >= deadline {
                 // The sink must consume this chunk to catch up with the device clock.
                 // Dropping it keeps the bounded queue and current epoch intact.
+                buffers
+                    .playback_dropped_samples
+                    .fetch_add(frame.len as u64, Ordering::Relaxed);
                 return Ok(frame.len * 4);
             }
             std::thread::park_timeout(Duration::from_millis(/*millis*/ 1));

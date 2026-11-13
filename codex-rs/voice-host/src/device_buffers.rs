@@ -103,6 +103,10 @@ pub(super) struct Buffers {
     pub(super) microphone_peak: AtomicU16,
     pub(super) speaker_peak: AtomicU16,
     pub(super) queued: AtomicU32,
+    pub(super) device_xruns: AtomicU64,
+    pub(super) playback_short_callbacks: AtomicU64,
+    pub(super) playback_dropped_samples: AtomicU64,
+    pub(super) buffering_callbacks: AtomicU64,
 }
 
 impl Buffers {
@@ -113,6 +117,13 @@ impl Buffers {
         Ok(codex_realtime_webrtc::AudioState {
             microphone_peak: self.microphone_peak.swap(/*val*/ 0, Ordering::AcqRel),
             speaker_peak: self.speaker_peak.swap(/*val*/ 0, Ordering::AcqRel),
+            diagnostics: codex_realtime_webrtc::AudioDiagnostics {
+                device_xruns: self.device_xruns.load(Ordering::Relaxed),
+                playback_short_callbacks: self.playback_short_callbacks.load(Ordering::Relaxed),
+                playback_dropped_samples: self.playback_dropped_samples.load(Ordering::Relaxed),
+                buffering_callbacks: self.buffering_callbacks.load(Ordering::Relaxed),
+                ..Default::default()
+            },
         })
     }
 
@@ -140,6 +151,10 @@ impl Buffers {
             microphone_peak: AtomicU16::new(/*v*/ 0),
             speaker_peak: AtomicU16::new(/*v*/ 0),
             queued: AtomicU32::new(/*v*/ 0),
+            device_xruns: AtomicU64::new(0),
+            playback_short_callbacks: AtomicU64::new(0),
+            playback_dropped_samples: AtomicU64::new(0),
+            buffering_callbacks: AtomicU64::new(0),
         }
     }
 

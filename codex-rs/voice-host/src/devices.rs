@@ -148,7 +148,16 @@ macro_rules! stream {
 
 impl Devices {
     pub(super) fn take_state(&self) -> io::Result<codex_realtime_webrtc::AudioState> {
-        self.worker.buffers.take_state()
+        let mut state = self.worker.buffers.take_state()?;
+        state.diagnostics.speaker_epoch = self.worker.buffers.speaker.load(Ordering::Acquire);
+        if let Some(playout) = &self.playout {
+            let stats = playout.stats();
+            state.diagnostics.rtp_lost = stats.rtp_lost;
+            state.diagnostics.rtp_late = stats.rtp_late;
+            state.diagnostics.rtp_duplicates = stats.rtp_duplicates;
+            state.diagnostics.concealed_samples = stats.concealed_samples;
+        }
+        Ok(state)
     }
 
     pub(super) fn open(selection: codex_realtime_webrtc::AudioDeviceSelection) -> io::Result<Self> {
@@ -364,7 +373,9 @@ fn record_peak(peak: &AtomicU16, sample: f32) {
 
 // CPAL reports recoverable underruns/overruns through the same callback as device loss.
 fn handle_stream_error(buffers: &Buffers, error: cpal::Error) {
-    if error.kind() != cpal::ErrorKind::Xrun {
+    if error.kind() == cpal::ErrorKind::Xrun {
+        buffers.device_xruns.fetch_add(1, Ordering::Relaxed);
+    } else {
         buffers.failed.store(true, Ordering::Release);
     }
 }
@@ -475,6 +486,9 @@ where
 struct OutputState {
     playback: Playback,
     reference: FramePacker,
+    speaker_epoch: Option<u64>,
+    primed: bool,
+    buffering_since: Option<Instant>,
 }
 
 fn render_output<T>(
@@ -492,6 +506,34 @@ fn render_output<T>(
         data.fill(T::from_sample(0.0));
         return;
     }
+    let epoch = buffers.speaker.load(Ordering::Acquire);
+    if output.speaker_epoch != Some(epoch) {
+        output.speaker_epoch = Some(epoch);
+        output.primed = false;
+        output.buffering_since = None;
+    }
+    let frames = data.len() / channels;
+    let queued = buffers.queued.load(Ordering::Acquire) as usize;
+    // Decode packets can be shorter than a Linux 50 ms device callback. Keep
+    // the first partial packet queued instead of turning it into speech/zero
+    // fragments. Wait at most one callback (and at most 50 ms), so a short
+    // utterance tail can never remain stuck waiting for more speech.
+    let buffering = if !output.primed && epoch.is_multiple_of(2) && queued > 0 && queued < frames {
+        let since = *output.buffering_since.get_or_insert(start);
+        let wait = Duration::from_secs_f64(frames as f64 / rate).min(Duration::from_millis(50));
+        start.saturating_duration_since(since) < wait
+    } else {
+        false
+    };
+    if buffering {
+        buffers.buffering_callbacks.fetch_add(1, Ordering::Relaxed);
+    } else {
+        output.buffering_since = None;
+        if queued > 0 {
+            output.primed = true;
+        }
+    }
+    let mut rendered_samples = 0;
     for (index, chunk) in data.chunks_mut(BLOCK * channels).enumerate() {
         let mut reference = Frame {
             samples: [0.0; BLOCK],
@@ -500,7 +542,13 @@ fn render_output<T>(
             generation: buffers.speaker.load(Ordering::Acquire),
         };
         for (frame, sample) in chunk.chunks_mut(channels).zip(&mut reference.samples) {
-            let rendered = T::from_sample(output.playback.next(buffers).unwrap_or(0.0));
+            let next = if buffering {
+                None
+            } else {
+                output.playback.next(buffers)
+            };
+            rendered_samples += usize::from(next.is_some());
+            let rendered = T::from_sample(next.unwrap_or(0.0));
             frame.fill(rendered);
             *sample = f32::from_sample(rendered);
             record_peak(&buffers.speaker_peak, *sample);
@@ -508,6 +556,16 @@ fn render_output<T>(
         if !output.reference.push(reference, rate, &buffers.rendered) {
             output.reference.reset();
             buffers.render_dropped.store(true, Ordering::Release);
+        }
+    }
+    if !buffering && rendered_samples < frames {
+        // Re-prime after an empty/partial callback. A partial callback can also
+        // be an ordinary utterance tail, so count it without declaring failure.
+        output.primed = false;
+        if rendered_samples > 0 {
+            buffers
+                .playback_short_callbacks
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 }

@@ -15,9 +15,20 @@ use std::time::Instant;
 pub(super) struct Playout {
     pipeline: gst::Pipeline,
     source: gstreamer_app::AppSrc,
+    jitter: gst::Element,
+    decoder: gst::Element,
     anchor: (Instant, gst::ClockTime),
     failed: Arc<AtomicBool>,
     latency: Arc<AtomicBool>,
+}
+
+/// Numeric diagnostics only; never retain packets, decoded samples or native messages.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct PlayoutStats {
+    pub(super) rtp_lost: u64,
+    pub(super) rtp_late: u64,
+    pub(super) rtp_duplicates: u64,
+    pub(super) concealed_samples: u64,
 }
 
 impl Playout {
@@ -113,6 +124,8 @@ impl Playout {
         let mut playout = Self {
             pipeline,
             source,
+            jitter,
+            decoder,
             anchor: (Instant::now(), gst::ClockTime::ZERO),
             failed,
             latency,
@@ -129,6 +142,17 @@ impl Playout {
                 .ok_or("audio clock unavailable")?,
         );
         Ok(playout)
+    }
+
+    pub(super) fn stats(&self) -> PlayoutStats {
+        let jitter = self.jitter.property::<gst::Structure>("stats");
+        let decoder = self.decoder.property::<gst::Structure>("stats");
+        PlayoutStats {
+            rtp_lost: jitter.get::<u64>("num-lost").unwrap_or_default(),
+            rtp_late: jitter.get::<u64>("num-late").unwrap_or_default(),
+            rtp_duplicates: jitter.get::<u64>("num-duplicates").unwrap_or_default(),
+            concealed_samples: decoder.get::<u64>("plc-num-samples").unwrap_or_default(),
+        }
     }
 
     pub(super) fn push(&self, packet: ReceivedRtp) -> Result<(), &'static str> {

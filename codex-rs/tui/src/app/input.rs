@@ -229,6 +229,16 @@ impl App {
         use crate::keymap::KeymapContext;
         use crate::keymap::KeymapContextSet;
 
+        let voice_available = self.chat_widget.realtime_microphone_shortcut_available()
+            || self.voice_owner_thread_id().is_some();
+        let with_voice_controls = |contexts: KeymapContextSet| {
+            let contexts = contexts.with_voice_toggle(&self.keymap);
+            if voice_available {
+                contexts.with_voice_mute(&self.keymap)
+            } else {
+                contexts
+            }
+        };
         if let Some(overlay) = &self.overlay {
             let context = if matches!(overlay, Overlay::Transcript(view) if view.is_search_editing())
             {
@@ -241,29 +251,26 @@ impl App {
                     KeymapContextSet::transcript()
                 } else {
                     KeymapContextSet::new(context)
-                }
-                .with_voice_toggle(&self.keymap);
+                };
             return if self.backtrack.overlay_preview_active && context == KeymapContext::Pager {
-                KeymapContextSet::browsing().with_voice_toggle(&self.keymap)
+                with_voice_controls(KeymapContextSet::browsing())
             } else {
-                contexts
+                with_voice_controls(contexts)
             };
         }
         if self.transcript_view.is_search_editing() && self.chat_widget.no_modal_or_popup_active() {
-            return KeymapContextSet::new(KeymapContext::Editor).with_voice_toggle(&self.keymap);
+            return with_voice_controls(KeymapContextSet::new(KeymapContext::Editor));
         }
         if self.transcript_view.is_select_mode() && self.chat_widget.no_modal_or_popup_active() {
-            return KeymapContextSet::transcript().with_voice_toggle(&self.keymap);
+            return with_voice_controls(KeymapContextSet::transcript());
         }
         if self.transcript_view.is_activity_focused() && self.chat_widget.no_modal_or_popup_active()
         {
-            return KeymapContextSet::activity().with_voice_toggle(&self.keymap);
+            return with_voice_controls(KeymapContextSet::activity());
         }
         if self.backtrack.overlay_preview_active && self.chat_widget.no_modal_or_popup_active() {
-            return KeymapContextSet::browsing().with_voice_toggle(&self.keymap);
+            return with_voice_controls(KeymapContextSet::browsing());
         }
-        let voice_available = self.chat_widget.realtime_microphone_shortcut_available()
-            || self.voice_owner_thread_id().is_some();
         let contexts = self.chat_widget.keymap_contexts();
         let contexts = if self.chat_widget.no_modal_or_popup_active() {
             let contexts = contexts

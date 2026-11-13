@@ -150,6 +150,54 @@ impl KeymapContextSet {
         }
     }
 
+    /// Keep a live call's function-key mute available while another surface owns input.
+    /// Editing bindings and active surface shortcuts retain their existing priority.
+    pub(crate) fn with_voice_mute(self, keymap: &RuntimeKeymap) -> Self {
+        if self.contains(KeymapContext::Voice) || self.0 & RAW_KEY_CAPTURE != 0 {
+            return self;
+        }
+        let mute = KeymapActionId {
+            context: KeymapContext::Voice,
+            action: "toggle_voice_mute",
+        };
+        let mut prefixes = keymap
+            .chat
+            .toggle_voice_mute
+            .iter()
+            .map(|key| (*key, None))
+            .chain(
+                keymap
+                    .chords
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.action == mute)
+                    .map(|binding| (binding.chord.prefix, Some(binding.chord.completion))),
+            );
+        let native_chat =
+            self.contains(KeymapContext::Chat) && self.contains(KeymapContext::Global);
+        let conflicts = prefixes.any(|(prefix, completion)| {
+            (!native_chat && !matches!(prefix.parts().0, KeyCode::F(_)))
+                || runtime_action_bindings(keymap).any(|binding| {
+                    binding.id != mute
+                        && self.contains_action(binding.id)
+                        && binding.bindings.iter().any(|key| {
+                            normalize_chord_binding(*key) == normalize_chord_binding(prefix)
+                        })
+                })
+                || keymap.chords.bindings.iter().any(|binding| {
+                    binding.action != mute
+                        && self.contains_action(binding.action)
+                        && binding.chord.prefix == normalize_chord_binding(prefix)
+                        && completion.is_none_or(|key| key == binding.chord.completion)
+                })
+        });
+        if conflicts {
+            self
+        } else {
+            self.with(KeymapContext::Voice)
+        }
+    }
+
     /// Whether this input path can dispatch the action, including focus-specific exclusions.
     pub(crate) fn contains_action(self, action: KeymapActionId) -> bool {
         if action.context == KeymapContext::Chat && action.action == "open_presets" {

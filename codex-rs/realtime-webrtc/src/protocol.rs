@@ -15,12 +15,31 @@ pub struct AudioControls {
     pub speaker_suppressed: bool,
 }
 
+/// Numeric counters only: no retained audio, device names, or backend messages.
+/// Short callbacks can include a normal utterance tail; they are not device failures.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AudioDiagnostics {
+    /// RTP/decoder counters belong to this speaker epoch; device counters span the call.
+    pub speaker_epoch: u64,
+    pub device_xruns: u64,
+    pub playback_short_callbacks: u64,
+    pub playback_dropped_samples: u64,
+    pub buffering_callbacks: u64,
+    pub rtp_lost: u64,
+    pub rtp_late: u64,
+    pub rtp_duplicates: u64,
+    pub concealed_samples: u64,
+}
+
 /// Peaks contain levels only, never retained audio or backend messages.
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AudioState {
     pub microphone_peak: u16,
     pub speaker_peak: u16,
+    #[serde(default)]
+    pub diagnostics: AudioDiagnostics,
 }
 
 /// Direction of a local audio device, shared by enumeration and capture/playback selection.

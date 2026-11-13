@@ -84,12 +84,14 @@ impl App {
                         || matches!(
                             (action.context, action.action),
                             (crate::keymap::KeymapContext::Chat, "toggle_voice")
+                                | (crate::keymap::KeymapContext::Voice, "toggle_voice_mute")
                         )
                 } else {
                     matches!(
                         (action.context, action.action),
                         (crate::keymap::KeymapContext::Global, "find_transcript")
                             | (crate::keymap::KeymapContext::Chat, "toggle_voice")
+                            | (crate::keymap::KeymapContext::Voice, "toggle_voice_mute")
                             | (
                                 crate::keymap::KeymapContext::Pager,
                                 "find"

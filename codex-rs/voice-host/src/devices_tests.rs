@@ -1,6 +1,133 @@
 use super::*;
 use pretty_assertions::assert_eq;
 
+fn queue_speech(buffers: &Buffers, samples: usize, at: Instant) {
+    for offset in (0..samples).step_by(BLOCK) {
+        buffers
+            .push_playback(Frame {
+                samples: [0.5; BLOCK],
+                len: (samples - offset).min(BLOCK),
+                at,
+                generation: buffers.speaker.load(Ordering::Acquire),
+            })
+            .unwrap();
+    }
+}
+
+#[test]
+fn partial_startup_is_primed_before_a_large_output_callback() {
+    let buffers = Buffers::new(48_000, 48_000);
+    buffers.serviced.store(true, Ordering::Release);
+    buffers.set_speaker_disabled(false).unwrap();
+    let mut state = OutputState::default();
+    let start = Instant::now();
+    let mut output = [0.0_f32; 2_400];
+    queue_speech(&buffers, 960, start);
+    render_output(&mut output, 1, 48_000.0, start, &buffers, &mut state);
+    // A 20 ms first packet must not become 20 ms of speech followed by a 30 ms hole.
+    assert!(output.iter().all(|sample| *sample == 0.0));
+    assert_eq!(buffers.queued.load(Ordering::Acquire), 960);
+    queue_speech(&buffers, 2_400, start);
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(50),
+        &buffers,
+        &mut state,
+    );
+    assert!(output.iter().all(|sample| *sample == 0.5));
+    assert_eq!(buffers.queued.load(Ordering::Acquire), 960);
+}
+
+#[test]
+fn short_speech_is_not_held_forever_and_the_next_burst_is_reprimed() {
+    let buffers = Buffers::new(48_000, 48_000);
+    buffers.serviced.store(true, Ordering::Release);
+    buffers.set_speaker_disabled(false).unwrap();
+    let mut state = OutputState::default();
+    let start = Instant::now();
+    let mut output = [0.0_f32; 2_400];
+    queue_speech(&buffers, 960, start);
+    render_output(&mut output, 1, 48_000.0, start, &buffers, &mut state);
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(50),
+        &buffers,
+        &mut state,
+    );
+    assert_eq!(&output[..960], &[0.5; 960]);
+    assert!(output[960..].iter().all(|sample| *sample == 0.0));
+    assert_eq!(buffers.queued.load(Ordering::Acquire), 0);
+    queue_speech(&buffers, 960, start);
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(100),
+        &buffers,
+        &mut state,
+    );
+    assert!(output.iter().all(|sample| *sample == 0.0));
+    assert_eq!(buffers.queued.load(Ordering::Acquire), 960);
+    // The echo canceller must see the actual silence, not the held speech.
+    let references: Vec<_> = std::iter::from_fn(|| buffers.rendered.pop()).collect();
+    assert!(
+        references
+            .last()
+            .unwrap()
+            .samples
+            .iter()
+            .all(|sample| *sample == 0.0)
+    );
+}
+
+#[test]
+fn muting_retires_held_audio_and_unmute_primes_the_new_epoch() {
+    let buffers = Buffers::new(48_000, 48_000);
+    buffers.serviced.store(true, Ordering::Release);
+    buffers.set_speaker_disabled(false).unwrap();
+    let mut state = OutputState::default();
+    let start = Instant::now();
+    let mut output = [0.0_f32; 2_400];
+    queue_speech(&buffers, 960, start);
+    render_output(&mut output, 1, 48_000.0, start, &buffers, &mut state);
+    buffers.set_speaker_disabled(true).unwrap();
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(50),
+        &buffers,
+        &mut state,
+    );
+    assert!(output.iter().all(|sample| *sample == 0.0));
+    assert_eq!(buffers.queued.load(Ordering::Acquire), 0);
+    buffers.set_speaker_disabled(false).unwrap();
+    queue_speech(&buffers, 960, start);
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(100),
+        &buffers,
+        &mut state,
+    );
+    assert!(output.iter().all(|sample| *sample == 0.0));
+    render_output(
+        &mut output,
+        1,
+        48_000.0,
+        start + Duration::from_millis(150),
+        &buffers,
+        &mut state,
+    );
+    assert_eq!(&output[..960], &[0.5; 960]);
+    assert!(output[960..].iter().all(|sample| *sample == 0.0));
+}
+
 #[test]
 fn startup_output_waits_for_service_and_later_overflow_discards_reference() {
     let buffers = Buffers::new(/*input_rate*/ 48_000, /*output_rate*/ 384_000);
@@ -342,6 +469,7 @@ fn tiny_output_callbacks_pack_references_without_delaying_rendering() {
         codex_realtime_webrtc::AudioState {
             microphone_peak: 49151,
             speaker_peak: 32767,
+            ..Default::default()
         }
     );
     assert_eq!(buffers.take_state().unwrap(), Default::default());
@@ -351,6 +479,7 @@ fn tiny_output_callbacks_pack_references_without_delaying_rendering() {
         codex_realtime_webrtc::AudioState {
             microphone_peak: u16::MAX,
             speaker_peak: 0,
+            ..Default::default()
         }
     );
     assert_eq!(buffers.rendered.len(), 7);
@@ -418,10 +547,12 @@ fn stream_xruns_recover_without_clearing_device_failure() {
     let buffers = Buffers::new(/*input_rate*/ 48_000, /*output_rate*/ 48_000);
     handle_stream_error(&buffers, cpal::ErrorKind::Xrun.into());
     assert!(!buffers.failed.load(Ordering::Acquire));
+    assert_eq!(buffers.take_state().unwrap().diagnostics.device_xruns, 1);
     handle_stream_error(&buffers, cpal::ErrorKind::DeviceNotAvailable.into());
     assert!(buffers.failed.load(Ordering::Acquire));
     handle_stream_error(&buffers, cpal::ErrorKind::Xrun.into());
     assert!(buffers.failed.load(Ordering::Acquire));
+    assert_eq!(buffers.device_xruns.load(Ordering::Relaxed), 2);
 }
 
 #[test]

@@ -1030,10 +1030,20 @@ impl App {
                     })
                 && app.keymap.chat.toggle_voice.is_pressed(key)
         };
+        let voice_mute = |app: &Self, key: KeyEvent| {
+            key.kind == KeyEventKind::Press
+                && app
+                    .active_keymap_contexts()
+                    .contains_action(crate::keymap::KeymapActionId {
+                        context: crate::keymap::KeymapContext::Voice,
+                        action: "toggle_voice_mute",
+                    })
+                && app.keymap.chat.toggle_voice_mute.is_pressed(key)
+        };
         // Transcript interactions consume otherwise-unhandled keys; let enabled voice controls
         // reach App.
         if !matches!(&event, TuiEvent::Key(key)
-            if voice_toggle(self, *key)
+            if (voice_toggle(self, *key) || voice_mute(self, *key))
                 && (!self.transcript_view.owns_interaction_key(*key)
                     || self.transcript_view.is_select_mode()))
             && self.handle_owned_transcript_event(tui, app_server, &event)?
@@ -1045,6 +1055,7 @@ impl App {
         if tui.is_owned_screen()
             && self.overlay.is_none()
             && self.backtrack.overlay_preview_active
+            && !matches!(&event, TuiEvent::Key(key) if voice_mute(self, *key))
             && (matches!(&event, TuiEvent::Key(key)
                 if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
                     && !(self.reconnect.offline && key.code == KeyCode::Enter))
@@ -1072,11 +1083,7 @@ impl App {
             return Ok(AppRunControl::Continue);
         }
         if let TuiEvent::Key(key_event) = &event
-            && key_event.kind == KeyEventKind::Press
-            && self
-                .active_keymap_contexts()
-                .contains(crate::keymap::KeymapContext::Voice)
-            && self.keymap.chat.toggle_voice_mute.is_pressed(*key_event)
+            && voice_mute(self, *key_event)
         {
             if !self.chat_widget.handle_startup_submission_key(*key_event) {
                 self.control_voice(crate::app_event::VoiceControl::Mute);

@@ -82,6 +82,56 @@ fn voice_mute_chord_dispatches_only_in_its_active_context() {
 }
 
 #[test]
+fn live_voice_mute_extends_function_keys_without_stealing_surface_bindings() {
+    for (mute, surface, enabled) in [
+        ("f9", "f10", true),
+        ("f9 m", "f10", true),
+        ("f9", "f9", false),
+        ("f9 m", "f9", false),
+        ("f9", "f9 m", false),
+        ("f9 m", "f9 n", true),
+        ("ctrl-x m", "f10", false),
+    ] {
+        let config = toml::from_str::<TuiKeymap>(&format!(
+            "[chat]\ntoggle_voice_mute = '{mute}'\n[agents]\nresume = '{surface}'"
+        ))
+        .unwrap();
+        let runtime = RuntimeKeymap::from_config(&config).expect("valid surface bindings");
+        let action = keymap_action_id("chat", "toggle_voice_mute").unwrap();
+        assert_eq!(
+            KeymapContextSet::new(KeymapContext::Agents)
+                .with_voice_mute(&runtime)
+                .contains_action(action),
+            enabled,
+            "mute={mute}, surface={surface}"
+        );
+        assert!(
+            !KeymapContextSet::raw_key_capture()
+                .with_voice_mute(&runtime)
+                .contains_action(action)
+        );
+    }
+}
+
+#[test]
+fn live_voice_mute_function_key_chord_dispatches_in_transcript_context() {
+    let config = toml::from_str::<TuiKeymap>("[chat]\ntoggle_voice_mute = 'f9 m'").unwrap();
+    let runtime = RuntimeKeymap::from_config(&config).unwrap();
+    let contexts = KeymapContextSet::transcript().with_voice_mute(&runtime);
+    let mut matcher = KeyChordMatcher::default();
+    assert!(matches!(
+        matcher.advance(KeyCode::F(9).into(), &runtime.chords, contexts),
+        KeyChordMatch::Pending(_)
+    ));
+    let KeyChordMatch::Completed(dispatch) =
+        matcher.advance(KeyCode::Char('m').into(), &runtime.chords, contexts)
+    else {
+        panic!("live transcript mute chord completes")
+    };
+    assert!(runtime.chat.toggle_voice_mute.is_pressed(dispatch));
+}
+
+#[test]
 fn voice_toggle_resolves_custom_bindings_unbinding_and_visible_hints() {
     for (config, expected) in [
         ("", Some("f8")),

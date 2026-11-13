@@ -2,6 +2,28 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 #[test]
+fn audio_diagnostics_are_numeric_and_legacy_peak_frames_still_decode() {
+    let legacy = serde_json::json!({"microphonePeak": 12, "speakerPeak": 34});
+    let state: AudioState = serde_json::from_value(legacy).unwrap();
+    assert_eq!(state.diagnostics, AudioDiagnostics::default());
+    let message = Message::AudioState {
+        state: AudioState {
+            diagnostics: AudioDiagnostics {
+                device_xruns: 2,
+                rtp_lost: 1,
+                playback_dropped_samples: 256,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    };
+    assert_eq!(
+        decode_frame(&encode_frame(&message).unwrap()).unwrap(),
+        Some(message)
+    );
+}
+
+#[test]
 fn signaling_roundtrips_without_diagnostic_secrets() {
     let secret = "a=ice-pwd:synthetic-secret";
     let message = Message::ApplyAnswer {

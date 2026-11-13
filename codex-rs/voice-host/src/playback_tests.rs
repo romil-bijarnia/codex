@@ -85,6 +85,14 @@ fn invalid_samples_fail_but_stalled_consumption_drops_and_resumes() {
     }
     assert_eq!(writer.write(&vec![0; BLOCK * 4]), Ok(BLOCK * 4));
     assert_eq!(
+        buffers
+            .take_state()
+            .unwrap()
+            .diagnostics
+            .playback_dropped_samples,
+        BLOCK as u64
+    );
+    assert_eq!(
         buffers.queued.load(Ordering::Acquire),
         (blocks * BLOCK) as u32
     );

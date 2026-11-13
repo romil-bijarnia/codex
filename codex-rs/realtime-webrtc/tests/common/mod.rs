@@ -223,6 +223,7 @@ fn helper() -> Result<()> {
                         AudioState {
                             microphone_peak: 123,
                             speaker_peak: 456,
+                            ..Default::default()
                         }
                     } else {
                         AudioState::default()
