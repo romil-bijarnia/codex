@@ -192,6 +192,7 @@ enum EmptyCatalogFallback {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ForkPresentation {
     Regular,
+    ExternalProcess,
     SideConversation,
 }
 
@@ -1153,6 +1154,29 @@ impl AppServerSession {
         .await
     }
 
+    /// Prepare a fork for another embedded server, without retaining its writer here.
+    pub(crate) async fn fork_thread_for_external_process(
+        &mut self,
+        local_settings: &LocalSettings,
+        config: Config,
+        thread_id: ThreadId,
+        selected_profile: Option<&PermissionProfileSelection>,
+    ) -> Result<AppServerStartedThread> {
+        self.fork_thread_at_with_presentation(
+            local_settings,
+            config,
+            thread_id,
+            /*last_turn_id*/ None,
+            /*before_turn_id*/ None,
+            ForkGoalContinuation::StartIfIdle,
+            ForkPresentation::ExternalProcess,
+            selected_profile,
+            ForkPermissionMode::InheritSaved,
+            ForkConfigSource::Session,
+        )
+        .await
+    }
+
     pub(crate) async fn fork_side_thread(
         &mut self,
         local_settings: &LocalSettings,
@@ -1197,7 +1221,7 @@ impl AppServerSession {
         }
         self.thread_tool_transport().validate_config(&config)?;
         let fork_parent = match presentation {
-            ForkPresentation::Regular => self
+            ForkPresentation::Regular | ForkPresentation::ExternalProcess => self
                 .thread_read(thread_id, /*include_turns*/ false)
                 .await
                 .ok(),
@@ -1227,6 +1251,15 @@ impl AppServerSession {
                 self.remote_cwd_override.as_deref(),
             )
         };
+        if presentation == ForkPresentation::ExternalProcess {
+            // Unsubscribing no longer unloads a runtime immediately. A fork opened by a
+            // separate embedded server must release its writer without changing the
+            // source thread's retention policy or the user's configuration.
+            params
+                .config
+                .get_or_insert_default()
+                .insert("thread_unload_delay_secs".into(), serde_json::json!(0));
+        }
         params.model_provider = match config_source {
             ForkConfigSource::Local => self
                 .model_provider_override
@@ -1288,7 +1321,7 @@ impl AppServerSession {
             }
         };
         let mut response = response;
-        if presentation == ForkPresentation::Regular
+        if presentation != ForkPresentation::SideConversation
             && !response.thread.ephemeral
             && let Err(error) = self
                 .hydrate_initial_thread_history(

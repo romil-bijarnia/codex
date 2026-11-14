@@ -39,6 +39,9 @@ mod connector_policy;
 mod disconnect;
 #[path = "tests/external_writer_fork_tests.rs"]
 mod external_writer_fork_tests;
+#[cfg(unix)]
+#[path = "tests/fork_window_tests.rs"]
+mod fork_window_tests;
 #[path = "tests/fork_workspace_roots_tests.rs"]
 mod fork_workspace_roots_tests;
 #[path = "tests/fresh_sparkle_tests.rs"]

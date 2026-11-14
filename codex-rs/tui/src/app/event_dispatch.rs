@@ -649,15 +649,27 @@ impl App {
                     fork_config.model_reasoning_effort =
                         self.chat_widget.current_reasoning_effort();
                     let selected_profile = self.selected_server_profile(thread_id);
-                    match app_server.fork_thread_at(
-                        &self.local_settings,
-                        fork_config,
-                        thread_id,
-                        /*last_turn_id*/ None,
-                        /*before_turn_id*/ None,
-                        ForkGoalContinuation::StartIfIdle,
-                        selected_profile.as_ref(),
-                    ).await {
+                    let open_in_window = !from_agents_overview && !from_locked_thread
+                        && self.config.codex_home.join("bin/codex-fork-window").is_file();
+                    let fork_result = if open_in_window && matches!(self.app_server_target, AppServerTarget::Embedded) {
+                        app_server.fork_thread_for_external_process(
+                            &self.local_settings,
+                            fork_config,
+                            thread_id,
+                            selected_profile.as_ref(),
+                        ).await
+                    } else {
+                        app_server.fork_thread_at(
+                            &self.local_settings,
+                            fork_config,
+                            thread_id,
+                            /*last_turn_id*/ None,
+                            /*before_turn_id*/ None,
+                            ForkGoalContinuation::StartIfIdle,
+                            selected_profile.as_ref(),
+                        ).await
+                    };
+                    match fork_result {
                         Ok(mut forked) => {
                             let retained_input = from_locked_thread
                                 .then(|| self.chat_widget.capture_thread_input_state())
@@ -678,6 +690,27 @@ impl App {
                             } else {
                                 None
                             };
+                            // A normal /fork keeps this frontend on the source chat. Navigation
+                            // shortcuts retain their existing in-place fork behavior.
+                            if open_in_window
+                                && let Some(opened) = self.open_fork_window(app_server, &forked).await
+                            {
+                                if let Some(error) = name_error {
+                                    self.chat_widget.add_error_message(error);
+                                }
+                                match opened {
+                                    Ok(()) => self.chat_widget.add_info_message(
+                                        format!("Fork {} opened in a new Terminal window. This window remains on the original chat.", forked.session.thread_id), None,
+                                    ),
+                                    Err(error) => self.chat_widget.add_error_message(format!(
+                                        "Fork {} was created, but its window could not open: {error}. Resume that chat to continue; this window remains on the original chat.",
+                                        forked.session.thread_id,
+                                    )),
+                                }
+                                self.chat_widget.fork_in_progress = false;
+                                tui.frame_requester().schedule_frame();
+                                return Ok(AppRunControl::Continue);
+                            }
                             self.retain_subscriptions_for_fork();
                             match self
                                 .replace_chat_widget_with_app_server_thread(
