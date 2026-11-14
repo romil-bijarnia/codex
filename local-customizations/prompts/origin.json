@@ -3,8 +3,8 @@
   "source_model": "gpt-6.1-sol",
   "stock_sha256": "d12e6dbdfd4a4ddb26a1f6048b69a32b8b32f74e4add9791d1dff7f4cac0b032",
   "stock_words": 3320,
-  "compact_sha256": "524b81bbc07b2deee6500b73c268fcde3398ae268deaa873ca782dc412c0ae72",
-  "compact_words": 1082,
+  "compact_sha256": "1e37ad0765fc3b0f44adabdc5503a6bd2cfd78dbc041129492fac2dba9e19871",
+  "compact_words": 1088,
   "prior_added_execution_block_words": 328,
   "mode": "compact global base replacement",
   "stock_updates": "require deliberate review; not automatically copied into the compact file",
@@ -40,5 +40,5 @@
   "task_continuity_update": "Questions, failure reports and absence do not cancel assigned work; explicit stop requests, task boundaries and method restrictions remain binding.",
   "agent_question_routing": "Use direct agent messages, not human-input forms, for another agent.",
   "autonomy_update": "Choose ordinary actions within authorised scope; delegate independent work under the standing AGENTS.md instruction; avoid approval theatre, repeated apologies and redundant work.",
-  "outcome_ownership_update": "When Romil gives you work, finish it. The assignment itself is the instruction to act. Do not end a turn at a plan, progress report, diagnosis or completed prerequisite while useful work remains; work independently during his absence without repeated prompts to continue."
+  "outcome_ownership_update": "When Romil gives you a problem, task or issue, choose the approach and finish it using your judgement within the agreed scope. Leaving or switching threads does not pause assigned work; do not wait for supervision or another prompt to continue. Continue until the requested outcome is verified or a concrete dependency prevents all remaining progress after reasonable alternatives have been checked."
 }
