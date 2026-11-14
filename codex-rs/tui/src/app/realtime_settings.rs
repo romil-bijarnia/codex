@@ -64,7 +64,7 @@ impl App {
         self.list_realtime_devices(kind);
     }
 
-    async fn persist_realtime_audio(&mut self, key: &str, value: Option<toml::Value>) {
+    pub(super) async fn persist_realtime_audio(&mut self, key: &str, value: Option<toml::Value>) {
         // Audio runs on the TUI's machine, even when the app server is remote.
         let segments = vec!["audio".to_string(), key.to_string()];
         let mut edits = vec![match &value {
@@ -73,6 +73,10 @@ impl App {
                 value: value.clone().into(),
             },
             Some(toml::Value::Integer(value)) => ConfigEdit::SetPath {
+                segments,
+                value: (*value).into(),
+            },
+            Some(toml::Value::Boolean(value)) => ConfigEdit::SetPath {
                 segments,
                 value: (*value).into(),
             },
@@ -129,11 +133,18 @@ impl App {
                 let channel_overridden = key == "microphone" && audio.microphone_channel.is_some();
                 self.local_settings.audio = Ok(audio);
                 self.chat_widget.local_settings.audio = self.local_settings.audio.clone();
+                if let Some(owner) = self.background_voice.as_mut() {
+                    owner.local_settings.audio = self.local_settings.audio.clone();
+                }
                 if channel_overridden {
                     self.chat_widget.add_error_message("Input device saved, but the input channel is overridden by another configuration layer. Update that override before starting voice.".into());
                 } else if effective == value {
                     self.chat_widget.add_info_message(
-                        "Audio setting saved. Applies to your next voice conversation.".to_string(),
+                        if key == "screen_context" {
+                            format!("Voice screen context {}. Applies during voice calls; use /voice screen off to stop sharing.", if value == Some(toml::Value::Boolean(true)) { "enabled" } else { "disabled" })
+                        } else {
+                            "Audio setting saved. Applies to your next voice conversation.".to_string()
+                        },
                         /*hint*/ None,
                     );
                 } else {

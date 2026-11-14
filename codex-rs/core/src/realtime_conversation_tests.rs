@@ -165,6 +165,9 @@ async fn natural_close_finishes_before_successor_and_ignores_old_identity() {
         event_parser: RealtimeEventParser::V1,
     };
     let connection = |identity, input_task, stop_token, session: &str| ConversationState {
+        screen_context: None,
+        screen_context_binding: None,
+        started_at_ms: super::screen_context::now_ms(),
         session_id: Some(session.to_owned()),
         sub_id: session.to_owned(),
         audio_tx: bounded(1).0,

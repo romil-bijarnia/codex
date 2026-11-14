@@ -530,6 +530,9 @@ impl RealtimeHandoffState {
 
 #[allow(dead_code)]
 struct ConversationState {
+    screen_context: Option<codex_protocol::protocol::RealtimeScreenContextFrame>,
+    screen_context_binding: Option<(String, u64)>,
+    started_at_ms: i64,
     session_id: Option<String>,
     sub_id: String,
     audio_tx: Sender<RealtimeAudioFrame>,
@@ -801,6 +804,9 @@ impl RealtimeConversationManager {
 
         let mut state = self.state.lock().await;
         state.conversation = Some(ConversationState {
+            screen_context: None,
+            screen_context_binding: None,
+            started_at_ms: screen_context::now_ms(),
             session_id,
             sub_id: sub_id.to_owned(),
             audio_tx,
@@ -2891,3 +2897,5 @@ async fn send_realtime_conversation_closed(
 #[cfg(test)]
 #[path = "realtime_conversation_tests.rs"]
 mod tests;
+
+mod screen_context;

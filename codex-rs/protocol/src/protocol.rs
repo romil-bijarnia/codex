@@ -525,6 +525,23 @@ pub enum ConversationTextRole {
     Assistant,
 }
 
+/// Latest visual context for delegated voice work. Never included in diagnostic output.
+#[derive(Clone, PartialEq)]
+pub struct RealtimeScreenContextFrame {
+    pub image_url: String,
+    pub label: String,
+    pub captured_at_ms: i64,
+}
+
+impl std::fmt::Debug for RealtimeScreenContextFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RealtimeScreenContextFrame")
+            .field("image_url", &"[REDACTED]")
+            .field("captured_at_ms", &self.captured_at_ms)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConversationSpeechParams {
     pub text: String,
@@ -727,6 +744,15 @@ pub enum Op {
     /// Send text input to the running realtime conversation stream.
     #[debug("RealtimeConversationText {{ role: {:?} }}", _0.role)]
     RealtimeConversationText(ConversationTextParams),
+
+    /// Replace visual context for the next delegated voice request, without starting work.
+    #[debug("RealtimeConversationSetScreenContext")]
+    RealtimeConversationSetScreenContext {
+        context_id: String,
+        generation: u64,
+        frame: Option<RealtimeScreenContextFrame>,
+        reply: oneshot::Sender<CodexResult<()>>,
+    },
 
     /// Append speakable text to the running realtime conversation stream.
     #[debug("RealtimeConversationSpeech")]
@@ -1097,6 +1123,9 @@ impl Op {
             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
             Self::RealtimeConversationText(_) => "realtime_conversation_text",
             Self::RealtimeConversationSpeech(_) => "realtime_conversation_speech",
+            Self::RealtimeConversationSetScreenContext { .. } => {
+                "realtime_conversation_set_screen_context"
+            }
             Self::RealtimeConversationClose => "realtime_conversation_close",
             Self::RealtimeConversationDetach { .. } => "realtime_conversation_detach",
             Self::RealtimeConversationListVoices => "realtime_conversation_list_voices",

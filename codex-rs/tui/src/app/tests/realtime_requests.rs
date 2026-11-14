@@ -2174,6 +2174,7 @@ async fn audio_devices_are_persisted_and_input_changes_clear_channels() -> Resul
     app.persist_realtime_device(AudioDeviceKind::Input, Some("Interface".into()))
         .await;
     let expected = codex_config::config_toml::RealtimeAudioToml {
+        screen_context: false,
         microphone: Some("Interface".into()),
         speaker: Some("Headphones".into()),
         microphone_channel: None,

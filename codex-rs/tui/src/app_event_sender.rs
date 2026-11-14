@@ -52,6 +52,7 @@ impl AppEventSender {
                     | AppEvent::RealtimeWebrtcConnected { .. }
                     | AppEvent::StopRealtimeConversation { .. }
                     | AppEvent::RealtimeConversationStateChanged
+                    | AppEvent::RealtimeScreenContextCaptured { .. }
                     | AppEvent::BackgroundVoiceError { .. }
                     | AppEvent::SyncThreadGitBranch { .. }
                     | AppEvent::RefreshRateLimits { .. }

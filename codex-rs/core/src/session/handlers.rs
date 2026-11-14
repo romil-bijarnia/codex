@@ -567,6 +567,19 @@ pub(super) async fn submission_loop(
                     handle_realtime_conversation_text(&sess, sub.id.clone(), params).await;
                     false
                 }
+                Op::RealtimeConversationSetScreenContext {
+                    context_id,
+                    generation,
+                    frame,
+                    reply,
+                } => {
+                    let result = sess
+                        .conversation
+                        .set_screen_context(context_id, generation, frame)
+                        .await;
+                    let _ = reply.send(result);
+                    false
+                }
                 Op::RealtimeConversationSpeech(params) => {
                     handle_realtime_conversation_speech(&sess, sub.id.clone(), params).await;
                     false

@@ -17,12 +17,37 @@ use color_eyre::eyre::Result;
 use color_eyre::eyre::WrapErr;
 
 impl AppServerSession {
+    pub(crate) async fn thread_realtime_set_screen_context(
+        &mut self,
+        thread_id: ThreadId,
+        context_id: String,
+        generation: u64,
+        frame: Option<codex_app_server_protocol::ThreadRealtimeScreenContextFrame>,
+    ) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: codex_app_server_protocol::ThreadRealtimeSetScreenContextResponse = self
+            .request_handle
+            .request_typed(ClientRequest::ThreadRealtimeSetScreenContext {
+                request_id,
+                params: codex_app_server_protocol::ThreadRealtimeSetScreenContextParams {
+                    thread_id: thread_id.to_string(),
+                    context_id,
+                    generation,
+                    frame,
+                },
+            })
+            .await
+            .wrap_err("thread/realtime/setScreenContext failed in TUI")?;
+        Ok(())
+    }
+
     pub(crate) async fn thread_realtime_start(
         &mut self,
         thread_id: ThreadId,
         offer_sdp: String,
         model: Option<String>,
         voice: Option<RealtimeVoice>,
+        realtime_session_id: Option<String>,
     ) -> Result<()> {
         let request_id = self.next_request_id();
         let _: ThreadRealtimeStartResponse = self
@@ -46,7 +71,7 @@ impl AppServerSession {
                     realtime_start_instructions: None,
                     realtime_end_instructions: None,
                     prompt: None,
-                    realtime_session_id: None,
+                    realtime_session_id,
                     voice_session_id: None,
                     transport: Some(ThreadRealtimeStartTransport::Webrtc { sdp: offer_sdp }),
                     version: Some(RealtimeConversationVersion::V3),

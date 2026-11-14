@@ -94,8 +94,20 @@ impl Renderable for VoiceStrip {
         } else {
             "◌".dark_gray()
         };
-        let activity = format!(" {}", self.state.activity).into();
-        let mut status = Line::from(vec!["voice ".dim(), marker, activity]);
+        let screen_shared = self.state.activity.ends_with(", screen shared");
+        let activity = self
+            .state
+            .activity
+            .strip_suffix(", screen shared")
+            .unwrap_or(self.state.activity);
+        let activity = format!(" {activity}").into();
+        // Keep the screen indicator even when a narrow terminal hides activity.
+        let label = if screen_shared {
+            "voice (screen) "
+        } else {
+            "voice "
+        };
+        let mut status = Line::from(vec![label.dim(), marker, activity]);
         let mute = self.state.mute_hint.map_or_else(
             || "/voice mute".to_string(),
             |hint| {
@@ -126,7 +138,14 @@ impl Renderable for VoiceStrip {
             "/voice stop"
         };
         if available < status.width() + controls.width() + 1 {
-            status = Line::from(vec!["voice".dim()]);
+            status = Line::from(vec![
+                if screen_shared {
+                    "voice (screen)"
+                } else {
+                    "voice"
+                }
+                .dim(),
+            ]);
         }
         status.spans.push(
             " ".repeat(available.saturating_sub(status.width() + controls.width()))

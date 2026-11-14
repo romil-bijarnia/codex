@@ -1743,6 +1743,11 @@ impl MessageProcessor {
                     .thread_realtime_append_text(&request_id, params)
                     .await
             }
+            ClientRequest::ThreadRealtimeSetScreenContext { params, .. } => {
+                self.turn_processor
+                    .thread_realtime_set_screen_context(&request_id, params)
+                    .await
+            }
             ClientRequest::ThreadRealtimeAppendSpeech { params, .. } => {
                 self.turn_processor
                     .thread_realtime_append_speech(&request_id, params)

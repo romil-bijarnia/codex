@@ -862,12 +862,16 @@ impl App {
                     .clone();
                 let voices = self.realtime_voices(app_server).await?;
                 let voice = self.effective_realtime_voice(app_server, &voices).await?;
+                let realtime_session_id = self
+                    .voice_widget_for_thread(*realtime_thread_id)
+                    .map(|owner| owner.realtime_screen_context_binding().0);
                 app_server
                     .thread_realtime_start(
                         *realtime_thread_id,
                         String::from(offer_sdp.clone()),
                         model,
                         voice,
+                        realtime_session_id,
                     )
                     .await?;
                 Ok(true)

@@ -5,6 +5,7 @@
 
 mod failure_metrics;
 mod recording_controls;
+mod screen_context;
 mod transcript_replay;
 
 pub(crate) use failure_metrics::RealtimeFailureCause;
@@ -137,6 +138,7 @@ enum StartupRetry {
 
 #[derive(Default)]
 pub(super) struct RealtimeConversationUiState {
+    screen_context: screen_context::ScreenContextSharing,
     startup_retry: StartupRetry,
     pub(super) phase: RealtimeConversationPhase,
     recover_late_transcripts: bool,
@@ -202,16 +204,21 @@ impl RealtimeConversationUiState {
 }
 
 pub(crate) fn realtime_delegation_input(items: &[UserInput]) -> Option<&str> {
-    let [
-        UserInput::Text {
-            text,
-            text_elements,
-        },
-    ] = items
+    let Some(UserInput::Text {
+        text,
+        text_elements,
+    }) = items.first()
     else {
         return None;
     };
     if !text_elements.is_empty() {
+        return None;
+    }
+    if !items[1..].iter().all(|item| match item {
+        UserInput::Image { .. } => true,
+        UserInput::Text { text, .. } => text.starts_with("[voice_screen_context]"),
+        _ => false,
+    }) {
         return None;
     }
     let body = text
@@ -360,6 +367,7 @@ impl ChatWidget {
             return;
         }
         self.capture_realtime_session_duration();
+        self.stop_screen_context_capture();
         self.restore_all_undelivered_realtime_speech();
 
         // Stopping may prevent final transcript events from arriving.
@@ -536,6 +544,7 @@ impl ChatWidget {
             return;
         }
         self.realtime_conversation.phase = RealtimeConversationPhase::Active;
+        self.start_screen_context_capture();
         self.realtime_conversation.active_since = Some(Instant::now());
         self.session_telemetry
             .counter("codex.voice.session.connected", /*inc*/ 1, &[]);
@@ -1812,6 +1821,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn reset_realtime_conversation(&mut self) -> Option<ThreadId> {
+        self.stop_screen_context_capture();
         if self.realtime_conversation_is_running() {
             self.app_event_tx
                 .send(AppEvent::RealtimeConversationStateChanged);

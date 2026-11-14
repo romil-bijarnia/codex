@@ -292,7 +292,7 @@ impl ChatWidget {
                 .iter()
                 .map(|(_, speaker)| *speaker)
                 .collect(),
-            activity,
+            activity: self.realtime_screen_context_activity(activity),
             animations: self.local_settings.tui.animations,
             progress: self.local_settings.tui.effects.progress,
         }));

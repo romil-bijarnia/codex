@@ -701,6 +701,10 @@ pub struct RealtimeAudioToml {
     pub microphone_channel: Option<MicrophoneChannels>,
     pub microphone: Option<String>,
     pub speaker: Option<String>,
+    /// Share current local-screen snapshots with the vision backend during voice.
+    /// This machine-local preference is off until explicitly enabled.
+    #[serde(default)]
+    pub screen_context: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]

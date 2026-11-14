@@ -1459,6 +1459,29 @@ See the Codex keymap documentation for supported actions and examples."
                             AppEvent::StartupThreadStarted { backend_id, .. } => {
                                 backends.slot(*backend_id).unwrap_or(displayed_session)
                             }
+                            AppEvent::RealtimeScreenContextCaptured { thread_id, .. } => {
+                                let slot = app.thread_event_channels.get(thread_id)
+                                    .and_then(|channel| channel.backend_id)
+                                    .and_then(|backend_id| backends.slot(backend_id));
+                                let Some(slot) = slot else {
+                                    // Never send local screen pixels to the displayed
+                                    // backend as a fallback for a missing voice owner.
+                                    if let Some(owner) = app.voice_widget_for_thread(*thread_id) {
+                                        owner.realtime_screen_context_failed(
+                                            "the owning voice backend is unavailable".into(),
+                                        );
+                                    }
+                                    continue;
+                                };
+                                slot
+                            }
+                            AppEvent::SetRealtimeScreenContextEnabled { .. } => {
+                                app.voice_owner_thread_id()
+                                    .and_then(|thread_id| app.thread_event_channels.get(&thread_id))
+                                    .and_then(|channel| channel.backend_id)
+                                    .and_then(|backend_id| backends.slot(backend_id))
+                                    .unwrap_or(displayed_session)
+                            }
                             _ => displayed_session,
                         };
                         let had_active_modal = app.chat_widget.has_active_modal();

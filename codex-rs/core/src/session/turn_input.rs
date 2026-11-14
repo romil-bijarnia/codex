@@ -801,13 +801,14 @@ impl Session {
         text: String,
     ) -> Result<(), &'static str> {
         let submission_id = Uuid::now_v7().to_string();
+        let mut input = vec![UserInput::Text {
+            text,
+            text_elements: Vec::new(),
+        }];
+        input.extend(self.conversation.screen_context_input().await);
         let submission = handle(
             self,
-            TurnInputRequest::user_input(vec![UserInput::Text {
-                text,
-                text_elements: Vec::new(),
-            }])
-            .on_start(TurnStartOptions {
+            TurnInputRequest::user_input(input).on_start(TurnStartOptions {
                 turn_trigger: Some("realtime".to_string()),
                 ..Default::default()
             }),

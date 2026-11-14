@@ -109,7 +109,7 @@ impl RealtimeHistoryState {
                 .into_iter()
                 .flatten()
                 .any(|segment| !segment.text.is_empty())
-            && !matches!(input, [UserInput::Text { text, .. }] if {
+            && !matches!(input.first(), Some(UserInput::Text { text, .. }) if {
                 let text = text.trim();
                 text.starts_with("<realtime_delegation>")
                     && text.ends_with("</realtime_delegation>")

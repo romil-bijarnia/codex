@@ -5193,6 +5193,27 @@
       ],
       "type": "object"
     },
+    "ThreadRealtimeScreenContextFrame": {
+      "description": "EXPERIMENTAL - current screen image for the vision-capable delegated agent. This does not send unsupported image input to the Live audio frontend.",
+      "properties": {
+        "capturedAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "imageUrl": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "capturedAtMs",
+        "imageUrl",
+        "label"
+      ],
+      "type": "object"
+    },
     "ThreadRealtimeStartTransport": {
       "description": "EXPERIMENTAL - transport used by thread realtime.",
       "oneOf": [

@@ -298,6 +298,47 @@ impl TurnRequestProcessor {
             .map(|response| response.map(Into::into))
     }
 
+    pub(crate) async fn thread_realtime_set_screen_context(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: ThreadRealtimeSetScreenContextParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let Some((_, thread)) = self
+            .prepare_realtime_conversation_thread(request_id, &params.thread_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let frame =
+            params.frame.map(
+                |frame| codex_protocol::protocol::RealtimeScreenContextFrame {
+                    image_url: frame.image_url,
+                    label: frame.label,
+                    captured_at_ms: frame.captured_at_ms,
+                },
+            );
+        let (reply, outcome) = oneshot::channel();
+        self.submit_core_op(
+            request_id,
+            thread.as_ref(),
+            Op::RealtimeConversationSetScreenContext {
+                context_id: params.context_id,
+                generation: params.generation,
+                frame,
+                reply,
+            },
+        )
+        .await
+        .map_err(|_| internal_error("failed to submit voice screen context"))?;
+        outcome
+            .await
+            .map_err(|_| internal_error("voice screen context operation ended before replying"))?
+            .map_err(|err| invalid_request(err.to_string()))?;
+        Ok(Some(
+            ThreadRealtimeSetScreenContextResponse::default().into(),
+        ))
+    }
+
     pub(crate) async fn thread_realtime_append_speech(
         &self,
         request_id: &ConnectionRequestId,

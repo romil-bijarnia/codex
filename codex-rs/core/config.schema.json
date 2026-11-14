@@ -4402,6 +4402,11 @@
           ],
           "description": "One-based microphone channels to mix; unset mixes all input channels."
         },
+        "screen_context": {
+          "default": false,
+          "description": "Share current local-screen snapshots with the vision backend during voice. This machine-local preference is off until explicitly enabled.",
+          "type": "boolean"
+        },
         "speaker": {
           "type": "string"
         }

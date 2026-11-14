@@ -32,6 +32,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_realtime_settings(&mut self) {
+        let screen_context = self.realtime_screen_context_enabled();
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some("Voice settings".to_string()),
             items: vec![
@@ -44,6 +45,23 @@ impl ChatWidget {
                 SelectionItem {
                     name: "Choose a voice".to_string(),
                     actions: vec![Box::new(|tx| tx.send(AppEvent::OpenRealtimeVoices))],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                },
+                SelectionItem {
+                    name: format!(
+                        "Screen context: {}",
+                        if screen_context { "on" } else { "off" }
+                    ),
+                    description: Some(
+                        "Share current screen images with spoken requests. Select to toggle."
+                            .into(),
+                    ),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::SetRealtimeScreenContextEnabled {
+                            enabled: !screen_context,
+                        })
+                    })],
                     dismiss_on_select: true,
                     ..Default::default()
                 },

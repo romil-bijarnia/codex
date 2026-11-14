@@ -336,6 +336,46 @@ pub struct ThreadRealtimeAppendTextParams {
 #[ts(export_to = "v2/")]
 pub struct ThreadRealtimeAppendTextResponse {}
 
+/// EXPERIMENTAL - current screen image for the vision-capable delegated agent.
+/// This does not send unsupported image input to the Live audio frontend.
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadRealtimeScreenContextFrame {
+    pub image_url: String,
+    pub label: String,
+    pub captured_at_ms: i64,
+}
+
+impl std::fmt::Debug for ThreadRealtimeScreenContextFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThreadRealtimeScreenContextFrame")
+            .field("image_url", &"[REDACTED]")
+            .field("captured_at_ms", &self.captured_at_ms)
+            .finish()
+    }
+}
+
+/// EXPERIMENTAL - replace the latest screen image, or clear it with null.
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadRealtimeSetScreenContextParams {
+    pub thread_id: String,
+    /// Unique capture owner nonce for one voice call; reused across its refreshes.
+    pub context_id: String,
+    /// Monotonic sharing revision, advanced on disable and re-enable.
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub frame: Option<ThreadRealtimeScreenContextFrame>,
+}
+
+/// EXPERIMENTAL - screen context was accepted for the active voice session.
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadRealtimeSetScreenContextResponse {}
+
 /// EXPERIMENTAL - append speakable text to thread realtime.
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

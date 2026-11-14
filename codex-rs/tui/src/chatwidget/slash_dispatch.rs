@@ -848,6 +848,15 @@ impl ChatWidget {
                 }
             }
             SlashCommand::Voice => match trimmed.to_ascii_lowercase().as_str() {
+                "screen on" => self
+                    .app_event_tx
+                    .send(AppEvent::SetRealtimeScreenContextEnabled { enabled: true }),
+                "screen off" => self
+                    .app_event_tx
+                    .send(AppEvent::SetRealtimeScreenContextEnabled { enabled: false }),
+                "screen" | "screen status" => self
+                    .app_event_tx
+                    .send(AppEvent::RealtimeScreenContextStatus),
                 "settings" => self.app_event_tx.send(AppEvent::OpenRealtimeSettings),
                 "mute" => self.app_event_tx.send(AppEvent::VoiceControl {
                     thread_id: self.thread_id(),
@@ -857,7 +866,10 @@ impl ChatWidget {
                     thread_id: self.thread_id(),
                     control: crate::app_event::VoiceControl::Stop,
                 }),
-                _ => self.add_error_message("Usage: /voice [settings|mute|stop]".to_string()),
+                _ => self.add_error_message(
+                    "Usage: /voice [settings|mute|stop|screen on|screen off|screen status]"
+                        .to_string(),
+                ),
             },
             SlashCommand::Ide => {
                 self.handle_ide_command_args(trimmed);

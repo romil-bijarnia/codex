@@ -1117,6 +1117,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadRealtimeAppendTextResponse,
     },
+    #[experimental("thread/realtime/setScreenContext")]
+    ThreadRealtimeSetScreenContext => "thread/realtime/setScreenContext" {
+        params: v2::ThreadRealtimeSetScreenContextParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadRealtimeSetScreenContextResponse,
+    },
     #[experimental("thread/realtime/appendSpeech")]
     ThreadRealtimeAppendSpeech => "thread/realtime/appendSpeech" {
         params: v2::ThreadRealtimeAppendSpeechParams,

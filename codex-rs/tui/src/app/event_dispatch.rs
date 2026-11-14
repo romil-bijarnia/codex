@@ -2272,6 +2272,24 @@ impl App {
             AppEvent::RealtimeConversationStateChanged => {
                 self.repaint_agents_overview();
             }
+            AppEvent::SetRealtimeScreenContextEnabled { enabled } => {
+                self.set_voice_screen_context_enabled(app_server, enabled).await;
+            }
+            AppEvent::RealtimeScreenContextStatus => {
+                self.show_voice_screen_context_status();
+            }
+            AppEvent::RealtimeScreenContextCaptured {
+                thread_id,
+                attempt_id,
+                generation,
+                result,
+                completion,
+            } => {
+                let delivered = self.deliver_voice_screen_context(
+                    app_server, thread_id, attempt_id, generation, result,
+                ).await;
+                let _ = completion.send(delivered);
+            }
             AppEvent::VoiceControl { thread_id, control } => {
                 if thread_id == self.chat_widget.thread_id() || self.voice_owner_thread_id().is_some() {
                     self.control_voice(control);

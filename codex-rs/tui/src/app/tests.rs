@@ -86,6 +86,8 @@ mod plugin_catalog;
 mod rate_limits;
 #[path = "tests/realtime_handoff_e2e.rs"]
 mod realtime_handoff_e2e;
+#[path = "tests/voice_screen_context_e2e.rs"]
+mod voice_screen_context_e2e;
 #[path = "tests/realtime_requests.rs"]
 mod realtime_requests;
 #[path = "tests/realtime_start.rs"]

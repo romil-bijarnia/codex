@@ -1197,6 +1197,17 @@ pub(crate) enum AppEvent {
         control: VoiceControl,
     },
     RealtimeConversationStateChanged,
+    SetRealtimeScreenContextEnabled {
+        enabled: bool,
+    },
+    RealtimeScreenContextStatus,
+    RealtimeScreenContextCaptured {
+        thread_id: ThreadId,
+        attempt_id: u64,
+        generation: u64,
+        result: Result<crate::voice_screen_context::ScreenContextFrame, String>,
+        completion: tokio::sync::oneshot::Sender<bool>,
+    },
     BackgroundVoiceError {
         thread_id: ThreadId,
         message: String,

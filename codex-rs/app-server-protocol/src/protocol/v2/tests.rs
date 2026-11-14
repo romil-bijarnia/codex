@@ -5546,3 +5546,34 @@ fn feedback_paths_preserve_native_wire_spelling_before_host_validation() {
         );
     }
 }
+
+#[test]
+fn realtime_screen_context_is_typed_and_diagnostics_redact_visual_data() {
+    let params = ThreadRealtimeSetScreenContextParams {
+        thread_id: "thread-screen-test".to_string(),
+        context_id: "voice-call-test".to_string(),
+        generation: 3,
+        frame: Some(ThreadRealtimeScreenContextFrame {
+            image_url: "data:image/png;base64,private-screen-data".to_string(),
+            label: "private-window-title".to_string(),
+            captured_at_ms: 1234,
+        }),
+    };
+    let debug = format!("{params:?}");
+    assert!(!debug.contains("private-screen-data"));
+    assert!(!debug.contains("private-window-title"));
+    let value = serde_json::to_value(&params).unwrap();
+    assert_eq!(
+        value["frame"]["imageUrl"],
+        "data:image/png;base64,private-screen-data"
+    );
+    assert_eq!(value["frame"]["capturedAtMs"], 1234);
+    let cleared: ThreadRealtimeSetScreenContextParams = serde_json::from_value(serde_json::json!({
+        "threadId": "thread-screen-test",
+        "contextId": "voice-call-test",
+        "generation": 4,
+        "frame": null
+    }))
+    .unwrap();
+    assert!(cleared.frame.is_none());
+}

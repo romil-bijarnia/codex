@@ -107,6 +107,7 @@ mod activation_key_guard;
 mod additional_dirs;
 mod analytics;
 mod app;
+mod voice_screen_context;
 mod app_backtrack;
 mod app_command;
 mod app_event;

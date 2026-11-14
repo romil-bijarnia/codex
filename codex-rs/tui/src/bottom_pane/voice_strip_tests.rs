@@ -46,6 +46,23 @@ fn rows(strip: &VoiceStrip, width: u16) -> (String, Buffer) {
 }
 
 #[test]
+fn screen_context_indicator_survives_narrow_voice_controls() {
+    let mut strip = active_strip();
+    strip.state.activity = "listening, screen shared";
+    for width in [30, 37, 47, 80] {
+        let (text, _) = rows(&strip, width);
+        assert!(
+            text.contains("voice (screen)"),
+            "missing screen indicator at {width}"
+        );
+        assert!(
+            text.contains("/voice stop"),
+            "missing stop control at {width}"
+        );
+    }
+}
+
+#[test]
 fn active_dashboard_preserves_live_colors_controls_and_width() {
     let mut strip = active_strip();
     strip.state.progress = false;
