@@ -133,7 +133,6 @@ async fn delegated_core_events_keep_private_output_hidden_and_deliver_final_spee
             "v=offer\r\n".to_string(),
             /*model*/ None,
             /*voice*/ None,
-            /*realtime_session_id*/ None,
         )
         .await?;
     // The sideband fixture sends its delegation after the first outbound request.
