@@ -35,6 +35,24 @@ def remove_execution_rules(existing):
     return (before + after).strip()
 
 
+def set_context_boolean(text, section, key, value):
+    """Change one scalar without rewriting unrelated TOML or skill overrides."""
+    header = re.search(r'^\[' + re.escape(section) + r'\][ \t]*(?:#[^\n]*)?$', text, re.MULTILINE)
+    line = f'{key} = {str(value).lower()}\n'
+    if header is None:
+        return text.rstrip() + f'\n\n[{section}]\n' + line
+    start = header.end()
+    following = re.search(r'^[ \t]*\[', text[start:], re.MULTILINE)
+    end = start + following.start() if following else len(text)
+    body = text[start:end]
+    pattern = r'^[ \t]*' + re.escape(key) + r'\s*=.*(?:\n|$)'
+    if re.search(pattern, body, re.MULTILINE):
+        body = re.sub(pattern, line, body, flags=re.MULTILINE)
+    else:
+        body = '\n' + line + body.lstrip('\n')
+    return text[:start] + body + text[end:]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stock', action='store_true')
@@ -66,6 +84,18 @@ def main():
         prefix += 'developer_instructions = ' + json.dumps(developer, ensure_ascii=False) + '\n'
         expected['developer_instructions'] = developer
     updated_config = prefix + root + text[offset:]
+    memory_guide = None
+    if not args.stock:
+        memory_guide = (source / 'memory-lookup.md').read_text()
+        if not memory_guide.strip():
+            raise SystemExit('Memory lookup guide is empty; no files changed.')
+        for section, key, value in (
+            ('memories', 'use_memories', False),
+            ('features', 'omit_skill_descriptions', True),
+        ):
+            updated_config = set_context_boolean(updated_config, section, key, value)
+            expected[section] = dict(expected.get(section, {}))
+            expected[section][key] = value
     if tomllib.loads(updated_config) != expected:
         raise SystemExit('Cannot update the base without changing other settings; no files changed.')
 
@@ -89,6 +119,10 @@ def main():
         atomic_write(agents, personal)
     if not args.stock and (not destination.exists() or destination.read_text() != compact):
         atomic_write(destination, compact)
+    if memory_guide is not None:
+        guide_destination = codex_home / 'prompts/memory-lookup.md'
+        if not guide_destination.exists() or guide_destination.read_text() != memory_guide:
+            atomic_write(guide_destination, memory_guide)
     if text != updated_config:
         atomic_write(config, updated_config)
     print(json.dumps({'base_mode': 'stock' if args.stock else 'compact',

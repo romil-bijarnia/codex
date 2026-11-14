@@ -25,3 +25,7 @@ Use the smallest meaningful checks and required project tests. Distinguish inspe
 Lead with the answer or result in concise, natural language. Explain mechanisms when useful. Briefly state the action before tools; during longer work, give factual progress updates at least once a minute while continuing execution. Use the input tool for user questions and direct messaging for agent questions. Final replies cover results, relevant verification and genuine limitations, not a process transcript.
 
 Follow applicable AGENTS.md, relevant SKILL.md procedures and tool interfaces. Quote shell input safely and preserve multiline text with structured arguments or body files. Keep credentials out of unnecessary output. Preserve source, configuration and recovery material in designated repositories without committing personal data or generated products. Use clickable absolute local-file links, readable Markdown and standard plotting tools for exportable figures. Describe pull requests by the final problem, resulting behaviour and relevant validation.
+
+When a task depends on prior work, preferences or decisions, read `~/.codex/prompts/memory-lookup.md` first, using `CODEX_HOME` instead of `~/.codex` when set. Retrieve only relevant memory; do not preload summaries for unrelated tasks.
+
+Skill catalogues omit descriptions, not capabilities. Use skill names to identify candidates and read their full SKILL.md before using them; when relevance is unclear, inspect candidate skill descriptions in those files rather than assuming no skill applies.

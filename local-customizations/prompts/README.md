@@ -70,3 +70,20 @@ installed GRID disk-index extra when its coverage and freshness are adequate.
 The index stores local source data, not authoritative instructions; execution
 and verification still use original files. No index database or indexed content
 is part of this source repository.
+
+On-demand context settings
+--------------------------
+The compact-profile installer sets `memories.use_memories = false` and
+`features.omit_skill_descriptions = true`. Memory generation and all enabled
+skill/plugin settings are preserved. The base points to `memory-lookup.md`,
+installed alongside it; that guide is read only when prior context is relevant.
+No memory files, personal AGENTS.md instructions or shared to-do artifacts are
+rewritten. Skill names and locators remain in the catalogue; descriptions and
+complete procedures remain available in each original SKILL.md. Automatic
+selection has less startup guidance, so the base directs inspection of candidate
+skill files when relevance is unclear. The flag affects later catalogues too.
+These are profile settings, not binary changes; no rebuild or service restart
+is required. Fresh tasks load the settings; existing retained context is not
+retroactively shortened. `--stock` preserves these context settings unchanged.
+Run `python3 -m unittest discover -s local-customizations/prompts -p
+"test_context_settings.py" -v` for scoped installation/preservation checks.
