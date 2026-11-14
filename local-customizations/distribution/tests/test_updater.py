@@ -8,13 +8,16 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import manage
 import common
 import build
+import backend
 import shutil
 from common import sha256
 
@@ -87,6 +90,91 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(manage.installed_matches(manifest))
         (selected / 'bin/codex').write_text('a replaced native executable')
         self.assertFalse(manage.installed_matches(manifest))
+
+    def test_already_installed_update_still_reconciles_backend(self):
+        commit = 'a' * 40
+        tag = common.release_tag(commit)
+        manage.STATE.mkdir(parents=True)
+        manage.STATE_FILE.write_text(json.dumps({'release_tag': tag}))
+        args = SimpleNamespace(source_refreshed=True, revision=commit, check=False)
+        with patch.object(manage, 'platform_check'), \
+             patch.object(manage, 'published', return_value={}), \
+             patch.object(manage, 'installed_matches', return_value=True), \
+             patch.object(manage, 'start_backend_rollout') as rollout, \
+             patch.object(manage, 'run') as remote_build, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            manage.update(args)
+        rollout.assert_called_once_with(self.old)
+        remote_build.assert_not_called()
+        self.assertIn('selected Codex package is already current', output.getvalue())
+
+    def test_check_reports_backend_mismatch_without_starting_rollout(self):
+        commit = 'a' * 40
+        manage.STATE.mkdir(parents=True)
+        manage.STATE_FILE.write_text(json.dumps({'release_tag': common.release_tag(commit)}))
+        args = SimpleNamespace(source_refreshed=True, revision=commit, check=True)
+        mismatch = {'selected_source_commit': commit, 'running': {'source_commit': 'b' * 40},
+                    'matches_selected': False}
+        with patch.object(manage, 'platform_check'), \
+             patch.object(manage, 'published', return_value={}), \
+             patch.object(manage, 'installed_matches', return_value=True), \
+             patch.object(manage, 'backend_status', return_value=mismatch), \
+             patch.object(manage, 'start_backend_rollout') as rollout, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            manage.update(args)
+        rollout.assert_not_called()
+        info = json.loads(output.getvalue())
+        self.assertTrue(info['already_installed'])
+        self.assertEqual(info['backend'], mismatch)
+
+    def test_rollout_launcher_does_not_spawn_when_worker_owns_lock(self):
+        with backend.acquire_rollout_lock(self.profile):
+            with patch.object(manage.subprocess, 'Popen') as popen:
+                self.assertFalse(manage.start_backend_rollout(self.old))
+            popen.assert_not_called()
+
+    def test_rollout_launcher_passes_exclusive_lock_to_child(self):
+        with patch.object(manage.subprocess, 'Popen') as popen:
+            def inherited_lock(args, **kwargs):
+                descriptor = int(args[args.index('--lock-fd') + 1])
+                self.assertEqual(kwargs['pass_fds'], (descriptor,))
+                self.assertIsNone(backend.acquire_rollout_lock(self.profile))
+            popen.side_effect = inherited_lock
+            self.assertTrue(manage.start_backend_rollout(self.old))
+        # A failed/exited launch must not leave a permanent lock behind.
+        with backend.acquire_rollout_lock(self.profile):
+            pass
+
+    def test_spawned_child_holds_rollout_lock_after_launcher_returns(self):
+        root = self.home / 'test-worker';root.mkdir()
+        (root / 'backend.py').write_text(
+            'import os, sys, time\n'
+            'from pathlib import Path\n'
+            'os.fstat(int(sys.argv[sys.argv.index("--lock-fd") + 1]))\n'
+            'Path(sys.argv[1], "worker-ready").touch()\n'
+            'time.sleep(20)\n')
+        children = []
+        real_popen = subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+        try:
+            with patch.object(manage, 'ROOT', root), \
+                 patch.object(manage.subprocess, 'Popen', side_effect=spawn):
+                self.assertTrue(manage.start_backend_rollout(self.old))
+                deadline = time.monotonic() + 3
+                while not (self.old / 'worker-ready').exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue((self.old / 'worker-ready').exists())
+                self.assertFalse(manage.start_backend_rollout(self.old))
+                self.assertEqual(len(children), 1)
+        finally:
+            for child in children:
+                child.terminate()
+                child.wait(timeout=3)
+        with backend.acquire_rollout_lock(self.profile):
+            pass
 
     def test_source_identity_includes_committed_build_recipe(self):
         root, _ = self.source_repository()

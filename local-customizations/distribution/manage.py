@@ -17,6 +17,7 @@ import time
 
 from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, validate_stable_manifest
 from voice import VOICE_CHECK, check_voice_runtime, verify_voice_resources
+from backend import acquire_rollout_lock, backend_status
 
 HOME = Path.home()
 CODEX_HOME = Path(os.environ.get('CODEX_HOME', HOME / '.codex')).expanduser()
@@ -167,14 +168,19 @@ def select_package(package, manifest):
 
 def start_backend_rollout(package):
     STATE.mkdir(parents=True, exist_ok=True)
-    log = (STATE / 'backend.log').open('a')
+    lock = acquire_rollout_lock(CODEX_HOME)
+    if lock is None:
+        return False
     try:
-        subprocess.Popen([sys.executable, str(ROOT / 'backend.py'), str(package)],
-                         env=dict(os.environ, CODEX_HOME=str(CODEX_HOME)),
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                         start_new_session=True)
+        with (STATE / 'backend.log').open('a') as log:
+            subprocess.Popen([sys.executable, str(ROOT / 'backend.py'), str(package),
+                              '--lock-fd', str(lock.fileno())],
+                             env=dict(os.environ, CODEX_HOME=str(CODEX_HOME)),
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                             start_new_session=True, pass_fds=(lock.fileno(),))
+        return True
     finally:
-        log.close()
+        lock.close()
 
 
 def refresh_source():
@@ -192,12 +198,14 @@ def refresh_source():
 
 
 def status():
+    selected = (PACKAGES / 'current').resolve()
     print(json.dumps({'repository': REPO, 'channel': stable_release_pin()['upstream_channel'],
                       'source_branch': CONFIG['source_branch'],
                       'upstream_release': CONFIG['upstream_release'],
                       'source_checkout': str(source_root()),
                       'checkout_commit': output(['git', '-C', source_root(), 'rev-parse', 'HEAD']),
-                      'installed': read_state(), 'selected_package': str((PACKAGES / 'current').resolve()),
+                      'installed': read_state(), 'selected_package': str(selected),
+                      'backend': backend_status(CODEX_HOME, selected),
                       'source_checkout_required': True}, indent=2))
 
 
@@ -253,10 +261,13 @@ def update(args):
                 'source_checkout_required': True, 'upstream_release': CONFIG['upstream_release'],
                 'upstream_channel': stable_release_pin()['upstream_channel']}
         if args.check:
+            info['backend'] = backend_status(CODEX_HOME, (PACKAGES / 'current').resolve())
             print(json.dumps(info, indent=2))
             return
         if info['already_installed']:
-            print('Codex is already current with your committed personal source.')
+            start_backend_rollout((PACKAGES / 'current').resolve(strict=True))
+            print('The selected Codex package is already current with your committed personal source. '
+                  'The shared backend is being checked and will update only after observed idle time if needed.')
             return
         if not release:
             print('A matching build is not published yet. Requesting the automated remote build.', flush=True)
