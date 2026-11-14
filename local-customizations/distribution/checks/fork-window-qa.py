@@ -31,9 +31,12 @@ def sessions(profile):
 def assert_parent_recorded(path, message):
     with path.open() as stream:
         records = [json.loads(line) for line in stream]
-    assert any(record.get("type") == "event_msg"
-               and record["payload"].get("type") == "user_message"
-               and record["payload"].get("message") == message
+    assert any(record.get("type") == "response_item"
+               and record["payload"].get("type") == "message"
+               and record["payload"].get("role") == "user"
+               and any(part.get("type") == "input_text"
+                       and part.get("text") == message
+                       for part in record["payload"].get("content", []))
                for record in records), "The original chat did not receive the next message"
 
 
