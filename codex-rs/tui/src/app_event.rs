@@ -1582,6 +1582,26 @@ pub(crate) enum AppEvent {
         profile_selection: Option<PermissionProfileSelection>,
     },
 
+    /// Reuse the Full Access warning before activating the existing EL2 bridge.
+    ConfirmEl2Control {
+        thread_id: Option<ThreadId>,
+        discovery: Option<crate::permission_discovery::PermissionDiscovery>,
+    },
+    ActivateEl2Control {
+        thread_id: ThreadId,
+        request_id: Uuid,
+        discovery: Option<crate::permission_discovery::PermissionDiscovery>,
+    },
+    CancelEl2Control {
+        thread_id: ThreadId,
+        request_id: Uuid,
+    },
+    El2ControlActivated {
+        thread_id: ThreadId,
+        request_id: Uuid,
+        result: Result<crate::el2_control::Activation, String>,
+    },
+
     /// Apply a permission shortcut only while its originating thread is displayed.
     ApplyPermissionShortcut {
         thread_id: ThreadId,

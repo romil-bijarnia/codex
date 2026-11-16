@@ -1,3 +1,7 @@
+> This branch is based on official stable Codex 0.169.0 and adds only the Linux
+> [EL2 Control interface](docs/el2-control-interface.md). It does not restore the
+> former custom launcher, updater or unrelated native changes.
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />

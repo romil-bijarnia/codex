@@ -155,13 +155,17 @@ impl ChatWidget {
                         &current_permission_profile,
                         self.config.cwd.as_path(),
                         &preset,
-                    ),
+                    ) && !(preset.id == "full-access" && self.el2_control_is_active()),
                     actions: default_actions,
                     dismiss_on_select: true,
                     disabled_reason: default_disabled_reason,
                     ..Default::default()
                 });
             }
+        }
+
+        if let Some(item) = self.el2_control_selection_item(None) {
+            items.push(item);
         }
 
         let footer_note = show_elevate_sandbox_hint.then(|| {
@@ -430,6 +434,34 @@ impl ChatWidget {
     ) {
         let selected_name = preset.label.to_string();
         let approval = AskForApproval::from(preset.approval);
+        let accept_actions = profile_selection.map_or_else(
+            || {
+                Self::approval_preset_actions(
+                    approval,
+                    preset.permission_profile,
+                    preset.active_permission_profile,
+                    selected_name,
+                    ApprovalsReviewer::User,
+                )
+            },
+            Self::permission_profile_selection_actions,
+        );
+        self.open_full_access_confirmation_with_actions(
+            return_to_permissions,
+            accept_actions,
+            Vec::new(),
+            None,
+        );
+    }
+
+    /// Keep the stock warning and cancellation layout for capability actions too.
+    pub(super) fn open_full_access_confirmation_with_actions(
+        &mut self,
+        return_to_permissions: bool,
+        accept_actions: Vec<SelectionAction>,
+        mut deny_actions: Vec<SelectionAction>,
+        on_cancel: Option<SelectionAction>,
+    ) {
         let is_cyber_model = self.model_catalog.try_list_models().is_ok_and(|models| {
             models.iter().any(|model| {
                 model.model == self.current_model()
@@ -470,26 +502,13 @@ impl ChatWidget {
         )
         .wrap(Wrap { trim: false });
 
-        let accept_actions = profile_selection.map_or_else(
-            || {
-                Self::approval_preset_actions(
-                    approval,
-                    preset.permission_profile,
-                    preset.active_permission_profile,
-                    selected_name,
-                    ApprovalsReviewer::User,
-                )
-            },
-            Self::permission_profile_selection_actions,
-        );
-
-        let deny_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
+        deny_actions.push(Box::new(move |tx| {
             if return_to_permissions {
                 tx.send(AppEvent::OpenPermissionsPopup);
             } else {
                 tx.send(AppEvent::OpenApprovalsPopup);
             }
-        })];
+        }));
 
         let items = vec![
             SelectionItem {
@@ -511,6 +530,7 @@ impl ChatWidget {
         self.bottom_pane.show_selection_view(SelectionViewParams {
             items,
             header: Box::new(header),
+            on_cancel,
             ..SelectionViewParams::confirmation()
         });
     }

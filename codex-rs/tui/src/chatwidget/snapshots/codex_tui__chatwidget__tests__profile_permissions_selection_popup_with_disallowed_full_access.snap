@@ -14,5 +14,7 @@ expression: "render_bottom_popup(&chat, 80)"
                              (disabled: Disabled by requirements)
 › 3. Read Only (current)     Read workspace files, with approval required for
                              edits or internet access
+     EL2 Control (disabled)  Verify the existing EL2 interface and use Full
+                             Access (disabled: Wait for this task to connect.)
 
   enter select · esc back

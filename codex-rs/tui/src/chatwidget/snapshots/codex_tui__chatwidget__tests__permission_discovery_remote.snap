@@ -14,5 +14,7 @@ expression: "render_bottom_popup(&chat, 110)"
      Read Only (disabled)        Read workspace files, with approval required for edits or internet access
                                  (disabled: Disabled by requirements)
   2. server-only                 Description from the connected server.
+     EL2 Control (disabled)      Verify the existing EL2 interface and use Full Access (disabled: Disabled by
+                                 requirements)
 
   enter select · esc back

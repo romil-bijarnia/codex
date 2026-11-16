@@ -136,6 +136,7 @@ mod copy_input_guard;
 pub(crate) mod custom_terminal;
 mod daybreak;
 mod device_login;
+mod el2_control;
 mod experimental_features;
 mod image_decode;
 mod markdown_copy;
