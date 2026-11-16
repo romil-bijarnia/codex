@@ -1,89 +1,27 @@
-The operating base is `compact-base.md`, a maintained replacement.
-Romil sets outcomes and boundaries; Sara owns routine decisions, execution,
-verification and delivery. AGENTS.md retains personal preferences, a standing
-proactive-delegation instruction and repository destinations. The complete
-personal template and machine procedures live in private GRID;
-personal files are not tracked in the public customization repository.
+# Independent instruction helpers
 
-The positive working standard is outcome ownership: choose the approach,
-resolve problems within scope, and finish assigned work without repeated
-prompts to continue. A work request is the instruction to act; do not wait for
-a separate go-ahead. Do not end a turn at a plan, progress report, diagnosis or
-completed prerequisite while useful work remains. Romil may leave or switch threads; Sara keeps working
-on the problem, task or issue using her judgement within the agreed scope,
-without waiting for supervision or another prompt. Continue until completion
-or a concrete dependency prevents all remaining progress after reasonable
-alternatives have been checked. Match verification to the practical result; component tests guide
-progress rather than replace that result. Bring genuine user decisions with
-evidence and a recommendation. Work independently while Romil is away:
-anticipate necessary steps, address foreseeable obstacles within scope, try
-reasonable alternatives and continue unblocked work while awaiting essential
-input. Leave a concise result or exact blocker for his return.
+The custom system-prompt payload, generator, installer and source fragments have
+been removed from this fork. No `compact-base.md` or generated Sara model base
+is bundled, selected or installed. The CLI retains its normal upstream model
+instructions unless the user explicitly configures an override.
 
-Run `python3 local-customizations/prompts/install.py` from an assembled Codex
-source tree, or `python3 instructions/install.py` from the GRID recovery package,
-to select and install `~/.codex/prompts/sara-system.md`. The installer preserves
-unrelated settings, model selection, permissions and existing AGENTS.md. It
-removes only the retired managed execution block, is idempotent and creates no
-backups. Missing AGENTS.md and MACHINE.md can be restored from private templates;
-existing files are not overwritten.
+AGENTS.md is a separate user-owned instruction layer. This removal does not
+modify AGENTS.md, MACHINE.md, memory files, credentials, existing configuration
+or running chats. It also does not delete the upstream model-prompt sources.
 
-When upgrading an existing profile, reconcile the peer-communication and
-proactive-delegation paragraphs from the private template without replacing
-unrelated instructions, then refresh loaded chats. The standing AGENTS.md rule
-explicitly requests useful independent subagent work, satisfying the runtime's
-user-or-AGENTS delegation condition without a blanket runtime override.
-Small and tightly coupled tasks stay in the parent. Agents receive bounded
-ownership and acceptance criteria; the parent verifies the integrated result.
+The remaining files serve independent purposes:
 
-Ordinary clarification updates understanding without apology routines. Actual
-errors get a brief factual correction followed by repair. Discussion remains
-discussion until action is requested; existing task restrictions, stop requests,
-authorisation boundaries and data preservation still apply. The design reduces
-repeated narration and redundant work rather than suppressing useful progress
-or the reporting of actual failures.
+- `memory-lookup.md` documents the optional on-demand lookup workflow. It does
+  not install a system prompt or change memory settings.
+- `repository-preservation.md` is an optional AGENTS.md instruction fragment,
+  not a replacement model base.
+- `refresh-loaded-chats.py` audits existing loaded-chat context by default and
+  only applies user-configured context when explicitly run with `--apply`.
+  It contains no bundled custom system prompt. Its generic WebSocket `Client`
+  class is also imported by the package updater for read-only idle checks.
+- `.gitignore` keeps local AGENTS.md/MACHINE.md and private inspection products
+  out of ordinary source commits.
 
-Run `python3 instructions/refresh-loaded-chats.py --apply` from the recovery
-package (or the equivalent `local-customizations/prompts/` path) to refresh
-loaded chats without starting turns. Without `--apply`, it audits. The helper
-updates the configured base and AGENTS.md independently and removes retired
-execution guidance. It preserves task identities, goals and project constraints.
-If saved-history readback lags an accepted update, audit again rather than
-repeating the mutation. Archived/unloaded histories are not rewritten, and
-parent-managed subagents are skipped rather than receiving direct updates.
-
-Run the installer with `--stock` to restore the selected model's stock base.
-AGENTS.md and unrelated settings remain; no files are deleted. The maintained
-replacement does not automatically inherit future stock-prompt changes:
-review those deliberately. Tool schemas, permissions and capabilities remain
-runtime-owned. Current content hashes and coverage are recorded in `origin.json`.
-
-Verification covers installer preservation and idempotency, a fresh rendered
-prompt, loaded-chat receipts and source equality. These establish installation,
-not a behavioural guarantee or measured reduction in model usage. Word counts
-are text measurements, not token accounting. Historical verification files
-refer to their recorded prompt hashes; `autonomy-verification.json` records
-the earlier autonomy revision's checks.
-
-The private AGENTS.md template also routes disk discovery through the separately
-installed GRID disk-index extra when its coverage and freshness are adequate.
-The index stores local source data, not authoritative instructions; execution
-and verification still use original files. No index database or indexed content
-is part of this source repository.
-
-On-demand context settings
---------------------------
-The compact-profile installer sets `memories.use_memories = false` and
-`features.omit_skill_descriptions = true`. Memory generation and all enabled
-skill/plugin settings are preserved. The base points to `memory-lookup.md`,
-installed alongside it; that guide is read only when prior context is relevant.
-No memory files, personal AGENTS.md instructions or shared to-do artifacts are
-rewritten. Skill names and locators remain in the catalogue; descriptions and
-complete procedures remain available in each original SKILL.md. Automatic
-selection has less startup guidance, so the base directs inspection of candidate
-skill files when relevance is unclear. The flag affects later catalogues too.
-These are profile settings, not binary changes; no rebuild or service restart
-is required. Fresh tasks load the settings; existing retained context is not
-retroactively shortened. `--stock` preserves these context settings unchanged.
-Run `python3 -m unittest discover -s local-customizations/prompts -p
-"test_context_settings.py" -v` for scoped installation/preservation checks.
+The generic upstream `model_instructions_file` configuration option remains
+available to users. Existing explicit overrides are not stripped or rewritten
+by the launcher installer.

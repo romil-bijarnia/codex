@@ -28,14 +28,12 @@ are used instead. Immediate release uses the upstream `thread_unload_delay_secs 
 setting; it is not a replacement lock implementation. A chat still open in
 another client, or still doing work, is not forcibly unlocked.
 
-The prompt kit installs a compact stock-derived model base and retains global
-AGENTS.md for personal context. See [the instructions kit](prompts/README.md) for
-source coverage, installation and stock-mode rollback.
-A compact stock-derived base contains the approved operator role and the general
-working rules. Global AGENTS.md supplies personal guidance and standing
-authorisation. The installer preserves model and permission settings and supports
---stock rollback; see the prompt kit for counts and source coverage. Skills,
-tool instructions and service instructions retain their normal roles.
+No custom system prompt is bundled or installed by this fork. The CLI uses
+its normal upstream model instructions unless the user explicitly configures
+an override. Global AGENTS.md remains separate personal context. Existing
+instructions, account data and memory settings are not rewritten by this
+source cleanup. The remaining [instruction helpers](prompts/README.md) do not
+provide or select a replacement model base.
 
 The original macOS launcher recipe below remains available. Current Linux
 behavior and recovery are documented in [the Linux notes](linux/README.md).

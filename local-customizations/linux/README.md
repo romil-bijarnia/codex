@@ -31,11 +31,9 @@ executable used by running sessions. Preserve companion resources, select the
 new package atomically and keep the previous generation for recovery.
 
 The EL2 default is `~/.codex/state/owner-el2-selection/default.json` containing
-`{"enabled":true}`. Per-conversation opt-outs take precedence. The personal
-guidance remains in global AGENTS.md. Run
-`python3 local-customizations/prompts/install.py` to install the compact base
-and remove the retired stacked execution block.
-Use the installer's --stock option to restore the selected model's original base.
+`{"enabled":true}`. Per-conversation opt-outs take precedence. Personal guidance remains in global AGENTS.md. This fork does not ship a
+custom system-prompt file or an installer that selects one. Normal upstream
+model instructions are used unless the user explicitly configures an override.
 Do not replace a user's complete configuration with a saved machine snapshot.
 
 If a stock update removes the custom permissions menu, restore an already
