@@ -111,9 +111,11 @@ class Terminal:
         return self.wait(ready, command + " command")
 
     def model_status(self, model: str) -> str:
-        return self.slash("status", lambda s: re.search(
-            r"Model:\s+" + re.escape(model) + r"\s+\(reasoning xhigh", s
-        ) is not None)
+        def current_status(frame: str) -> bool:
+            selections = re.findall(r"Model:\s+(.+?)\s+\(reasoning (\w+)", frame, re.IGNORECASE)
+            return bool(selections) and tuple(s.lower() for s in selections[-1]) == (model, "xhigh")
+
+        return self.slash("status", current_status)
 
     def select_row(self, label: str) -> None:
         match = re.search(r"^.*?([1-9])\.\s+" + re.escape(label), self.frame(), re.MULTILINE)
