@@ -28,6 +28,7 @@ use codex_protocol::items::EnteredReviewModeItem;
 use codex_protocol::items::ExitedReviewModeItem;
 use codex_protocol::items::TurnItem;
 use codex_protocol::items::UserMessageItem;
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::ReviewTarget;
 use codex_protocol::user_input::UserInput as CoreUserInput;
@@ -35,6 +36,7 @@ use codex_state::SqliteConfig;
 use futures::SinkExt;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
+use serde_json::json;
 use std::sync::Mutex;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -854,7 +856,11 @@ fn load_daybreak_default_test_models(
         })
         .last()
         .expect("model catalog request");
-    assert!(app.chat_widget.on_models_loaded(request_id, Ok(models)));
+    let expected = models.clone();
+    // An identical catalogue is accepted without reporting a model-list change.
+    app.chat_widget.on_models_loaded(request_id, Ok(models));
+    assert_eq!(app.chat_widget.model_catalog().models, expected);
+    assert!(!app.chat_widget.model_popup_request_is_current(request_id));
     app.chat_widget
         .handle_key_event(KeyEvent::from(KeyCode::Esc));
 }
@@ -962,7 +968,7 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
             if enabled { "gpt-6-sol" } else { "gpt-6.1-sol" }
         );
         assert_eq!(
-            app.chat_widget.effective_reasoning_effort(),
+            app.chat_widget.current_reasoning_effort(),
             Some(ReasoningEffort::XHigh)
         );
         assert!(recorded_params(&requests, "config/batchWrite").is_empty());
@@ -1175,7 +1181,7 @@ async fn daybreak_defaults_validate_catalog_effort_and_eligibility_before_mutati
             );
         }
         let model_before = app.chat_widget.current_model().to_owned();
-        let effort_before = app.chat_widget.effective_reasoning_effort();
+        let effort_before = app.chat_widget.current_reasoning_effort();
         let mode_before = app.chat_widget.daybreak_enabled;
         let updates_before = recorded_params(&requests, "thread/settings/update").len();
         let metadata_before = recorded_params(&requests, "thread/metadata/update").len();
@@ -1202,7 +1208,7 @@ async fn daybreak_defaults_validate_catalog_effort_and_eligibility_before_mutati
                 .await
         );
         assert_eq!(app.chat_widget.current_model(), model_before);
-        assert_eq!(app.chat_widget.effective_reasoning_effort(), effort_before);
+        assert_eq!(app.chat_widget.current_reasoning_effort(), effort_before);
         assert_eq!(app.chat_widget.daybreak_enabled, mode_before);
         assert_eq!(
             recorded_params(&requests, "thread/settings/update").len(),
@@ -1297,7 +1303,7 @@ async fn daybreak_defaults_restore_session_model_when_thread_metadata_write_fail
     );
     assert_eq!(app.chat_widget.current_model(), "gpt-6.1-sol");
     assert_eq!(
-        app.chat_widget.effective_reasoning_effort(),
+        app.chat_widget.current_reasoning_effort(),
         Some(ReasoningEffort::XHigh)
     );
     assert!(!app.chat_widget.daybreak_enabled);

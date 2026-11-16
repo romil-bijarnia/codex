@@ -2,6 +2,7 @@ use super::*;
 use crate::legacy_core::config::PermissionProfileCatalogEntry;
 use crate::permission_discovery::PermissionDiscovery as Discovery;
 use codex_protocol::models::ActivePermissionProfile;
+#[cfg(not(target_os = "linux"))]
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
 use codex_protocol::models::ManagedFileSystemPermissions;

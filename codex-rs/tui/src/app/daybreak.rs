@@ -19,14 +19,14 @@ impl App {
         effort: Option<ReasoningEffort>,
     ) -> bool {
         if self.chat_widget.current_model() == model
-            && self.chat_widget.effective_reasoning_effort() == effort
+            && self.chat_widget.current_reasoning_effort() == effort
         {
             return true;
         }
         self.select_session_model(app_server, model.clone(), effort.clone(), None)
             .await;
         self.chat_widget.current_model() == model
-            && self.chat_widget.effective_reasoning_effort() == effort
+            && self.chat_widget.current_reasoning_effort() == effort
     }
 
     pub(super) async fn persist_daybreak_selection(
@@ -88,13 +88,13 @@ impl App {
             return false;
         }
         let original_model = self.chat_widget.current_model().to_string();
-        let original_effort = self.chat_widget.effective_reasoning_effort();
+        let original_effort = self.chat_widget.current_reasoning_effort();
         if !self
             .apply_daybreak_model(app_server, target.into(), Some(ReasoningEffort::XHigh))
             .await
         {
             if (self.chat_widget.current_model() != original_model
-                || self.chat_widget.effective_reasoning_effort() != original_effort)
+                || self.chat_widget.current_reasoning_effort() != original_effort)
                 && !self
                     .apply_daybreak_model(app_server, original_model, original_effort)
                     .await
