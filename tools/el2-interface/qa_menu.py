@@ -111,6 +111,8 @@ class Terminal:
         return self.wait(ready, command + " command")
 
     def model_status(self, model: str) -> str:
+        # Status writes history, not a popup. Escape before the next slash can
+        # become an Alt-slash key sequence and leave plain text in the composer.
         def current_status(frame: str) -> bool:
             selections = re.findall(r"Model:\s+(.+?)\s+\(reasoning (\w+)", frame, re.IGNORECASE)
             return bool(selections) and tuple(s.lower() for s in selections[-1]) == (model, "xhigh")
@@ -164,7 +166,6 @@ def main() -> None:
         if not args.baseline:
             terminal.model_status("gpt-6.1-sol")
             checks["normal_launch_sol61_xhigh"] = True
-            terminal.send(b"\x1b")
         terminal.permissions()
         terminal.save("permissions-before")
         checks["stock_permissions_visible"] = True
@@ -202,7 +203,6 @@ def main() -> None:
             terminal.model_status("gpt-6-sol")
             terminal.save("daybreak-on")
             checks["daybreak_on_sol6_blue_xhigh"] = True
-            terminal.send(b"\x1b")
             terminal.slash("daybreak", lambda s: "Daybreak off. Applies to new turns." in s)
             terminal.model_status("gpt-6.1-sol")
             terminal.save("daybreak-off")
