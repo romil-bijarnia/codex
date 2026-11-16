@@ -28,7 +28,7 @@ async fn el2_failure_keeps_permissions_and_configuration_unchanged() -> Result<(
         ),
         app.chat_widget.config_ref().approvals_reviewer,
     );
-    let request_id = app.chat_widget.el2_control.confirm(thread_id).unwrap();
+    let request_id = app.chat_widget.el2_control.request(thread_id).unwrap();
     assert!(app.chat_widget.el2_control.start(thread_id, request_id));
     app.on_el2_control_activated(
         &mut server,
@@ -77,7 +77,7 @@ async fn el2_success_uses_stock_full_access_and_duplicate_completion_is_inert() 
         .await?;
     let config_path = app.config.codex_home.join("config.toml");
     let before_file = std::fs::read(&config_path).ok();
-    let request_id = app.chat_widget.el2_control.confirm(thread_id).unwrap();
+    let request_id = app.chat_widget.el2_control.request(thread_id).unwrap();
     assert!(app.chat_widget.el2_control.start(thread_id, request_id));
     let activation = crate::el2_control::Activation {
         exception_level: 2,
@@ -138,7 +138,7 @@ async fn ordinary_permission_choice_invalidates_pending_el2_completion() -> Resu
     let thread_id = started.session.thread_id;
     app.enqueue_primary_thread_session(started.session, started.turns)
         .await?;
-    let request_id = app.chat_widget.el2_control.confirm(thread_id).unwrap();
+    let request_id = app.chat_widget.el2_control.request(thread_id).unwrap();
     assert!(app.chat_widget.el2_control.start(thread_id, request_id));
     let config = app.chat_widget.config_ref();
     let selection = PermissionProfileSelection {

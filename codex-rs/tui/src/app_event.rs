@@ -1582,8 +1582,8 @@ pub(crate) enum AppEvent {
         profile_selection: Option<PermissionProfileSelection>,
     },
 
-    /// Reuse the Full Access warning before activating the existing EL2 bridge.
-    ConfirmEl2Control {
+    /// Explicit permission-menu selection of the existing EL2 bridge.
+    RequestEl2Control {
         thread_id: Option<ThreadId>,
         discovery: Option<crate::permission_discovery::PermissionDiscovery>,
     },
@@ -1591,10 +1591,6 @@ pub(crate) enum AppEvent {
         thread_id: ThreadId,
         request_id: Uuid,
         discovery: Option<crate::permission_discovery::PermissionDiscovery>,
-    },
-    CancelEl2Control {
-        thread_id: ThreadId,
-        request_id: Uuid,
     },
     El2ControlActivated {
         thread_id: ThreadId,

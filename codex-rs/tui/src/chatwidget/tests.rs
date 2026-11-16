@@ -270,6 +270,8 @@ mod model_display_name_tests;
 mod model_picker_tests;
 #[path = "tests/permission_picker_tests.rs"]
 mod permission_picker_tests;
+#[cfg(target_os = "linux")]
+mod permission_selection_polish;
 #[path = "tests/permission_shortcuts_tests.rs"]
 mod permission_shortcuts_tests;
 mod permissions;

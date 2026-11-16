@@ -1906,6 +1906,35 @@ fn session_header_indicates_yolo_mode() {
 }
 
 #[test]
+fn startup_yolo_label_uses_the_same_full_access_style_as_footer() {
+    crate::terminal_palette::with_test_default_colors(
+        crate::terminal_probe::DefaultColors {
+            fg: (255, 255, 255),
+            bg: (0, 0, 0),
+        },
+        || {
+            let cell = SessionHeaderHistoryCell::new(
+                "gpt-5".into(),
+                None,
+                test_path_buf("/tmp/project").abs().to_path_buf(),
+                "test",
+            )
+            .with_yolo_mode(true);
+            let lines = cell.display_lines(80);
+            let yolo = lines
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .find(|span| span.content == "YOLO mode")
+                .unwrap();
+            assert_eq!(
+                yolo.style,
+                crate::style::permission_label_style("Full Access").bold()
+            );
+        },
+    );
+}
+
+#[test]
 fn session_header_truncates_halfwidth_directory() {
     let cell: Box<dyn HistoryCell> = Box::new(SessionHeaderHistoryCell::new(
         "gpt-5".to_string(),

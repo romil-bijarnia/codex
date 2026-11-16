@@ -109,7 +109,7 @@ def stage(stock: Path, cli: Path, voice_helper: Path, output: Path, source_commi
             }
         receipt = {
             "schema_version": 1,
-            "customization": "EL2 interface only",
+            "customization": "EL2 interface, permission UI and Daybreak model presets",
             "version": version,
             "source_commit": source_commit,
             "upstream_release": f"rust-v{BASE_VERSION}",

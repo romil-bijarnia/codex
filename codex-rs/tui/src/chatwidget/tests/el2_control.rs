@@ -1,11 +1,11 @@
-//! EL2 is a confirmed, session-local action, not an additional permission profile.
+//! EL2 is an explicitly selected, session-local action, not an additional permission profile.
 
 use super::*;
 use crate::permission_discovery::PermissionDiscovery;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
-async fn el2_row_shows_stock_confirmation_before_requesting_activation() {
+async fn el2_row_requests_activation_without_an_extra_dialog_or_permission_change() {
     let (mut chat, mut events, _ops) = make_chatwidget_manual(None).await;
     let thread_id = ThreadId::new();
     chat.thread_id = Some(thread_id);
@@ -20,26 +20,23 @@ async fn el2_row_shows_stock_confirmation_before_requesting_activation() {
     assert!(item.disabled_reason.is_none());
     item.actions[0](&chat.app_event_tx);
     let (origin, discovery) = match events.try_recv().unwrap() {
-        AppEvent::ConfirmEl2Control {
+        AppEvent::RequestEl2Control {
             thread_id,
             discovery,
         } => (thread_id, discovery),
-        event => panic!("expected confirmation, got {event:?}"),
+        event => panic!("expected explicit selection, got {event:?}"),
     };
-    chat.open_el2_control_confirmation(origin, discovery);
-    let popup = render_bottom_popup(&chat, 80);
-    assert!(popup.contains("Enable full access?"));
-    assert!(popup.contains("without your approval"));
-    assert!(events.try_recv().is_err());
-    chat.handle_key_event(KeyCode::Enter.into());
+    chat.request_el2_control_activation(origin, discovery);
     let request_id = match events.try_recv().unwrap() {
         AppEvent::ActivateEl2Control {
             thread_id: origin,
             request_id,
             ..
         } if origin == thread_id => request_id,
-        event => panic!("expected activation only after confirmation, got {event:?}"),
+        event => panic!("expected activation without another dialog, got {event:?}"),
     };
+    assert!(chat.no_modal_or_popup_active());
+    assert!(events.try_recv().is_err());
     assert!(chat.el2_control.start(thread_id, request_id));
     assert!(!chat.el2_control.start(thread_id, request_id));
     assert!(!chat.el2_control_is_active());
@@ -49,40 +46,24 @@ async fn el2_row_shows_stock_confirmation_before_requesting_activation() {
             AskForApproval::from(chat.config.permissions.approval_policy.value()),
             chat.config.approvals_reviewer,
         ),
-        before,
+        before
     );
 }
 
 #[tokio::test]
-async fn el2_confirmation_cancel_and_escape_never_request_activation() {
-    for escape in [false, true] {
-        let (mut chat, mut events, _ops) = make_chatwidget_manual(None).await;
-        let thread_id = ThreadId::new();
-        chat.thread_id = Some(thread_id);
-        chat.open_el2_control_confirmation(
-            Some(thread_id),
-            Some(PermissionDiscovery::local(&chat.config)),
-        );
-        if escape {
-            chat.handle_key_event(KeyCode::Esc.into());
-        } else {
-            chat.handle_key_event(KeyCode::Down.into());
-            chat.handle_key_event(KeyCode::Enter.into());
-        }
-        let request_id = match events.try_recv().unwrap() {
-            AppEvent::CancelEl2Control {
-                thread_id: origin,
-                request_id,
-            } if origin == thread_id => request_id,
-            event => panic!("expected cancellation, got {event:?}"),
-        };
-        chat.el2_control.cancel(thread_id, request_id);
-        while let Ok(event) = events.try_recv() {
-            assert!(matches!(event, AppEvent::OpenPermissionsPopup));
-        }
-        assert!(chat.el2_control.confirm(thread_id).is_some());
-        assert!(!chat.el2_control_is_active());
-    }
+async fn duplicate_el2_selection_does_not_repeat_activation() {
+    let (mut chat, mut events, _ops) = make_chatwidget_manual(None).await;
+    let thread_id = ThreadId::new();
+    chat.thread_id = Some(thread_id);
+    let discovery = PermissionDiscovery::local(&chat.config);
+    chat.request_el2_control_activation(Some(thread_id), Some(discovery.clone()));
+    assert!(matches!(
+        events.try_recv(),
+        Ok(AppEvent::ActivateEl2Control { .. })
+    ));
+    chat.request_el2_control_activation(Some(thread_id), Some(discovery));
+    assert!(events.try_recv().is_err());
+    assert!(chat.no_modal_or_popup_active());
 }
 
 #[tokio::test]
@@ -113,20 +94,20 @@ async fn el2_row_respects_catalog_profile_and_reviewer_restrictions() {
                 .disabled_reason
                 .is_some()
         );
-        chat.open_el2_control_confirmation(Some(thread_id), Some(discovery));
+        chat.request_el2_control_activation(Some(thread_id), Some(discovery));
         while let Ok(event) = events.try_recv() {
             assert!(!matches!(
                 event,
                 AppEvent::ActivateEl2Control { .. } | AppEvent::SelectPermissionProfile(_)
             ));
         }
-        assert!(chat.el2_control.confirm(thread_id).is_some());
+        assert!(chat.el2_control.request(thread_id).is_some());
         assert!(!chat.el2_control_is_active());
     }
 }
 
 #[tokio::test]
-async fn el2_row_is_disabled_before_connection_and_stale_confirmation_is_ignored() {
+async fn el2_row_is_disabled_before_connection_and_stale_selection_is_ignored() {
     let (mut chat, mut events, _ops) = make_chatwidget_manual(None).await;
     assert!(
         chat.el2_control_selection_item(None)
@@ -135,7 +116,7 @@ async fn el2_row_is_disabled_before_connection_and_stale_confirmation_is_ignored
             .is_some()
     );
     chat.thread_id = Some(ThreadId::new());
-    chat.open_el2_control_confirmation(Some(ThreadId::new()), None);
+    chat.request_el2_control_activation(Some(ThreadId::new()), None);
     assert!(events.try_recv().is_err());
     assert!(!chat.el2_control_is_active());
 }
@@ -160,6 +141,10 @@ async fn el2_selected_label_requires_verification_and_stock_full_access() {
     chat.set_approval_policy(AskForApproval::Never);
     chat.set_approvals_reviewer(ApprovalsReviewer::User);
     assert!(chat.el2_control_is_active());
+    assert_eq!(
+        chat.status_line_value_for_item(StatusLineItem::Permissions),
+        Some("EL2 Control".to_string())
+    );
     let discovery = PermissionDiscovery::local(&chat.config);
     let full_access = builtin_approval_presets()
         .into_iter()
@@ -182,11 +167,15 @@ async fn el2_selected_label_requires_verification_and_stock_full_access() {
             .unwrap()
             .is_current
     );
-    let request_id = chat.el2_control.confirm(thread_id).unwrap();
+    let request_id = chat.el2_control.request(thread_id).unwrap();
     assert!(chat.el2_control.start(thread_id, request_id));
     chat.clear_el2_control_selection();
     assert!(!chat.el2_control.finish(thread_id, request_id));
     assert!(!chat.el2_control_is_active());
+    assert_eq!(
+        chat.status_line_value_for_item(StatusLineItem::Permissions),
+        Some("Full Access".to_string())
+    );
 }
 
 #[tokio::test]

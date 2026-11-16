@@ -7,6 +7,7 @@ use crate::color::blend;
 use crate::color::is_light;
 use crate::terminal_palette::StdoutColorLevel;
 use crate::terminal_palette::best_color;
+use crate::terminal_palette::best_color_for_level;
 use crate::terminal_palette::default_bg;
 use crate::terminal_palette::default_fg;
 use crate::terminal_palette::effective_stdout_color_level;
@@ -27,6 +28,41 @@ pub(crate) const CHATGPT_BLUE_200: (u8, u8, u8) = (99, 168, 248);
 
 /// Shared accent for picker selection backgrounds and transcript foreground emphasis.
 pub(crate) const UI_ACCENT: (u8, u8, u8) = CHATGPT_BLUE_200;
+
+/// Match the app's warning text for Full Access; distinguish the verified EL2 selection.
+pub(crate) fn permission_label_style(label: &str) -> Style {
+    if label != "Full Access" && label != crate::el2_control::LABEL {
+        return secondary_text_style();
+    }
+    let color = permission_label_color(label, default_bg(), effective_stdout_color_level());
+    Style::default().fg(readable_color_on(color, /*background*/ None))
+}
+
+fn permission_label_color(
+    label: &str,
+    background: Option<(u8, u8, u8)>,
+    level: StdoutColorLevel,
+) -> Color {
+    let el2 = label == crate::el2_control::LABEL;
+    let light = background.is_some_and(is_light);
+    match level {
+        StdoutColorLevel::Unknown => Color::Reset,
+        StdoutColorLevel::Ansi16 if el2 => Color::LightRed,
+        StdoutColorLevel::Ansi16 if light => Color::Red,
+        StdoutColorLevel::Ansi16 => Color::Yellow,
+        _ => {
+            // App text-warning: orange-300 on dark themes, orange-500 on light themes.
+            let rgb = if el2 {
+                (255, 95, 109)
+            } else if light {
+                (226, 85, 7)
+            } else {
+                (255, 133, 73)
+            };
+            best_color_for_level(rgb, level)
+        }
+    }
+}
 
 /// The result marker inherits the row fill, including the reverse-video selection fallback.
 pub(crate) fn task_marker(unread: bool, row: Style) -> ratatui::text::Span<'static> {
@@ -356,6 +392,64 @@ pub fn proposed_plan_bg(terminal_bg: (u8, u8, u8)) -> Color {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn permission_labels_use_app_warning_orange_and_distinct_el2_crimson() {
+        for (background, foreground, orange) in [
+            ((0, 0, 0), (255, 255, 255), (255, 133, 73)),
+            ((255, 255, 255), (0, 0, 0), (226, 85, 7)),
+        ] {
+            crate::terminal_palette::with_test_default_colors(
+                crate::terminal_probe::DefaultColors {
+                    fg: foreground,
+                    bg: background,
+                },
+                || {
+                    let full_access = permission_label_style("Full Access");
+                    let el2 = permission_label_style(crate::el2_control::LABEL);
+                    assert_eq!(
+                        full_access.fg,
+                        Some(readable_color_on(rgb_color(orange), None))
+                    );
+                    assert_eq!(
+                        el2.fg,
+                        Some(readable_color_on(rgb_color((255, 95, 109)), None))
+                    );
+                    assert_ne!(full_access.fg, el2.fg);
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn permission_label_palette_respects_ansi16_and_no_color() {
+        assert_eq!(
+            permission_label_color("Full Access", Some((0, 0, 0)), StdoutColorLevel::Ansi16),
+            Color::Yellow
+        );
+        assert_eq!(
+            permission_label_color(
+                "Full Access",
+                Some((255, 255, 255)),
+                StdoutColorLevel::Ansi16
+            ),
+            Color::Red
+        );
+        assert_eq!(
+            permission_label_color(crate::el2_control::LABEL, None, StdoutColorLevel::Ansi16),
+            Color::LightRed
+        );
+        for label in ["Full Access", crate::el2_control::LABEL] {
+            assert_eq!(
+                permission_label_color(label, None, StdoutColorLevel::Unknown),
+                Color::Reset
+            );
+            assert!(!matches!(
+                permission_label_color(label, None, StdoutColorLevel::Ansi256),
+                Color::Rgb(..)
+            ));
+        }
+    }
 
     #[test]
     fn status_colors_preserve_light_terminal_themes() {
