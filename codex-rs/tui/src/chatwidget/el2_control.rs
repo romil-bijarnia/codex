@@ -72,7 +72,7 @@ impl ChatWidget {
             is_current: self.el2_control_is_active(),
             disabled_reason,
             actions: vec![Box::new(move |tx| {
-                tx.send(AppEvent::ConfirmEl2Control {
+                tx.send(AppEvent::RequestEl2Control {
                     thread_id,
                     discovery: discovery.clone(),
                 });
@@ -82,7 +82,7 @@ impl ChatWidget {
         })
     }
 
-    pub(crate) fn open_el2_control_confirmation(
+    pub(crate) fn request_el2_control_activation(
         &mut self,
         thread_id: Option<ThreadId>,
         discovery: Option<PermissionDiscovery>,
@@ -97,31 +97,23 @@ impl ChatWidget {
         let Some(thread_id) = thread_id else {
             return;
         };
-        let Some(request_id) = self.el2_control.confirm(thread_id) else {
+        let Some(request_id) = self.el2_control.request(thread_id) else {
             return;
         };
-        let accept_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
-            tx.send(AppEvent::ActivateEl2Control {
-                thread_id,
-                request_id,
-                discovery: discovery.clone(),
-            });
-        })];
-        let cancel = move |tx: &AppEventSender| {
-            tx.send(AppEvent::CancelEl2Control {
-                thread_id,
-                request_id,
-            });
-        };
-        self.open_full_access_confirmation_with_actions(
-            /*return_to_permissions*/ true,
-            accept_actions,
-            vec![Box::new(cancel)],
-            Some(Box::new(cancel)),
-        );
+        self.app_event_tx.send(AppEvent::ActivateEl2Control {
+            thread_id,
+            request_id,
+            discovery,
+        });
+    }
+
+    pub(crate) fn mark_el2_control_verified(&mut self, thread_id: ThreadId) {
+        self.el2_control.mark_verified(thread_id);
+        self.refresh_status_surfaces();
     }
 
     pub(crate) fn clear_el2_control_selection(&mut self) {
         self.el2_control.clear();
+        self.refresh_status_surfaces();
     }
 }

@@ -79,7 +79,7 @@ pub(crate) struct SelectionState {
 }
 
 impl SelectionState {
-    pub(crate) fn confirm(&mut self, thread_id: ThreadId) -> Option<Uuid> {
+    pub(crate) fn request(&mut self, thread_id: ThreadId) -> Option<Uuid> {
         if self.pending.is_some() {
             return None;
         }
@@ -184,12 +184,12 @@ mod tests {
     }
 
     #[test]
-    fn el2_requests_require_confirmation_and_reject_duplicate_or_stale_completions() {
+    fn el2_requests_require_selection_and_reject_duplicate_or_stale_completions() {
         let mut state = SelectionState::default();
         let thread = ThreadId::new();
         let other = ThreadId::new();
-        let request = state.confirm(thread).unwrap();
-        assert!(state.confirm(thread).is_none());
+        let request = state.request(thread).unwrap();
+        assert!(state.request(thread).is_none());
         assert!(!state.finish(thread, request));
         assert!(!state.start(other, request));
         assert!(state.start(thread, request));
@@ -201,7 +201,7 @@ mod tests {
         state.mark_verified(thread);
         assert!(state.is_verified(thread));
         assert!(!state.is_verified(other));
-        let request = state.confirm(thread).unwrap();
+        let request = state.request(thread).unwrap();
         assert!(state.start(thread, request));
         state.clear();
         assert!(!state.finish(thread, request));

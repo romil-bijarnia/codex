@@ -70,7 +70,7 @@ impl App {
         if self.select_permission_profile(app_server, selection).await
             && self.chat_widget.thread_id() == Some(thread_id)
         {
-            self.chat_widget.el2_control.mark_verified(thread_id);
+            self.chat_widget.mark_el2_control_verified(thread_id);
             self.chat_widget.add_info_message(
                 "Existing EL2 interface verified; Full Access selected for this session."
                     .to_string(),

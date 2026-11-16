@@ -341,7 +341,7 @@ impl ChatWidget {
                 Self::permission_profile_selection_actions,
             )
         };
-        let requires_confirmation = preset.id == "full-access";
+        let requires_confirmation = preset.id == "full-access" && !cfg!(target_os = "linux");
         #[cfg(target_os = "windows")]
         if preset.id == "auto"
             && matches!(
@@ -446,6 +446,14 @@ impl ChatWidget {
             },
             Self::permission_profile_selection_actions,
         );
+        // On Linux the menu/shortcut is the explicit selection. This also covers
+        // callers that request the same old warning directly, such as model changes.
+        if cfg!(target_os = "linux") {
+            for action in accept_actions {
+                action(&self.app_event_tx);
+            }
+            return;
+        }
         self.open_full_access_confirmation_with_actions(
             return_to_permissions,
             accept_actions,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the real permissions UI without sending a prompt or model request."""
+"""Exercise permission colours and model presets without a prompt or model request."""
 from __future__ import annotations
 
 import argparse
@@ -34,6 +34,7 @@ class Terminal:
         self.raw = bytearray()
         self.cursor_queries = 0
         env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
+        env.pop("NO_COLOR", None)  # Only this colour-verification process.
         for key in ("CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE"):
             env.pop(key, None)
         self.process = subprocess.Popen(
@@ -72,6 +73,9 @@ class Terminal:
         while time.monotonic() < deadline:
             self.pump()
             frame = self.frame()
+            if "Enable full access?" in frame:
+                self.save("unexpected-warning")
+                raise RuntimeError("Unexpected extra Full Access warning")
             if predicate(frame):
                 return frame
             if self.process.poll() is not None:
@@ -88,25 +92,44 @@ class Terminal:
         output.chmod(0o600)
 
     def permissions(self) -> str:
-        self.send(b"/permissions\r")
+        self.slash("permissions", lambda s: "Update Model Permissions" in s)
+        return self.wait(lambda s: "Update Model Permissions" in s and "Full Access" in s,
+                         "permissions picker")
+
+    def slash(self, command: str, ready) -> str:
+        self.send(("/" + command + "\r").encode())
         # Enter can first accept the slash-command completion rather than run it.
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             self.pump()
-            if "Update Model Permissions" in self.frame():
+            if ready(self.frame()):
                 break
-        if "Update Model Permissions" not in self.frame() and re.search(
-            r"^\s*› /permissions\s*$", self.frame(), re.MULTILINE
+        if not ready(self.frame()) and re.search(
+            r"^\s*› /" + re.escape(command) + r"\s*$", self.frame(), re.MULTILINE
         ):
             self.send(b"\r")
-        return self.wait(lambda s: "Update Model Permissions" in s and "Full Access" in s,
-                         "permissions picker")
+        return self.wait(ready, command + " command")
+
+    def model_status(self, model: str) -> str:
+        return self.slash("status", lambda s: re.search(
+            r"Model:\s+" + re.escape(model) + r"\s+\(reasoning xhigh", s
+        ) is not None)
 
     def select_row(self, label: str) -> None:
         match = re.search(r"^.*?([1-9])\.\s+" + re.escape(label), self.frame(), re.MULTILINE)
         if not match:
             raise RuntimeError(f"No numbered {label} row in the current picker")
         self.send(match.group(1).encode())
+
+    def label_colour(self, label: str, expected: str) -> bool:
+        for row in range(self.screen.lines - 1, -1, -1):
+            text = self.screen.display[row]
+            col = text.find(label)
+            if col >= 0:
+                colours = {self.screen.buffer[row][col + i].fg.lower().lstrip("#")
+                           for i, char in enumerate(label) if not char.isspace()}
+                return colours == {expected}
+        return False
 
     def close(self) -> None:
         self.send(b"\x1b\x04")
@@ -136,36 +159,52 @@ def main() -> None:
     checks = {}
     try:
         terminal.wait(lambda s: BASE_VERSION in s, "CLI startup")
+        if not args.baseline:
+            terminal.model_status("gpt-6.1-sol")
+            checks["normal_launch_sol61_xhigh"] = True
+            terminal.send(b"\x1b")
         terminal.permissions()
         terminal.save("permissions-before")
         checks["stock_permissions_visible"] = True
         if not args.baseline:
             terminal.wait(lambda s: "EL2 Control" in s, "EL2 interface row")
             terminal.select_row("EL2 Control")
-            terminal.wait(lambda s: "Enable full access?" in s and "without your approval" in s,
-                          "the unchanged Full Access confirmation")
-            terminal.save("confirmation")
-            checks["stock_confirmation_visible"] = True
-            terminal.send(b"\r")
+            checks["no_extra_full_access_warning"] = True
             terminal.wait(lambda s: "Existing EL2 interface verified" in s,
                           "real host EL2 verification", timeout=40)
             checks["real_host_verified"] = True
+            terminal.wait(lambda s: terminal.label_colour("EL2 Control", "ff5f6d"),
+                          "crimson verified EL2 footer", timeout=10)
+            checks["el2_crimson"] = True
             terminal.permissions()
             terminal.wait(lambda s: re.search(r"EL2 Control\s+\(current\)", s) is not None,
                           "verified EL2 selection")
             terminal.save("permissions-verified")
             checks["verified_row_current"] = True
             terminal.select_row("Full Access")
-            terminal.wait(lambda s: "Enable full access?" in s, "ordinary Full Access confirmation")
-            terminal.send(b"\r")
-            terminal.wait(lambda s: "Enable full access?" not in s,
-                          "ordinary permission confirmation closing")
+            terminal.wait(lambda s: "Update Model Permissions" not in s,
+                          "ordinary permission selection closing")
             terminal.permissions()
             terminal.wait(lambda s: re.search(r"Full Access\s+\(current\)", s) is not None,
                           "ordinary permissions restored")
             assert re.search(r"EL2 Control\s+\(current\)", terminal.frame()) is None
             terminal.save("permissions-cleared")
             checks["ordinary_selection_clears_el2_indicator"] = True
+            terminal.send(b"\x1b")
+            terminal.wait(lambda s: "Update Model Permissions" not in s,
+                          "permissions picker closing")
+            terminal.wait(lambda s: terminal.label_colour("Full Access", "ff8549"),
+                          "app-orange Full Access footer", timeout=10)
+            checks["full_access_app_orange"] = True
+            terminal.slash("daybreak", lambda s: "Daybreak on. Applies to new turns." in s)
+            terminal.model_status("gpt-6-sol")
+            terminal.save("daybreak-on")
+            checks["daybreak_on_sol6_blue_xhigh"] = True
+            terminal.send(b"\x1b")
+            terminal.slash("daybreak", lambda s: "Daybreak off. Applies to new turns." in s)
+            terminal.model_status("gpt-6.1-sol")
+            terminal.save("daybreak-off")
+            checks["daybreak_off_sol61_xhigh"] = True
         checks["model_prompt_submitted"] = False
     finally:
         terminal.close()

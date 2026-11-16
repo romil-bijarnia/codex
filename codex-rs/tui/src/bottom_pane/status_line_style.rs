@@ -7,6 +7,7 @@ use ratatui::text::Span;
 
 use super::status_line_setup::StatusLineItem;
 use crate::render::highlight::foreground_style_for_scopes;
+use crate::style::permission_label_style;
 use crate::style::readable_color_on;
 use crate::style::secondary_text_style;
 use crate::terminal_hyperlinks::HyperlinkLine;
@@ -149,6 +150,11 @@ where
             && let Some(thread_id) = thread_id
         {
             Style::default().fg(thread_color(thread_id))
+        } else if use_theme_colors
+            && item == StatusLineItem::Permissions
+            && (text == "Full Access" || text == crate::el2_control::LABEL)
+        {
+            permission_label_style(&text)
         } else if use_theme_colors {
             let accent = StatusLineAccent::for_item(item);
             soften_status_line_style(
@@ -365,6 +371,105 @@ mod tests {
         assert_eq!(line.spans[0].style, secondary_text_style());
         assert_eq!(line.spans[1].style, secondary_text_style());
         assert_eq!(line.spans[2].style, secondary_text_style());
+    }
+
+    #[test]
+    fn permission_status_colours_ignore_syntax_theme_and_respect_monochrome() {
+        crate::terminal_palette::with_test_default_colors(
+            crate::terminal_probe::DefaultColors {
+                fg: (255, 255, 255),
+                bg: (0, 0, 0),
+            },
+            || {
+                for enabled in [false, true] {
+                    let line = status_line_from_segments_with_resolver(
+                        [
+                            (StatusLineItem::Permissions, "Full Access".to_string()),
+                            (
+                                StatusLineItem::Permissions,
+                                crate::el2_control::LABEL.to_string(),
+                            ),
+                        ],
+                        enabled,
+                        None,
+                        None,
+                        |_| {
+                            panic!(
+                                "semantic permission colours must not depend on the syntax theme"
+                            )
+                        },
+                    )
+                    .unwrap()
+                    .line;
+                    if enabled {
+                        assert_eq!(line.spans[0].style, permission_label_style("Full Access"));
+                        assert_eq!(
+                            line.spans[2].style,
+                            permission_label_style(crate::el2_control::LABEL)
+                        );
+                        assert_ne!(line.spans[0].style.fg, line.spans[2].style.fg);
+                    } else {
+                        assert_eq!(line.spans[0].style, secondary_text_style());
+                        assert_eq!(line.spans[2].style, secondary_text_style());
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn other_permission_status_colours_keep_the_existing_theme() {
+        let line = status_line_from_segments_with_resolver(
+            [
+                (StatusLineItem::Permissions, "Read Only".to_string()),
+                (StatusLineItem::Permissions, "Workspace".to_string()),
+                (StatusLineItem::ApprovalMode, "Ask for approval".to_string()),
+            ],
+            true,
+            None,
+            None,
+            |_| Some(Style::default().magenta()),
+        )
+        .unwrap()
+        .line;
+        for index in [0, 2, 4] {
+            assert_eq!(line.spans[index].style.fg, Some(Color::Magenta));
+        }
+    }
+
+    #[test]
+    fn permission_status_colours_follow_no_color() {
+        const CHILD: &str = "CODEX_PERMISSION_NO_COLOR_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "bottom_pane::status_line_style::tests::permission_status_colours_follow_no_color"])
+                .env(CHILD, "1").env("NO_COLOR", "1")
+                .env_remove("FORCE_COLOR").env_remove("WT_SESSION")
+                .output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stdout)
+            );
+            return;
+        }
+        let line = status_line_from_segments_with_resolver(
+            [
+                (StatusLineItem::Permissions, "Full Access".into()),
+                (
+                    StatusLineItem::Permissions,
+                    crate::el2_control::LABEL.into(),
+                ),
+            ],
+            true,
+            None,
+            None,
+            |_| None,
+        )
+        .unwrap()
+        .line;
+        assert_eq!(line.spans[0].style.fg, Some(Color::Reset));
+        assert_eq!(line.spans[2].style.fg, Some(Color::Reset));
     }
 
     #[test]

@@ -1,6 +1,7 @@
-# EL2-interface-only build support
+# Experimental CLI interface build support
 
-This folder builds and stages the single EL2 permissions-interface patch on
+This folder builds and stages the EL2 permissions interface, permission colours
+and Daybreak model presets on
 official experimental Codex 0.171.0-alpha.7, commit
 `73c4af9125a8d5e9aabe5aa900eecf70214ba856`. It contains no installer, updater, launcher,
 watcher or automatic patch application. It never changes the current selection
@@ -95,8 +96,10 @@ python3 tools/el2-interface/qa_voice.py \
 
 `qa_menu.py` requires `pyte` and an existing signed-in CLI profile. It starts a
 private terminal frontend with native `--no-daemon`, opens the permissions menu,
-accepts the normal Full Access confirmation, verifies the existing EL2 bridge,
-and checks that ordinary Full Access clears the interface indicator. No prompt
+verifies direct selection without an extra warning, checks the existing EL2 bridge,
+and checks that ordinary Full Access clears the interface indicator. It also
+checks the app-orange and crimson labels and the Daybreak on/off model presets.
+No prompt
 or model request is sent. Memory/Chronicle processing is disabled only for that
 test invocation; saved configuration is unchanged. This is an explicit bridge
 activation test and must run only on its authorized owner host.

@@ -2781,16 +2781,13 @@ impl App {
                 }
                 self.apply_permission_shortcut(app_server, thread_id, selection).await;
             }
-            AppEvent::ConfirmEl2Control { thread_id, discovery } => {
+            AppEvent::RequestEl2Control { thread_id, discovery } => {
                 if !self.reject_pending_permission_change() {
-                    self.chat_widget.open_el2_control_confirmation(thread_id, discovery);
+                    self.chat_widget.request_el2_control_activation(thread_id, discovery);
                 }
             }
             AppEvent::ActivateEl2Control { thread_id, request_id, discovery } => {
                 self.activate_el2_control(app_server, thread_id, request_id, discovery);
-            }
-            AppEvent::CancelEl2Control { thread_id, request_id } => {
-                self.chat_widget.el2_control.cancel(thread_id, request_id);
             }
             AppEvent::El2ControlActivated { thread_id, request_id, result } => {
                 self.on_el2_control_activated(app_server, thread_id, request_id, result).await;
@@ -2994,7 +2991,7 @@ impl App {
             AppEvent::DisableUnavailableDaybreak { thread_id, model } => {
                 if self.chat_widget.current_model() == model
                     && self.chat_widget.should_disable_daybreak(&model)
-                    && Box::pin(self.persist_daybreak_selection(app_server, thread_id, /*enabled*/ false)).await
+                    && Box::pin(self.disable_daybreak_for_model_change(app_server, thread_id)).await
                 {
                     self.chat_widget.add_info_message(
                         format!("Daybreak has been turned off for new turns because it is not available for {model} with your current account and server. Prior cybersecurity context in this thread may cause a refusal. You can switch back to a model where you have Daybreak access and use /daybreak to re-enable it."),

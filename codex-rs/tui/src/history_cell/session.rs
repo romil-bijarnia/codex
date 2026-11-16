@@ -395,7 +395,10 @@ impl HistoryCell for SessionHeaderHistoryCell {
         if self.yolo_mode {
             lines.push(Line::from(vec![
                 "  permissions: ".dim(),
-                "YOLO mode".magenta().bold(),
+                Span::styled(
+                    "YOLO mode",
+                    crate::style::permission_label_style("Full Access").bold(),
+                ),
             ]));
         }
         lines

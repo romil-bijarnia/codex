@@ -941,12 +941,80 @@ fn is_recording_client_disconnect(error: &WebSocketError) -> bool {
     }
 }
 
+fn daybreak_default_test_models() -> Vec<ModelPreset> {
+    use codex_protocol::openai_models::ModelAccessPrograms;
+    use codex_protocol::openai_models::ReasoningEffortPreset;
+    use codex_protocol::turn_input::CyberAccessProgram;
+
+    let mut normal = crate::test_support::TEST_MODEL_PRESETS[0].clone();
+    normal.model = "gpt-6.1-sol".into();
+    normal.default_reasoning_effort = ReasoningEffort::Low;
+    normal.supported_reasoning_efforts = vec![
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::Low,
+            description: "Low".into(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffort::XHigh,
+            description: "Extra high".into(),
+        },
+    ];
+    normal.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard],
+    });
+    let mut blue = normal.clone();
+    blue.model = "gpt-6-sol".into();
+    blue.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![
+            CyberAccessProgram::Standard,
+            CyberAccessProgram::DaybreakBlue,
+        ],
+    });
+    let mut unsupported = normal.clone();
+    unsupported.model = "standard-only".into();
+    vec![normal, blue, unsupported]
+}
+
+fn load_daybreak_default_test_models(
+    app: &mut App,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+    models: Vec<ModelPreset>,
+) {
+    app.chat_widget.open_model_popup();
+    let request_id = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::FetchModels { request_id } => Some(request_id),
+            _ => None,
+        })
+        .last()
+        .expect("model catalog request");
+    assert!(app.chat_widget.on_models_loaded(request_id, Ok(models)));
+    app.chat_widget
+        .handle_key_event(KeyEvent::from(KeyCode::Esc));
+}
+
+fn next_daybreak_confirmation(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+) -> String {
+    loop {
+        let message = next_history_message(events);
+        if message.contains("Daybreak on. Applies to new turns.")
+            || message.contains("Daybreak off. Applies to new turns.")
+        {
+            return message;
+        }
+    }
+}
+
 #[tokio::test]
 async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     use codex_protocol::openai_models::ModelAccessPrograms;
     use codex_protocol::turn_input::CyberAccessProgram;
 
     let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
+    app.config.model = Some("gpt-6.1-sol".into());
+    app.config.model_reasoning_effort = Some(ReasoningEffort::XHigh);
+    app.config.daybreak_enabled = false;
     let (mut server, requests, proxy) = start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -988,23 +1056,14 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
             _ => None,
         })
         .expect("model catalog request");
-    let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
-    model.model = app.chat_widget.current_model().to_string();
-    model.available_access_programs = Some(ModelAccessPrograms {
-        cyber: vec![
-            CyberAccessProgram::Standard,
-            CyberAccessProgram::DaybreakBlue,
-        ],
-    });
-    let mut unsupported_model = model.clone();
-    unsupported_model.model = "standard-only".into();
-    unsupported_model.available_access_programs = Some(ModelAccessPrograms {
-        cyber: vec![CyberAccessProgram::Standard],
-    });
-    app.chat_widget
-        .on_models_loaded(request_id, Ok(vec![model, unsupported_model]));
+    assert!(
+        app.chat_widget
+            .on_models_loaded(request_id, Ok(daybreak_default_test_models()))
+    );
     app.chat_widget
         .handle_key_event(KeyEvent::from(KeyCode::Esc));
+    app.chat_widget
+        .set_reasoning_effort(Some(ReasoningEffort::Low));
 
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut confirmations = Vec::new();
@@ -1018,7 +1077,7 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
             .find(|event| matches!(event, AppEvent::PersistDaybreakSelection { .. }))
             .expect("Daybreak selection event");
         app.handle_event(&mut tui, &mut server, selection).await?;
-        confirmations.push(next_history_message(&mut events));
+        confirmations.push(next_daybreak_confirmation(&mut events));
         assert_eq!(
             server
                 .thread_read(thread_id, /*include_turns*/ false)
@@ -1026,14 +1085,33 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
                 .daybreak_enabled,
             Some(enabled)
         );
-        assert_eq!(app.config.daybreak_enabled, enabled);
-        let writes = recorded_params(&requests, "config/batchWrite");
-        let edit = &writes.last().expect("config write")["edits"][0];
-        assert_eq!(edit["keyPath"], "daybreak");
-        assert_eq!(edit["value"], enabled);
+        assert!(!app.config.daybreak_enabled);
+        assert_eq!(app.config.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(
+            app.config.model_reasoning_effort,
+            Some(ReasoningEffort::XHigh)
+        );
+        assert_eq!(
+            app.chat_widget.current_model(),
+            if enabled { "gpt-6-sol" } else { "gpt-6.1-sol" }
+        );
+        assert_eq!(
+            app.chat_widget.effective_reasoning_effort(),
+            Some(ReasoningEffort::XHigh)
+        );
+        assert!(recorded_params(&requests, "config/batchWrite").is_empty());
     }
     insta::assert_snapshot!("daybreak_toggle_confirmations", confirmations.join("\n\n"));
+    let settings = recorded_params(&requests, "thread/settings/update");
+    assert_eq!(settings[0]["model"], "gpt-6-sol");
+    assert_eq!(settings[0]["effort"], "xhigh");
+    let normal_start = server.start_thread(&app.config).await?;
+    assert_eq!(normal_start.session.model, "gpt-6.1-sol");
+    assert!(!normal_start.session.daybreak_enabled);
+    assert!(!app.config.codex_home.join("state/daybreak-return").exists());
 
+    // Program forwarding is independent of the fixed manual-toggle defaults.
+    app.chat_widget.set_model("gpt-6-sol");
     app.chat_widget.set_daybreak_enabled(/*enabled*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::from(KeyCode::Esc));
@@ -1172,12 +1250,13 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     app.active_thread_id = Some(thread_id);
     app.persist_daybreak_selection(&mut server, thread_id, /*enabled*/ true)
         .await;
-    assert!(next_history_message(&mut events).contains("Daybreak on"));
+    assert!(next_daybreak_confirmation(&mut events).contains("Daybreak on"));
     app.chat_widget.set_model("standard-only");
     let disable = next_disable(&mut events).expect("model switch disables Daybreak");
     assert!(app.chat_widget.daybreak_enabled);
     app.handle_event(&mut tui, &mut server, disable).await?;
-    assert!(next_history_message(&mut events).contains("Daybreak off"));
+    assert_eq!(app.chat_widget.current_model(), "standard-only");
+    assert!(next_daybreak_confirmation(&mut events).contains("Daybreak off"));
     let warning = next_history_message(&mut events);
     insta::assert_snapshot!("daybreak_model_switch_warning", warning);
     assert_eq!(
@@ -1198,6 +1277,180 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     assert!(!app.chat_widget.daybreak_enabled);
     server.shutdown().await?;
     proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn daybreak_defaults_validate_catalog_effort_and_eligibility_before_mutation() -> Result<()> {
+    for (enabled, missing_model, missing_xhigh, eligible) in [
+        (true, true, false, true),
+        (true, false, true, true),
+        (true, false, false, false),
+        (false, true, false, true),
+        (false, false, true, true),
+    ] {
+        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+        app.config.model = Some("gpt-6.1-sol".into());
+        app.config.model_reasoning_effort = Some(ReasoningEffort::XHigh);
+        app.config.daybreak_enabled = false;
+        let defaults_before = std::fs::read(app.config.codex_home.join("config.toml")).ok();
+        let (mut server, requests, proxy) =
+            start_recording_app_server(&app.config, None, None).await?;
+        let started = server.start_thread(&app.config).await?;
+        let thread_id = started.session.thread_id;
+        app.active_thread_id = Some(thread_id);
+        app.chat_widget.handle_thread_session_quiet(started.session);
+        app.chat_widget.update_account_state(None, None, true, true);
+        load_daybreak_default_test_models(&mut app, &mut events, daybreak_default_test_models());
+        if !enabled {
+            assert!(
+                app.persist_daybreak_selection(&mut server, thread_id, true)
+                    .await
+            );
+        }
+        let model_before = app.chat_widget.current_model().to_owned();
+        let effort_before = app.chat_widget.effective_reasoning_effort();
+        let mode_before = app.chat_widget.daybreak_enabled;
+        let updates_before = recorded_params(&requests, "thread/settings/update").len();
+        let metadata_before = recorded_params(&requests, "thread/metadata/update").len();
+        let target = if enabled { "gpt-6-sol" } else { "gpt-6.1-sol" };
+        let mut models = daybreak_default_test_models();
+        if missing_model {
+            models.retain(|model| model.model != target);
+        }
+        if missing_xhigh {
+            models
+                .iter_mut()
+                .find(|model| model.model == target)
+                .unwrap()
+                .supported_reasoning_efforts
+                .retain(|entry| entry.effort != ReasoningEffort::XHigh);
+        }
+        load_daybreak_default_test_models(&mut app, &mut events, models);
+        if !eligible {
+            app.chat_widget
+                .update_account_state(None, None, false, false);
+        }
+        assert!(
+            !app.persist_daybreak_selection(&mut server, thread_id, enabled)
+                .await
+        );
+        assert_eq!(app.chat_widget.current_model(), model_before);
+        assert_eq!(app.chat_widget.effective_reasoning_effort(), effort_before);
+        assert_eq!(app.chat_widget.daybreak_enabled, mode_before);
+        assert_eq!(
+            recorded_params(&requests, "thread/settings/update").len(),
+            updates_before
+        );
+        assert_eq!(
+            recorded_params(&requests, "thread/metadata/update").len(),
+            metadata_before
+        );
+        assert!(recorded_params(&requests, "config/batchWrite").is_empty());
+        assert_eq!(
+            std::fs::read(app.config.codex_home.join("config.toml")).ok(),
+            defaults_before
+        );
+        assert_eq!(app.config.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(
+            app.config.model_reasoning_effort,
+            Some(ReasoningEffort::XHigh)
+        );
+        assert!(!app.config.daybreak_enabled);
+        server.shutdown().await?;
+        proxy.await??;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn daybreak_defaults_restore_session_model_when_thread_metadata_write_fails() -> Result<()> {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    app.config.model = Some("gpt-6.1-sol".into());
+    app.config.model_reasoning_effort = Some(ReasoningEffort::XHigh);
+    app.config.daybreak_enabled = false;
+    let defaults_before = std::fs::read(app.config.codex_home.join("config.toml")).ok();
+    let (mut original, _, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let started = original.start_thread(&app.config).await?;
+    let thread_id = started.session.thread_id;
+    let thread = original.thread_read(thread_id, false).await?;
+    app.active_thread_id = Some(thread_id);
+    app.chat_widget.handle_thread_session_quiet(started.session);
+    app.chat_widget.update_account_state(None, None, true, true);
+    load_daybreak_default_test_models(&mut app, &mut events, daybreak_default_test_models());
+    original.shutdown().await?;
+    proxy.await??;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let websocket_url = format!("ws://{}", listener.local_addr()?);
+    let codex_home = app.config.codex_home.display().to_string();
+    let seen = std::sync::Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let seen_requests = seen.clone();
+    let fake = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut socket = accept_async(stream).await?;
+        while let Some(frame) = socket.next().await {
+            let Message::Text(text) = frame? else {
+                continue;
+            };
+            let request: serde_json::Value = serde_json::from_str(&text)?;
+            if request["id"].is_null() {
+                continue;
+            }
+            seen_requests.lock().unwrap().push(request.clone());
+            let response = match request["method"].as_str().unwrap() {
+                "initialize" => {
+                    json!({"id": request["id"], "result": {"userAgent": "test", "codexHome": codex_home}})
+                }
+                "thread/read" => json!({"id": request["id"], "result": {"thread": thread}}),
+                "thread/settings/update" => json!({"id": request["id"], "result": {}}),
+                "thread/metadata/update" => {
+                    json!({"id": request["id"], "error": {"code": -32603, "message": "metadata unavailable"}})
+                }
+                method => panic!("unexpected Daybreak test request: {method}"),
+            };
+            socket
+                .send(Message::Text(response.to_string().into()))
+                .await?;
+        }
+        Result::<()>::Ok(())
+    });
+    let client = crate::connect_remote_app_server(crate::RemoteAppServerEndpoint::WebSocket {
+        websocket_url,
+        auth_token: None,
+    })
+    .await?;
+    let mut server = AppServerSession::new(
+        crate::backend_id::BackendId::new(),
+        client,
+        crate::app_server_session::ThreadParamsMode::Embedded,
+    );
+    assert!(
+        !app.persist_daybreak_selection(&mut server, thread_id, true)
+            .await
+    );
+    assert_eq!(app.chat_widget.current_model(), "gpt-6.1-sol");
+    assert_eq!(
+        app.chat_widget.effective_reasoning_effort(),
+        Some(ReasoningEffort::XHigh)
+    );
+    assert!(!app.chat_widget.daybreak_enabled);
+    assert!(!app.config.daybreak_enabled);
+    assert_eq!(
+        std::fs::read(app.config.codex_home.join("config.toml")).ok(),
+        defaults_before
+    );
+    let requests = seen.lock().unwrap().clone();
+    let changes = requests
+        .iter()
+        .filter(|r| r["method"] == "thread/settings/update")
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0]["params"]["model"], "gpt-6-sol");
+    assert_eq!(changes[1]["params"]["model"], "gpt-6.1-sol");
+    assert!(!requests.iter().any(|r| r["method"] == "config/batchWrite"));
+    server.shutdown().await?;
+    fake.await??;
     Ok(())
 }
 
