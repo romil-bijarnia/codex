@@ -37,6 +37,9 @@ mod buffered_replay;
 mod connector_policy;
 #[path = "tests/disconnect_tests.rs"]
 mod disconnect;
+#[cfg(target_os = "linux")]
+#[path = "tests/el2_control_tests.rs"]
+mod el2_control_tests;
 #[path = "tests/external_writer_fork_tests.rs"]
 mod external_writer_fork_tests;
 #[path = "tests/fork_workspace_roots_tests.rs"]

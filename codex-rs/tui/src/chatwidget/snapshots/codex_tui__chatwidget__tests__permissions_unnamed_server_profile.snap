@@ -11,5 +11,6 @@ expression: popup
   3. Full Access               Use with caution: Codex can edit files outside this workspace and access the internet
                                without approval
   4. Read Only                 Read workspace files, with approval required for edits or internet access
+  5. EL2 Control               Verify the existing EL2 interface and use Full Access
 
   enter select · esc back

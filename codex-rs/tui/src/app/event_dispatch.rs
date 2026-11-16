@@ -2776,7 +2776,24 @@ impl App {
                 );
             }
             AppEvent::ApplyPermissionShortcut { thread_id, selection } => {
+                if self.chat_widget.thread_id() == Some(thread_id) {
+                    self.chat_widget.clear_el2_control_selection();
+                }
                 self.apply_permission_shortcut(app_server, thread_id, selection).await;
+            }
+            AppEvent::ConfirmEl2Control { thread_id, discovery } => {
+                if !self.reject_pending_permission_change() {
+                    self.chat_widget.open_el2_control_confirmation(thread_id, discovery);
+                }
+            }
+            AppEvent::ActivateEl2Control { thread_id, request_id, discovery } => {
+                self.activate_el2_control(app_server, thread_id, request_id, discovery);
+            }
+            AppEvent::CancelEl2Control { thread_id, request_id } => {
+                self.chat_widget.el2_control.cancel(thread_id, request_id);
+            }
+            AppEvent::El2ControlActivated { thread_id, request_id, result } => {
+                self.on_el2_control_activated(app_server, thread_id, request_id, result).await;
             }
             AppEvent::OpenFeedback => self.chat_widget.open_feedback(app_server.thread_params_mode()),
             AppEvent::OpenFeedbackNote {
@@ -3128,6 +3145,7 @@ impl App {
                 if self.reject_pending_permission_change() {
                     return Ok(AppRunControl::Continue);
                 }
+                self.chat_widget.clear_el2_control_selection();
                 let mut config = self.config.clone();
                 if !self.try_set_approval_policy_on_config(
                     &mut config,
@@ -3150,6 +3168,7 @@ impl App {
                 if self.reject_pending_permission_change() {
                     return Ok(AppRunControl::Continue);
                 }
+                self.chat_widget.clear_el2_control_selection();
                 let mut config = self.config.clone();
                 let Some(permission_profile) = self
                     .try_set_builtin_active_permission_profile_on_config(
@@ -3186,6 +3205,7 @@ impl App {
                 self.chat_widget.submit_initial_user_message_if_pending();
             }
             AppEvent::SelectPermissionProfile(selection) => {
+                self.chat_widget.clear_el2_control_selection();
                 let inline_selection = self
                     .chat_widget
                     .complete_inline_permission_profile_selection();
@@ -3198,6 +3218,7 @@ impl App {
                 if self.reject_pending_permission_change() {
                     return Ok(AppRunControl::Continue);
                 }
+                self.chat_widget.clear_el2_control_selection();
                 self.runtime_approvals_reviewer_override = Some(policy);
                 self.config.approvals_reviewer = policy;
                 self.chat_widget.set_approvals_reviewer(policy);

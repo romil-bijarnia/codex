@@ -242,6 +242,9 @@ impl ChatWidget {
                 Some("Not available on this server".to_string()),
             ));
         }
+        if let Some(item) = self.el2_control_selection_item(Some(&discovery)) {
+            items.push(item);
+        }
         self.bottom_pane.show_selection_view(SelectionViewParams {
             view_id: Some(super::permission_discovery::VIEW_ID),
             items,
@@ -254,7 +257,7 @@ impl ChatWidget {
         });
     }
 
-    fn builtin_permission_mode_selection_item(
+    pub(super) fn builtin_permission_mode_selection_item(
         &self,
         discovery: &PermissionDiscovery,
         preset: &ApprovalPreset,
@@ -297,7 +300,8 @@ impl ChatWidget {
                 },
                 |active| active == id,
             ) && current_approval == approval_policy
-                && current_reviewer == approvals_reviewer,
+                && current_reviewer == approvals_reviewer
+                && !(preset.id == "full-access" && self.el2_control_is_active()),
             actions: self.permission_mode_actions(
                 preset,
                 label.to_string(),

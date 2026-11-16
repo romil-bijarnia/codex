@@ -247,6 +247,8 @@ mod config_errors;
 mod copy_export_picker_tests;
 #[path = "tests/dynamic_activity_tests.rs"]
 mod dynamic_activity_tests;
+#[cfg(target_os = "linux")]
+mod el2_control;
 mod exec_flow;
 mod goal_menu;
 mod goal_validation;

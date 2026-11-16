@@ -8,5 +8,7 @@ expression: "render_bottom_popup(&chat, 100)"
 
 ›    current-profile (current) (disabled)  Current permission profile (disabled: Not available on
                                            this server)
+     EL2 Control (disabled)                Verify the existing EL2 interface and use Full Access
+                                           (disabled: Wait for this task to connect.)
 
   enter select · esc back
