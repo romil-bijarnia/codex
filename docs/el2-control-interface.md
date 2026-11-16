@@ -1,9 +1,9 @@
 # EL2 Control interface
 
-This optional Linux terminal interface is a small patch on official Codex
-0.169.0. It is not an additional operating-system privilege level or an
-unmodified OpenAI build. The old custom launcher, updater and unrelated native
-changes are not included.
+This optional Linux terminal interface is a small patch on official experimental
+Codex 0.171.0-alpha.7. It is not an additional operating-system privilege level
+or an unmodified OpenAI build. The old custom launcher, updater and unrelated
+native changes are not included.
 
 The permissions picker offers **EL2 Control** for the existing owner-authorized
 `/usr/local/bin/el2-control` interface on the execution host. Choosing Full Access
@@ -49,20 +49,24 @@ Daybreak disable after an explicit model change preserves that chosen model.
 The normal saved launch default remains GPT-6.1-Sol at Extra high with Daybreak
 off. This is a preset, not a restriction on subsequent explicit model choices.
 
-Use Rust 1.95.0 and the pinned third-party dependencies. The release tag's lock
-file has workspace entries at 0.0.0 while its workspace version is 0.169.0; the
-version-only lock refresh does not change any external dependency pin.
+Use Rust 1.99.1 and the pinned third-party dependencies. The release tag's lock
+file has workspace entries at 0.0.0 while its workspace version is
+0.171.0-alpha.7; the version-only lock refresh does not change any external
+dependency pin.
 
 The CLI and voice helper must embed the actual patch source commit. Reusing an
 official helper with a different commit breaks its identity handshake. Native
 voice libraries and unchanged executors may retain their verified official
-0.169.0 provenance; package metadata must identify these components accurately.
+0.171.0-alpha.7 provenance; package metadata must identify these components accurately.
 The small staging helpers in `tools/el2-interface/` do not install, update or
 modify a running selection.
 
 Verification includes focused Rust UI/state tests, ordinary permissions-menu
 regressions, an actual terminal selection, and the matching voice helper's
 initialize/close handshake without opening audio or network transports.
-The installed CLI changes only after those checks pass. A normal future
-official update can replace this interface patch; no automatic reapplication
-has been installed.
+The installed CLI changes only after those checks pass. Every future update
+must retain the EL2 menu and the user's permission colours and Daybreak presets.
+Do not select stock or use the ordinary stock-stable updater. No automatic
+reapplication has been installed; port and verify these changes before selecting
+another upstream release. The authoritative build recipe is in
+[`tools/el2-interface/README.md`](../tools/el2-interface/README.md).

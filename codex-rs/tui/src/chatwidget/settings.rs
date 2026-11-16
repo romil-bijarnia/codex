@@ -476,7 +476,7 @@ impl ChatWidget {
             .unwrap_or(ModeKind::Default)
     }
 
-    pub(super) fn effective_reasoning_effort(&self) -> Option<ReasoningEffortConfig> {
+    pub(crate) fn effective_reasoning_effort(&self) -> Option<ReasoningEffortConfig> {
         if !self.collaboration_modes_enabled() {
             return self.current_collaboration_mode.reasoning_effort();
         }
