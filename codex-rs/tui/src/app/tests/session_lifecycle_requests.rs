@@ -990,7 +990,11 @@ fn load_daybreak_default_test_models(
         })
         .last()
         .expect("model catalog request");
-    assert!(app.chat_widget.on_models_loaded(request_id, Ok(models)));
+    let expected = models.clone();
+    // An identical catalogue is accepted without reporting a model-list change.
+    app.chat_widget.on_models_loaded(request_id, Ok(models));
+    assert_eq!(app.chat_widget.model_catalog().models, expected);
+    assert!(!app.chat_widget.model_popup_request_is_current(request_id));
     app.chat_widget
         .handle_key_event(KeyEvent::from(KeyCode::Esc));
 }
