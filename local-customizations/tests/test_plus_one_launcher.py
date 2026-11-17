@@ -119,6 +119,7 @@ class PlusOneLauncherTests(unittest.TestCase):
             args = execv.call_args.args[1]
             self.assertIn('--remote=unix:///tmp/fixture.sock', args)
             self.assertNotIn('--no-daemon', args)
+            self.assertIn('instructions=""', args)
 
     def test_fork_helper_bootstrap_preserves_pinned_launcher(self):
         launcher = load_launcher()
