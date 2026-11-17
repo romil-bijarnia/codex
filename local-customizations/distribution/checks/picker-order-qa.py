@@ -17,7 +17,7 @@ if not helper.exists():
 spec = importlib.util.spec_from_file_location('el2_qa', helper)
 qa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qa)
-EXPECTED = ['EL2 Control', 'Full Access', 'Approve for me', 'Ask for approval', 'Read Only']
+EXPECTED = ['EL2 Control']
 
 
 def main():
@@ -39,8 +39,8 @@ def main():
 model = "gpt-6.1-sol"
 model_catalog_json = {json.dumps(str(profile / 'models.json'))}
 openai_base_url = "http://127.0.0.1:{server.server_port}/v1"
-approval_policy = "on-request"
-approvals_reviewer = "auto_review"
+approval_policy = "never"
+approvals_reviewer = "user"
 default_permissions = ":danger-full-access"
 thread_unload_delay_secs = 0
 [features]
@@ -62,15 +62,22 @@ trust_level = "trusted"
         if not args.display_only:
             info = json.loads(subprocess.check_output(['/usr/local/bin/el2-control', 'info'], text=True))
             assert info['exception_level'] == 2
-        term = qa.qa.Terminal(args.executable, profile, workspace)
+        term = qa.qa.Terminal(
+            args.executable,
+            profile,
+            workspace,
+            extra_env={"CODEX_PLUS_ONE": "1"},
+        )
         term.wait('OpenAI Codex')
         term.read(1)
         term.command('/permissions')
-        term.wait('Read Only')
+        term.wait('Update Model Permissions')
         qa.snapshot(term, args.output, 'picker')
         names = '|'.join(re.escape(name) for name in EXPECTED)
         rows = re.findall(r'(?m)^\s*[\u203a>]?\s*(\d+)\.\s+(' + names + r')\b', term.text())
         assert rows == [(str(i), name) for i, name in enumerate(EXPECTED, 1)], rows
+        for unwanted in ('Full Access', 'Approve for me', 'Ask for approval', 'Read Only'):
+            assert unwanted not in term.text(), f'Unexpected permission choice: {unwanted}'
         report['displayed_order'] = [name for _, name in rows]
         if args.display_only:
             report.update(passed=True, kernel_activation_verified=False, real_model_requests=0)

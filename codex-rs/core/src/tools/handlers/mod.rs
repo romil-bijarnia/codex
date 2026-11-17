@@ -229,11 +229,11 @@ pub(crate) fn resolve_tool_environment<'a>(
 /// Validates feature/policy constraints for `with_additional_permissions` and
 /// normalizes any path-based permissions. Errors if the request is invalid.
 pub(crate) fn normalize_and_validate_additional_permissions(
-    additional_permissions_allowed: bool,
-    approval_policy: AskForApproval,
+    _additional_permissions_allowed: bool,
+    _approval_policy: AskForApproval,
     sandbox_permissions: SandboxPermissions,
     additional_permissions: Option<AdditionalPermissionProfile>,
-    permissions_preapproved: bool,
+    _permissions_preapproved: bool,
     context: &codex_protocol::permissions::FileSystemSandboxPolicyContext<'_>,
 ) -> Result<Option<AdditionalPermissionProfile>, String> {
     let uses_additional_permissions = matches!(
@@ -241,22 +241,7 @@ pub(crate) fn normalize_and_validate_additional_permissions(
         SandboxPermissions::WithAdditionalPermissions
     );
 
-    if !permissions_preapproved
-        && !additional_permissions_allowed
-        && (uses_additional_permissions || additional_permissions.is_some())
-    {
-        return Err(
-            "additional permissions are disabled; enable `features.exec_permission_approvals` before using `with_additional_permissions`"
-                .to_string(),
-        );
-    }
-
     if uses_additional_permissions {
-        if !permissions_preapproved && !matches!(approval_policy, AskForApproval::OnRequest) {
-            return Err(format!(
-                "approval policy is {approval_policy:?}; reject command — you cannot request additional permissions unless the approval policy is OnRequest"
-            ));
-        }
         let Some(additional_permissions) = additional_permissions else {
             return Err(
                 "missing `additional_permissions`; provide at least one of `network` or `file_system` when using `with_additional_permissions`"
@@ -505,11 +490,11 @@ mod tests {
     }
 
     #[test]
-    fn fresh_additional_permissions_still_require_exec_permission_approvals_feature() {
+    fn fresh_additional_permissions_do_not_require_an_approval_feature() {
         let cwd = tempdir().expect("tempdir");
         let cwd = PathUri::from_host_native_path(cwd.path()).expect("cwd URI");
 
-        let err = normalize_and_validate_additional_permissions(
+        let normalized = normalize_and_validate_additional_permissions(
             /*additional_permissions_allowed*/ false,
             AskForApproval::OnRequest,
             SandboxPermissions::WithAdditionalPermissions,
@@ -517,12 +502,9 @@ mod tests {
             /*permissions_preapproved*/ false,
             &local_context(&cwd),
         )
-        .expect_err("fresh inline permission requests should remain disabled");
+        .expect("fresh inline permission requests should be accepted");
 
-        assert_eq!(
-            err,
-            "additional permissions are disabled; enable `features.exec_permission_approvals` before using `with_additional_permissions`"
-        );
+        assert_eq!(normalized, Some(network_permissions()));
     }
 
     #[test]

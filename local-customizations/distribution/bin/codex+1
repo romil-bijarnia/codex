@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """Run the separately pinned fork without selecting or updating the primary CLI."""
+import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+import time
 
 
 ROOT = Path.home() / '.local/share/codex-plus-one'
 CONFIG_HOME = ROOT / 'home'
 SHARED_HOME_ENV = 'CODEX_PLUS_ONE_SHARED_HOME'
+GENERATED_HASH = '.config-generated.sha256'
+SOURCE_HASH = '.config-source.sha256'
 VALUE_OPTIONS = {
     '-c', '--config', '-m', '--model', '-p', '--profile', '-C', '--cd',
     '-a', '--ask-for-approval', '-s', '--sandbox', '-i', '--image',
     '--enable', '--disable', '--remote', '--remote-auth-token-env', '--add-dir',
+    '--local-provider',
 }
 
 
@@ -30,28 +38,151 @@ def shared_home():
 
 
 def prepare_config_home():
-    """Create the fork launcher's config with the custom model prompt omitted."""
+    """Keep one writable config and share all other Codex state by symlink."""
     source_home = shared_home()
     CONFIG_HOME.mkdir(parents=True, exist_ok=True, mode=0o700)
     CONFIG_HOME.chmod(0o700)
 
+    for source in source_home.iterdir():
+        if source.name in ('config.toml', 'bin'):
+            continue
+        destination = CONFIG_HOME / source.name
+        if destination.is_symlink():
+            if destination.resolve(strict=False) == source.resolve(strict=False):
+                continue
+            raise RuntimeError(f'codex+1 shared-state link changed: {destination}')
+        if destination.exists():
+            raise RuntimeError(f'codex+1 overlay has an unexpected file: {destination}')
+        destination.symlink_to(source)
+
+    bin_dir = CONFIG_HOME / 'bin'
+    if bin_dir.is_symlink():
+        if bin_dir.resolve(strict=False) != (source_home / 'bin').resolve(strict=False):
+            raise RuntimeError(f'codex+1 helper directory link changed: {bin_dir}')
+        # Older launchers linked the whole directory, which made /fork use
+        # the primary alpha launcher. Only unlink the private overlay link.
+        bin_dir.unlink()
+    bin_dir.mkdir(mode=0o700, exist_ok=True)
+    if (source_home / 'bin').is_dir():
+        for source in (source_home / 'bin').iterdir():
+            if source.name == 'codex-fork-window':
+                continue
+            destination = bin_dir / source.name
+            if destination.is_symlink():
+                if destination.resolve(strict=False) == source.resolve(strict=False):
+                    continue
+                raise RuntimeError(f'codex+1 helper link changed: {destination}')
+            if destination.exists():
+                raise RuntimeError(f'codex+1 helper is unexpectedly local: {destination}')
+            destination.symlink_to(source)
+    helper = bin_dir / 'codex-fork-window'
+    launcher = ROOT / 'bin/codex+1'
+    if helper.is_symlink():
+        if helper.resolve(strict=False) != launcher.resolve(strict=False):
+            raise RuntimeError(f'codex+1 fork helper link changed: {helper}')
+    elif helper.exists():
+        raise RuntimeError(f'codex+1 fork helper is unexpectedly local: {helper}')
+    else:
+        helper.symlink_to(launcher)
+
     source_config = source_home / 'config.toml'
-    config = source_config.read_text() if source_config.is_file() else ''
+    original = source_config.read_text() if source_config.is_file() else ''
     config = re.sub(
         r'(?m)^[ \t]*model_instructions_file[ \t]*=.*(?:\n|$)',
         '',
-        config,
+        original,
     )
     generated = (
         '# Generated for codex+1 from the shared config; custom model prompt omitted.\n'
         + config
     )
     config_path = CONFIG_HOME / 'config.toml'
-    temporary = CONFIG_HOME / f'.config.toml.{os.getpid()}.tmp'
-    temporary.write_text(generated)
-    temporary.chmod(0o600)
-    os.replace(temporary, config_path)
+    generated_hash_path = CONFIG_HOME / GENERATED_HASH
+    source_hash_path = CONFIG_HOME / SOURCE_HASH
+    current = config_path.read_text() if config_path.is_file() else None
+    prior_generated_hash = (generated_hash_path.read_text().strip()
+                            if generated_hash_path.is_file() else None)
+    current_hash = hashlib.sha256(current.encode()).hexdigest() if current is not None else None
+    original_hash = hashlib.sha256(original.encode()).hexdigest()
+    prior_source_hash = source_hash_path.read_text().strip() if source_hash_path.is_file() else None
+    legacy_generated = prior_generated_hash is None and current == generated
+    locally_edited = (current is not None and current_hash != prior_generated_hash
+                      and not legacy_generated)
+    if locally_edited:
+        if prior_source_hash != original_hash:
+            print('codex+1: its saved settings differ from the primary Codex config; '
+                  'keeping the fork settings unchanged.', file=sys.stderr)
+    elif current != generated or prior_generated_hash is None:
+        temporary = CONFIG_HOME / f'.config.toml.{os.getpid()}.tmp'
+        temporary.write_text(generated)
+        temporary.chmod(0o600)
+        os.replace(temporary, config_path)
+        generated_hash_path.write_text(hashlib.sha256(generated.encode()).hexdigest() + '\n')
+        source_hash_path.write_text(original_hash + '\n')
+        generated_hash_path.chmod(0o600)
+        source_hash_path.chmod(0o600)
     return source_home, config_path
+
+
+def fork_window(arguments):
+    """Resume a native /fork in a new Terminal with the pinned fork binary."""
+    parser = argparse.ArgumentParser(description='Open a codex+1 fork window.')
+    parser.add_argument('--resume', required=True)
+    parser.add_argument('--workdir', type=Path, required=True)
+    backend = parser.add_mutually_exclusive_group(required=True)
+    backend.add_argument('--remote')
+    backend.add_argument('--no-daemon', action='store_true')
+    parser.add_argument('--remote-auth-token-env')
+    options = parser.parse_args(arguments)
+    directory = options.workdir.expanduser().resolve(strict=True)
+    launcher = ROOT / 'bin/codex+1'
+    command = [str(launcher)]
+    if options.remote:
+        command += ['--remote', options.remote]
+    else:
+        command += ['--no-daemon']
+    if options.remote_auth_token_env:
+        if not options.remote or options.remote_auth_token_env not in os.environ:
+            parser.error('remote authentication environment variable is unavailable')
+        command += ['--remote-auth-token-env', options.remote_auth_token_env]
+    command += ['resume', options.resume]
+
+    # An existing Terminal GUI can supply an older environment. Restore the
+    # private fork context inside the new shell, without putting tokens in argv.
+    context = {SHARED_HOME_ENV: str(shared_home()), 'CODEX_HOME': str(CONFIG_HOME),
+               'CODEX_PLUS_ONE': '1'}
+    if options.remote_auth_token_env:
+        name = options.remote_auth_token_env
+        context[name] = os.environ[name]
+    launches = CONFIG_HOME / 'run/terminal-launches'
+    launches.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, filename = tempfile.mkstemp(prefix='plus-one-fork-', suffix='.py', dir=launches)
+    bootstrap = Path(filename)
+    with os.fdopen(descriptor, 'w') as stream:
+        stream.write('import os\nfrom pathlib import Path\n'
+                     'context = ' + repr(context) + '\n'
+                     'command = ' + repr(command) + '\n'
+                     'Path(__file__).unlink()\n'
+                     'os.environ.update(context)\n'
+                     'os.execv(command[0], command)\n')
+    terminal = Path.home() / '.local/bin/launch-terminal'
+    if not terminal.is_file():
+        bootstrap.unlink(missing_ok=True)
+        raise RuntimeError(f'Terminal launcher is missing: {terminal}')
+    request = [str(terminal), '--new-window', '--desktopfile', 'org.romil.Codex',
+               '--profile', 'Pro Dark', '--workdir', str(directory), '-e',
+               '/usr/bin/python3', str(bootstrap)]
+    try:
+        child = subprocess.Popen(request, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True, cwd=directory)
+        time.sleep(.3)
+        if child.poll() not in (None, 0):
+            raise RuntimeError(f'Terminal launcher exited with status {child.returncode}.')
+    except BaseException:
+        bootstrap.unlink(missing_ok=True)
+        raise
+    return 0
 
 
 def command(arguments):
@@ -68,6 +199,8 @@ def command(arguments):
 
 def main(arguments=None):
     arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if Path(sys.argv[0]).name == 'codex-fork-window':
+        return fork_window(arguments)
     if command(arguments) == 'update':
         print('codex+1 is pinned separately. Its updater is disabled so it cannot replace codex.',
               file=sys.stderr)
@@ -82,8 +215,10 @@ def main(arguments=None):
         print('codex+1 requires bubblewrap to isolate its config.', file=sys.stderr)
         return 1
     os.environ[SHARED_HOME_ENV] = str(source_home)
-    os.environ['CODEX_HOME'] = str(source_home)
-    isolation = [] if '--no-daemon' in arguments else ['--no-daemon']
+    os.environ['CODEX_HOME'] = str(CONFIG_HOME)
+    os.environ['CODEX_PLUS_ONE'] = '1'
+    remote = any(arg == '--remote' or arg.startswith('--remote=') for arg in arguments)
+    isolation = [] if '--no-daemon' in arguments or remote else ['--no-daemon']
     os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--bind', str(config_path),
                          str(source_home / 'config.toml'), '--', str(executable), *isolation,
                          '-c', 'check_for_update_on_startup=false', *arguments])

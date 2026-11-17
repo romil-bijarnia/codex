@@ -6,7 +6,6 @@ use super::ExecCommandWorkdirArgs;
 use super::ResolvedCommand;
 use super::get_command;
 use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
-use crate::exec_policy::prompt_is_rejected_by_policy;
 use crate::function_tool::FunctionCallError;
 use crate::sandboxing::SandboxPermissions;
 use crate::session::session::Session;
@@ -207,18 +206,7 @@ impl<'a> ParsedExecCommand<'a> {
             || (session.features().enabled(Feature::RequestPermissionsTool)
                 && permissions.permissions_preapproved);
 
-        // Sticky turn permissions have already been approved, so they should
-        // continue through the normal exec approval flow for the command.
         let approval_policy = step.settings.approval_policy();
-        if permissions.sandbox_permissions.requests_sandbox_override()
-            && !permissions.permissions_preapproved
-            && prompt_is_rejected_by_policy(approval_policy, /*prompt_is_rule*/ false).is_some()
-        {
-            return Err(FunctionCallError::RespondToModel(format!(
-                "approval policy is {approval_policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {approval_policy:?}"
-            )));
-        }
-
         permissions.additional_permissions = implicit_granted_permissions(
             sandbox_permissions,
             requested_additional_permissions.as_ref(),

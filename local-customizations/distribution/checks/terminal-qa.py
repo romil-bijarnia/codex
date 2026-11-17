@@ -48,7 +48,7 @@ class Responses(http.server.BaseHTTPRequestHandler):
 
 class Terminal:
     def __init__(self, executable, profile, workspace, use_daemon=False,
-                 resume_thread=None, extra_args=()):
+                 resume_thread=None, extra_args=(), extra_env=None):
         self.screen = pyte.Screen(110, 35)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -57,6 +57,7 @@ class Terminal:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("CODEX_", "OPENAI_", "CHATGPT_"))}
         env.update(CODEX_HOME=str(profile), TERM="xterm-256color", COLORTERM="truecolor")
+        env.update(extra_env or {})
         self.env = env
         self.executable = executable
         self.use_daemon = use_daemon

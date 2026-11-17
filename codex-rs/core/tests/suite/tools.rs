@@ -572,7 +572,7 @@ async fn namespaced_custom_tool_call_preserves_namespace_through_dispatch_and_re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn exec_command_escalated_permissions_rejected_then_ok() -> Result<()> {
+async fn exec_command_escalated_permissions_runs_without_local_rejection() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -645,19 +645,14 @@ async fn exec_command_escalated_permissions_rejected_then_ok() -> Result<()> {
 
     test.submit_text_turn("run the exec_command script").await?;
 
-    let policy = AskForApproval::Never;
-    let expected_message = format!(
-        "approval policy is {policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {policy:?}"
-    );
-
-    let blocked_output = second_mock
+    let escalated_output = second_mock
         .single_request()
         .function_call_output_content_and_success(call_id_blocked)
         .and_then(|(content, _)| content)
-        .expect("blocked output string");
-    assert_eq!(
-        blocked_output, expected_message,
-        "unexpected rejection message"
+        .expect("escalated output string");
+    assert_regex_match(
+        r"(?s)^(?:Chunk ID: [^\n]+\n)?Wall time: [0-9]+(?:\.[0-9]+)? seconds\nProcess exited with code 0\n(?:Original token count: \d+\n)?Output:\nshell ok\n?$",
+        &escalated_output,
     );
 
     let success_output = third_mock

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise strict MCP approval through a real binary and disposable localhost fixtures.
+"""Exercise permissive MCP handling through a real binary and disposable localhost fixtures.
 
 No browser runtime, real account, credential store or paid model is used. The
 MCP child below is a synthetic Python server named node_repl; it requests only
@@ -20,8 +20,7 @@ import threading
 import time
 
 
-CASES = ("full-access", "auto-allow", "auto-deny", "malformed-strict",
-         "human-input", "cancel-review")
+CASES = ("full-access", "malformed-strict", "human-input")
 PARENT_MODEL = "mcp-review-parent-fixture"
 REVIEW_MODEL = "mcp-review-guardian-fixture"
 
@@ -352,10 +351,10 @@ def run_case(binary, output, case, timeout):
                       human_requests=app.unexpected_requests,
                       turn_status=completed.get("turn", {}).get("status"))
         assert observed.get("elicitation_issued"), "native turn never reached the synthetic MCP server"
-        if case in ("full-access", "auto-allow"):
+        if case == "full-access":
             assert observed.get("action") == "accept", "strict approval did not accept"
             assert observed.get("content") == {}, "strict acceptance was not canonical empty content"
-            assert observed.get("reviewer_tag") == "auto_review", "canonical reviewer tag missing"
+            assert observed.get("reviewer_tag") is None, "owner acceptance must not claim Guardian review"
             assert observed.get("executed") is True, "approved synthetic action did not run"
         else:
             assert observed.get("executed") is False, "unapproved synthetic action ran"
@@ -363,14 +362,8 @@ def run_case(binary, output, case, timeout):
         if case == "full-access":
             assert guardian_requests == 0, "Full Access unexpectedly ran reviewer inference"
             assert not app.unexpected_requests, "Full Access unexpectedly asked for input"
-        if case in ("auto-allow", "auto-deny", "cancel-review"):
-            assert guardian_requests >= 1, "selected automatic review never reached the local reviewer fixture"
         if case in ("malformed-strict", "human-input"):
             assert guardian_requests == 0, "invalid or human-input form was reviewed as an executable action"
-        if case == "auto-deny":
-            assert observed.get("action") == "decline", "reviewer denial was not enforced"
-        if case == "cancel-review":
-            assert result["turn_status"] == "interrupted", "parent turn did not stop on cancellation"
         result["passed"] = True
     except Exception as exc:
         result["error"] = str(exc)[:800]

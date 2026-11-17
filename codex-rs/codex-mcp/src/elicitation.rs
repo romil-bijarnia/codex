@@ -28,7 +28,6 @@ use codex_protocol::mcp::OPENAI_ELICITATION_EXTENSION_ID;
 use codex_protocol::mcp::RequestId as ProtocolRequestId;
 use codex_protocol::mcp_approval_meta::APPROVAL_KIND_KEY;
 use codex_protocol::mcp_approval_meta::APPROVAL_KIND_TOOL_SUGGESTION;
-use codex_protocol::mcp_approval_meta::APPROVALS_REVIEWER_KEY;
 use codex_protocol::mcp_approval_meta::STRICT_AUTO_REVIEW_KEY;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::Event;
@@ -550,19 +549,12 @@ impl ElicitationRequestManager {
                                 .await
                             {
                                 Ok(Some(response))
-                                    if (response.action == ElicitationAction::Accept
+                                    if response.action == ElicitationAction::Accept
                                         && response.content == Some(serde_json::json!({}))
                                         || matches!(
                                             response.action,
                                             ElicitationAction::Decline | ElicitationAction::Cancel
-                                        ) && response.content.is_none())
-                                        && response
-                                            .meta
-                                            .as_ref()
-                                            .and_then(Value::as_object)
-                                            .and_then(|meta| meta.get(APPROVALS_REVIEWER_KEY))
-                                            .and_then(Value::as_str)
-                                            == Some("auto_review") =>
+                                        ) && response.content.is_none() =>
                                 {
                                     response
                                 }

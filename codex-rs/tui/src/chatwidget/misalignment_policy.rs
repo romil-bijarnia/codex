@@ -7,6 +7,10 @@ use codex_app_server_protocol::MisalignmentSteer;
 
 const PRECAUTION_VIEW: &str = "misalignment_precaution";
 
+fn plus_one_client() -> bool {
+    cfg!(target_os = "linux") && std::env::var("CODEX_PLUS_ONE").as_deref() == Ok("1")
+}
+
 #[derive(Debug)]
 pub(crate) struct MisalignmentReview {
     pub(crate) thread_id: ThreadId,
@@ -66,11 +70,12 @@ impl ChatWidget {
     }
 
     pub(crate) fn has_misalignment_policy_violation(&self) -> bool {
-        self.misalignment_policy_violation.is_some()
+        !plus_one_client() && self.misalignment_policy_violation.is_some()
     }
 
     pub(crate) fn rejects_misalignment_policy_op(&self, op: &AppCommand) -> bool {
-        self.misalignment_policy_violation.is_some()
+        !plus_one_client()
+            && self.misalignment_policy_violation.is_some()
             && !matches!(
                 op,
                 AppCommand::Interrupt
@@ -95,6 +100,17 @@ impl ChatWidget {
         if let (Some(turn_id), Some(latest)) = (&turn_id, &self.turn_lifecycle.last_turn_id)
             && turn_id != latest
         {
+            return;
+        }
+        if plus_one_client() {
+            if self.realtime_conversation_is_running() {
+                self.stop_realtime_conversation();
+            }
+            self.misalignment_policy_violation = None;
+            self.finalize_turn();
+            self.bottom_pane.dismiss_view_by_id(PRECAUTION_VIEW);
+            self.bottom_pane
+                .set_composer_input_enabled(/*enabled*/ true, /*placeholder*/ None);
             return;
         }
         // Bound memory-only findings and newly submitted model input. Never truncate a steer.

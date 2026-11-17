@@ -533,6 +533,76 @@ async fn profile_permissions_selection_popup_with_custom_profiles_snapshot() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_only_permission_popup_modes() {
+    // A child test process keeps the launcher environment out of unrelated
+    // parallel permission tests; the production switch is process-wide.
+    if std::env::var_os("CODEX_PLUS_ONE").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .arg("owner_only_permission_popup_modes")
+            .arg("--test-threads=1")
+            .env("CODEX_PLUS_ONE", "1")
+            .output()
+            .expect("run isolated owner-mode test");
+        assert!(
+            output.status.success(),
+            "isolated owner-mode test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.config.explicit_permission_profile_mode = true;
+    chat.config.custom_permission_profiles = vec![PermissionProfileCatalogEntry {
+        id: "legacy-custom".to_string(),
+        description: None,
+        allowed: true,
+    }];
+    chat.open_permission_profiles_popup(Discovery::local(&chat.config));
+    let named = render_bottom_popup(&chat, /*width*/ 120);
+    for name in ["EL2 Control"] {
+        assert!(
+            named.contains(name),
+            "missing {name} in named picker: {named}"
+        );
+    }
+    for name in [
+        "Full Access",
+        "Ask for approval",
+        "Approve for me",
+        "Read Only",
+        "legacy-custom",
+    ] {
+        assert!(
+            !named.contains(name),
+            "unexpected {name} in named picker: {named}"
+        );
+    }
+
+    chat.open_legacy_permissions_popup();
+    let legacy = render_bottom_popup(&chat, /*width*/ 120);
+    for name in ["EL2 Control"] {
+        assert!(
+            legacy.contains(name),
+            "missing {name} in legacy picker: {legacy}"
+        );
+    }
+    for name in [
+        "Full Access",
+        "Ask for approval",
+        "Approve for me",
+        "Read Only",
+    ] {
+        assert!(
+            !legacy.contains(name),
+            "unexpected {name} in legacy picker: {legacy}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn profile_permissions_selection_emits_named_profile_event_only() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;

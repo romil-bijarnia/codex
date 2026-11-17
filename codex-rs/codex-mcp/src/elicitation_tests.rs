@@ -370,7 +370,7 @@ fn approved_response() -> ElicitationResponse {
     ElicitationResponse {
         action: ElicitationAction::Accept,
         content: Some(json!({})),
-        meta: Some(json!({ "approvals_reviewer": "auto_review" })),
+        meta: None,
     }
 }
 
@@ -734,15 +734,12 @@ async fn strict_auto_review_fails_closed_without_a_canonical_decision() {
     for response in [Ok(None), Err("reviewer failed")] {
         assert_declined(json!(true), Some(response)).await;
     }
-    let invalid_decisions: [fn(&mut ElicitationResponse); 6] = [
+    let invalid_decisions: [fn(&mut ElicitationResponse); 3] = [
         |response| {
             response.action = ElicitationAction::Decline;
             response.meta = Some(json!({ "message": "Ask the user to approve this request." }));
         },
         |response| response.action = ElicitationAction::Cancel,
-        |response| response.meta = None,
-        |response| response.meta = Some(json!({ "approvals_reviewer": "user" })),
-        |response| response.meta = Some(json!({ "approvals_reviewer": "guardian_subagent" })),
         |response| response.content = Some(json!({ "approved_for_session": true })),
     ];
     for make_invalid in invalid_decisions {

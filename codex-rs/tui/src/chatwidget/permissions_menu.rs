@@ -5,6 +5,14 @@ use crate::permission_discovery::PermissionDiscovery;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 
+/// The separate owner launcher has a deliberately small permission picker.
+/// Keep the other profiles loadable so older chats and API clients still work.
+pub(super) fn owner_permission_choices_enabled() -> bool {
+    cfg!(target_os = "linux")
+        && std::env::var_os("CODEX_PLUS_ONE")
+            .is_some_and(|value| value == std::ffi::OsStr::new("1"))
+}
+
 pub(super) fn permission_preset_description(preset: &ApprovalPreset) -> &'static str {
     match preset.id {
         "read-only" => "Read workspace files, with approval required for edits or internet access",
@@ -172,6 +180,31 @@ impl ChatWidget {
     }
 
     pub(super) fn open_permission_profiles_popup(&mut self, discovery: PermissionDiscovery) {
+        if owner_permission_choices_enabled() {
+            let mut items = Vec::new();
+            let el2_disabled_reason = discovery.disabled_reason(
+                BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS,
+                Some(self.config.permissions.approval_policy.value().into()),
+                Some(self.config.approvals_reviewer.into()),
+            );
+            if let Some(item) = self.el2_control_selection_item(el2_disabled_reason) {
+                items.push(item);
+            }
+            if discovery.profiles.is_empty() {
+                items.clear();
+            }
+            self.bottom_pane.show_selection_view(SelectionViewParams {
+                view_id: Some(super::permission_discovery::VIEW_ID),
+                items,
+                title: Some("Update Model Permissions".to_string()),
+                subtitle: discovery
+                    .profiles
+                    .is_empty()
+                    .then(|| "No permission profiles returned by the server.".to_string()),
+                ..SelectionViewParams::picker()
+            });
+            return;
+        }
         let active_profile_id = self
             .config
             .permissions

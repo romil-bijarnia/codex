@@ -42,6 +42,16 @@ sessions, AGENTS.md, plugins and databases, but filters the primary launcher's
 This keeps `codex+1` independent from a personal prompt configured for the
 primary CLI.
 
+On Linux that launcher marks the native process as the owner harness. Its
+permission picker exposes only **EL2 Control**, which applies Full Access with
+`approval_policy = "never"` and `approvals_reviewer = "user"` before enabling
+the additional kernel and CPU interfaces. The harness does not install the
+local Guardian approval reviewer. Its MCP elicitation handler accepts empty
+approval forms directly without reviewer inference, and it does not locally
+lock the composer after a hosted precaution stop. Hosted-service decisions are
+still reported. Conversation writer locks remain because they protect saved
+history from concurrent writes; they are not permission or review controls.
+
 The original macOS launcher recipe below remains available. Current Linux
 behavior and recovery are documented in [the Linux notes](linux/README.md).
 

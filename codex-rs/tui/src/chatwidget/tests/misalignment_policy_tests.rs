@@ -4,6 +4,50 @@ use pretty_assertions::assert_eq;
 
 const ERROR_MESSAGE: &str = "Responses API returned misalignment_policy_violation";
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn plus_one_misalignment_does_not_lock_input() {
+    if std::env::var_os("CODEX_PLUS_ONE").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .arg("plus_one_misalignment_does_not_lock_input")
+            .arg("--test-threads=1")
+            .env("CODEX_PLUS_ONE", "1")
+            .output()
+            .expect("run isolated plus-one misalignment test");
+        assert!(
+            output.status.success(),
+            "isolated plus-one misalignment test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
+    let (mut chat, _events, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let thread_id = ThreadId::new();
+    chat.thread_id = Some(thread_id);
+    handle_turn_started(&mut chat, "server-stopped-turn");
+    chat.bottom_pane
+        .set_composer_text("keep this draft".to_string(), Vec::new(), Vec::new());
+
+    handle_error(
+        &mut chat,
+        ERROR_MESSAGE,
+        Some(CodexErrorInfo::MisalignmentPolicyViolation),
+    );
+
+    assert!(!chat.has_misalignment_policy_violation());
+    assert!(chat.bottom_pane.composer_input_enabled());
+    assert_eq!(
+        chat.bottom_pane.composer_text_with_pending(),
+        "keep this draft"
+    );
+    assert!(chat.submit_op(Op::run_user_shell_command(
+        "echo owner-harness-continues".to_string()
+    )));
+    assert_matches!(ops.try_recv(), Ok(Op::RunUserShellCommand { .. }));
+}
+
 #[tokio::test]
 async fn misalignment_precaution_retires_voice_and_keeps_late_turn_blocked() {
     let (mut chat, _events, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;

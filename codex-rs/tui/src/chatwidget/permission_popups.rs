@@ -4,6 +4,7 @@
 //! Windows-specific sandbox prompting lives beside it in
 //! `windows_sandbox_prompts`.
 
+use super::permissions_menu::owner_permission_choices_enabled;
 use super::permissions_menu::permission_preset_description;
 use super::*;
 use crate::style::accent_color;
@@ -34,6 +35,7 @@ impl ChatWidget {
     }
 
     pub(super) fn open_legacy_permissions_popup(&mut self) {
+        let owner_choices = owner_permission_choices_enabled();
         let include_read_only = cfg!(target_os = "windows");
         let current_approval =
             AskForApproval::from(self.config.permissions.approval_policy.value());
@@ -53,7 +55,8 @@ impl ChatWidget {
         #[cfg(not(target_os = "windows"))]
         let windows_degraded_sandbox_enabled = false;
 
-        let show_elevate_sandbox_hint = windows_degraded_sandbox_enabled
+        let show_elevate_sandbox_hint = !owner_choices
+            && windows_degraded_sandbox_enabled
             && self
                 .windows_sandbox_config
                 .allows(WindowsSandboxSetupMode::Elevated)
@@ -70,6 +73,9 @@ impl ChatWidget {
         };
 
         for preset in presets.into_iter() {
+            if owner_choices {
+                continue;
+            }
             if !include_read_only && preset.id == "read-only" {
                 continue;
             }
