@@ -328,6 +328,7 @@ async fn cloud_resume_picker_reconciles_admitted_steers() -> Result<()> {
     use codex_protocol::models::MessagePhase;
 
     let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
+    app.local_settings.tui.show_tooltips = false;
     let [original, other, failed] = std::array::from_fn(|_| ThreadId::new());
     app.app_server_target = AppServerTarget::Cloud;
     app.enqueue_primary_thread_session(
@@ -5752,7 +5753,7 @@ async fn change_directory_scenario() -> Result<()> {
         fs::create_dir_all(directory.join(".codex"))?;
         fs::write(directory.join(".codex/config.toml"), "")?;
     }
-    let contents = "developer_instructions = \"destination policy\"\nmodel_reasoning_effort = \"high\"\napproval_policy = \"on-request\"\n[tui]\ntheme = \"dracula\"\n[tui.keymap.global]\nopen_transcript = \"f12\"";
+    let contents = "developer_instructions = \"destination policy\"\nmodel_reasoning_effort = \"high\"\napproval_policy = \"on-request\"\n[tui]\ntheme = \"dracula\"\nmouse_scroll_speed = 1.75\n[tui.keymap.global]\nopen_transcript = \"f12\"";
     fs::write(trusted.join(".codex/config.toml"), contents)?;
     let agents = trusted.join("AGENTS.md");
     fs::write(&agents, "Follow destination project instructions.")?;
@@ -6105,6 +6106,7 @@ async fn change_directory_scenario() -> Result<()> {
     let warning = "Project-local config, hooks, and exec policies are disabled";
     assert!(history().iter().any(|line| line.contains(warning)));
     let untrusted_permissions = app.config.permissions.permission_profile().clone();
+    assert_eq!(app.chat_widget.config_panel_tui.mouse_scroll_speed, None);
     app.change_working_directory(&mut tui, &mut server, trusted.clone().abs())
         .await;
     assert_eq!(app.config.cwd, trusted.abs());
@@ -6118,6 +6120,28 @@ async fn change_directory_scenario() -> Result<()> {
             &untrusted_permissions
         )
     );
+    app.chat_widget.open_config_panel();
+    app.chat_widget.handle_key_event(KeyCode::Char('/').into());
+    app.chat_widget.handle_paste("mouse scroll speed".into());
+    let panel = render_bottom_popup(&app.chat_widget, /*width*/ 120);
+    assert!(
+        panel
+            .lines()
+            .any(|line| { line.contains("Mouse scroll speed") && line.contains("1.75×") })
+    );
+    app.chat_widget.handle_key_event(KeyCode::Enter.into());
+    let handoff = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            AppEvent::OpenConfigEditor(handoff) => Some(handoff),
+            _ => None,
+        })
+        .expect("mouse scroll speed editor handoff");
+    app.chat_widget.open_config_editor(
+        handoff,
+        crate::config_panel::ResumeCurrentAvailability::Available,
+    );
+    let picker = render_bottom_popup(&app.chat_widget, /*width*/ 80);
+    assert!(picker.contains("1.75× (current)"));
     server.shutdown().await?;
     proxy.await??;
     Ok(())
@@ -6257,7 +6281,7 @@ fn fresh_session_keeps_its_name_and_draft_when_cycling_backends() -> Result<()> 
                         toml::from_str(&std::fs::read_to_string(&preference_path)?)?;
                     Ok(saved["tui"]["default_hosts"].clone().try_into()?)
                 };
-                assert!(app.can_cycle_conversation_backend());
+                assert!(app.backend_draft().is_some());
                 app.start_new_session_on_other_backend(
                     &mut tui,
                     &mut backends,
@@ -7052,5 +7076,62 @@ async fn provider_error_preserves_partial_history_notice() -> Result<()> {
         server.shutdown().await?;
         proxy.await??;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn snapshot_thread_switch_discards_queued_previous_history() -> Result<()> {
+    let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
+    app.transcript_cells = vec![plain_line_cell("Previous thread transcript")];
+    app.chat_widget
+        .add_plain_history_lines(vec![Line::from("Previous queued history")]);
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+    let next_thread_id = ThreadId::new();
+    app.render_thread_snapshot(
+        &mut tui,
+        &mut app_server,
+        next_thread_id,
+        ThreadEventSnapshot {
+            delegated_turns: Vec::new(),
+            session: Some(test_thread_session(
+                next_thread_id,
+                test_path_buf("/tmp/next"),
+            )),
+            turns: vec![test_turn(
+                "next-turn",
+                TurnStatus::Completed,
+                vec![ThreadItemPayload::UserMessage {
+                    id: "next-user".to_string(),
+                    client_id: None,
+                    content: vec![AppServerUserInput::Text {
+                        text: "Next thread prompt".to_string(),
+                        text_elements: Vec::new(),
+                    }],
+                }],
+            )],
+            events: Vec::new(),
+            active_reasoning_item: None,
+            input_state: None,
+        },
+        /*resume_restored_queue*/ false,
+    )
+    .await?;
+    assert_eq!(app.pending_thread_switch_resets, 1);
+    while let Ok(event) = events.try_recv() {
+        app.handle_event(&mut tui, &mut app_server, event).await?;
+    }
+    assert_eq!(app.pending_thread_switch_resets, 0);
+    let rendered = app
+        .render_transcript_lines_for_reflow(/*width*/ 80)
+        .lines
+        .iter()
+        .map(rendered_line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!rendered.contains("Previous thread transcript"));
+    assert!(!rendered.contains("Previous queued history"));
+    assert!(rendered.contains("Next thread prompt"));
+    app_server.shutdown().await?;
     Ok(())
 }

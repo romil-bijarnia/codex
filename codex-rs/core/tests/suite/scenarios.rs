@@ -135,6 +135,9 @@ mod dynamic_tools;
 #[path = "scenarios_audio_file_tests.rs"]
 mod audio_file;
 
+#[path = "scenarios_restored_history_prewarm.rs"]
+mod restored_history_prewarm;
+
 #[path = "scenarios_retained_tool_outputs.rs"]
 mod retained_tool_outputs;
 
@@ -269,6 +272,9 @@ mod frozen_cloud_skills;
 
 #[path = "scenarios_compaction_tests.rs"]
 mod compaction;
+
+#[path = "scenarios_statusline_authoring_tests.rs"]
+mod statusline_authoring;
 
 #[path = "scenarios_budget_context.rs"]
 mod budget_context;

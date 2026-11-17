@@ -1325,6 +1325,9 @@
             "responses_websockets_v2": {
               "type": "boolean"
             },
+            "restored_history_prewarm": {
+              "type": "boolean"
+            },
             "retain_client_developer_messages": {
               "type": "boolean"
             },
@@ -5527,8 +5530,10 @@
               "history_search_next": null,
               "history_search_previous": null,
               "queue": null,
+              "redo": null,
               "submit": null,
-              "toggle_shortcuts": null
+              "toggle_shortcuts": null,
+              "undo": null
             },
             "editor": {
               "delete_backward": null,
@@ -5551,6 +5556,7 @@
             },
             "global": {
               "change_host": null,
+              "choose_cloud_environment": null,
               "clear_terminal": null,
               "close_sidebar_tab": null,
               "copy": null,
@@ -6174,6 +6180,14 @@
           ],
           "description": "Queue the current composer draft while a task is running."
         },
+        "redo": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Redo an undone composer edit."
+        },
         "submit": {
           "allOf": [
             {
@@ -6189,6 +6203,14 @@
             }
           ],
           "description": "Toggle the composer shortcut overlay."
+        },
+        "undo": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Undo the last edit to the composer draft."
         }
       },
       "type": "object"
@@ -6384,6 +6406,14 @@
             }
           ],
           "description": "Change where a new conversation runs."
+        },
+        "choose_cloud_environment": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Choose a saved environment for a new Cloud conversation."
         },
         "clear_terminal": {
           "allOf": [
@@ -6716,8 +6746,10 @@
             "history_search_next": null,
             "history_search_previous": null,
             "queue": null,
+            "redo": null,
             "submit": null,
-            "toggle_shortcuts": null
+            "toggle_shortcuts": null,
+            "undo": null
           }
         },
         "editor": {
@@ -6754,6 +6786,7 @@
           ],
           "default": {
             "change_host": null,
+            "choose_cloud_environment": null,
             "clear_terminal": null,
             "close_sidebar_tab": null,
             "copy": null,
@@ -8582,6 +8615,9 @@
           "type": "boolean"
         },
         "responses_websockets_v2": {
+          "type": "boolean"
+        },
+        "restored_history_prewarm": {
           "type": "boolean"
         },
         "retain_client_developer_messages": {

@@ -209,6 +209,7 @@ pub(crate) use skills_toggle_view::SkillsToggleItem;
 pub(crate) use skills_toggle_view::SkillsToggleView;
 pub(crate) use status_line_setup::StatusLineItem;
 pub(crate) use status_line_setup::StatusLineSetupView;
+pub(crate) use status_line_setup::StatuslineProviderActions;
 pub(crate) use status_surface_preview::StatusSurfacePreviewData;
 pub(crate) use status_surface_preview::StatusSurfacePreviewItem;
 pub(crate) use title_setup::TerminalTitleItem;
@@ -288,6 +289,7 @@ pub(crate) use list_selection_view::SELECTION_TOGGLE_BLOCKED_PREFIX;
 pub(crate) use list_selection_view::SELECTION_TOGGLE_UNAVAILABLE_PREFIX;
 pub(crate) use list_selection_view::SelectionAction;
 pub(crate) use list_selection_view::SelectionItem;
+pub(crate) use list_selection_view::SelectionKeyAction;
 pub(crate) use list_selection_view::SelectionSecondaryAction;
 
 struct DelayedApprovalRequest {
@@ -852,7 +854,13 @@ impl BottomPane {
         self.push_view(Box::new(modal));
     }
 
-    fn is_composer_activity_key(key: KeyEvent) -> bool {
+    fn is_composer_activity_key(&self, key: KeyEvent) -> bool {
+        if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+            && (self.keymap.composer.undo.is_pressed(key)
+                || self.keymap.composer.redo.is_pressed(key))
+        {
+            return true;
+        }
         matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
             && !key_hint::has_ctrl_or_alt(key.modifiers)
             && matches!(
@@ -873,7 +881,7 @@ impl BottomPane {
     ) -> InputResult {
         if mode == RestrictedInputMode::DraftHandoff {
             let result = self.composer.handle_restricted_key(key, mode);
-            if Self::is_composer_activity_key(key) {
+            if self.is_composer_activity_key(key) {
                 self.record_composer_activity_at(Instant::now());
             }
             self.request_redraw();
@@ -917,7 +925,7 @@ impl BottomPane {
                 view.observe_key_event_while_covered(key_event, routed_key);
             }
         }
-        let records_composer_activity = Self::is_composer_activity_key(key_event);
+        let records_composer_activity = self.is_composer_activity_key(key_event);
         if self.warnings_active() {
             if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                 self.record_composer_activity_at(Instant::now());
@@ -2052,8 +2060,13 @@ impl BottomPane {
         activated_at: Instant,
         suppression: ActivationKeySuppression,
     ) {
-        let reported_repeats_only = self.enhanced_keys_supported
-            || matches!(suppression, ActivationKeySuppression::ReportedRepeats);
+        let reported_repeats_only = match suppression {
+            ActivationKeySuppression::ViewTransition => self.enhanced_keys_supported,
+            ActivationKeySuppression::ReportedRepeats => true,
+            ActivationKeySuppression::PressOnlyFallback => {
+                self.enhanced_keys_supported && crate::tui::reports_key_releases()
+            }
+        };
         self.view_transition_key_guard = Some(ActivationKeyGuard::new_at(
             key,
             activated_at,
@@ -2345,6 +2358,9 @@ impl BottomPane {
     /// Commit accepted typing before snapshotting the target of an asynchronous paste.
     pub(crate) fn prepare_composer_clipboard_paste(&mut self) {
         self.composer.flush_pending_paste_burst();
+        if !self.composer.is_vim_enabled() {
+            self.composer.finish_edit();
+        }
     }
 
     pub(crate) fn is_in_paste_burst(&self) -> bool {
@@ -2766,6 +2782,18 @@ mod tests {
         test_pane_with_disable_paste_burst(app_event_tx, /*disable_paste_burst*/ false)
     }
 
+    #[test]
+    fn clipboard_image_undo_preserves_buffered_typing() {
+        let (tx, _) = unbounded_channel();
+        let mut pane = test_pane(AppEventSender::new(tx));
+        pane.composer.handle_key_event(KeyCode::Char('a').into());
+        pane.prepare_composer_clipboard_paste();
+        pane.attach_image(std::path::PathBuf::from("example.png"));
+        pane.composer.handle_key_event(KeyCode::F(7).into());
+        assert_eq!(pane.composer.current_text(), "a");
+        assert!(pane.composer.local_image_paths().is_empty());
+    }
+
     fn test_pane_with_disable_paste_burst(
         app_event_tx: AppEventSender,
         disable_paste_burst: bool,
@@ -3003,7 +3031,7 @@ mod tests {
     fn view_transition_key_guard_survives_an_intervening_modal() {
         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
         let mut pane = test_pane(AppEventSender::new(tx_raw));
-        let activation_key = crate::key_hint::plain(KeyCode::Enter);
+        let activation_key = crate::key_hint::plain(KeyCode::F(11));
         pane.suppress_current_view_key_until_release(
             activation_key,
             Instant::now(),
@@ -3011,8 +3039,19 @@ mod tests {
         );
         pane.push_view(Box::new(DismissibleView::default()));
 
+        // Press-only terminals report repeats as presses.
+        assert!(pane.consume_view_transition_key(activation_key, KeyEventKind::Press));
         assert!(pane.consume_view_transition_key(activation_key, KeyEventKind::Repeat));
         assert!(pane.consume_view_transition_key(activation_key, KeyEventKind::Release));
+        assert!(!pane.consume_view_transition_key(activation_key, KeyEventKind::Press));
+
+        // Enhanced picker transitions allow another intentional press without a release.
+        pane.enhanced_keys_supported = true;
+        pane.suppress_current_view_key_until_release(
+            activation_key,
+            Instant::now(),
+            ActivationKeySuppression::ViewTransition,
+        );
         assert!(!pane.consume_view_transition_key(activation_key, KeyEventKind::Press));
     }
 

@@ -3,18 +3,16 @@
 use super::App;
 use crate::legacy_core::config::edit::ConfigEdit;
 use crate::legacy_core::config::edit::ConfigEditsBuilder;
+use crate::statusline_provider::StatuslineProvider;
 use anyhow::Context;
 use codex_config::types::BuiltinStatusLine;
 use codex_config::types::StatusLineSelection;
 
 impl App {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "called by the upcoming provider picker")
-    )]
     pub(super) async fn save_status_line_provider(
         &mut self,
         provider: StatusLineSelection,
+        provider_from_picker: Option<StatuslineProvider>,
     ) -> anyhow::Result<()> {
         let value = match &provider {
             StatusLineSelection::Builtin(BuiltinStatusLine::Default) => toml_edit::value("default"),
@@ -37,6 +35,8 @@ impl App {
 
         self.local_settings.tui.status_line_provider = Some(Box::new(provider.clone()));
         self.chat_widget.local_settings.tui.status_line_provider = Some(Box::new(provider));
+        self.chat_widget
+            .reselect_statusline_provider(provider_from_picker);
         Ok(())
     }
 }
