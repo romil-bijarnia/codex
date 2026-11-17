@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -104,6 +105,30 @@ def voice_checks(binary, output):
     root, profile, workspace = profile_setup(output, "voices")
     terminal = Terminal(binary, profile, workspace)
     checks = []
+
+    def selected_voice():
+        for line in terminal.text().splitlines():
+            selected = re.match(r"^\s*[›>]\s*(?:\d+\.\s*)?([a-zA-Z][a-zA-Z0-9_-]*)", line)
+            if selected:
+                return selected.group(1).lower()
+        return None
+
+    def choose_voice(name):
+        # The current picker is a navigable catalogue, not a searchable text box.
+        # V3 adds voices before Aube/Bubbie, so do not assume a fixed row offset.
+        terminal.send("\x1b[H")
+        visited = []
+        for _ in range(64):
+            current = selected_voice()
+            assert current, terminal.text()
+            visited.append(current)
+            if current == name:
+                return visited
+            if current == "back":
+                break
+            terminal.send("\x1b[B")
+        raise AssertionError(f"Voice {name!r} is missing from the picker; visited {visited}:\n{terminal.text()}")
+
     try:
         terminal.wait("OpenAI Codex")
         terminal.read(1)
@@ -112,10 +137,11 @@ def voice_checks(binary, output):
         terminal.send("\x1b[B")
         terminal.send("\r")
         terminal.wait("Select voice")
-        terminal.send("\x1b[B")
-        terminal.wait("aube")
+        visited = choose_voice("aube")
+        assert "juniper" in visited and "maple" in visited, visited
         assert "No results" not in terminal.text(), terminal.text()
         (root / "aube-picker.txt").write_text(terminal.text())
+        (root / "v3-navigation.json").write_text(json.dumps(visited, indent=2) + "\n")
         terminal.send("\r")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -124,21 +150,22 @@ def voice_checks(binary, output):
                 break
             terminal.read()
         assert saved.get("realtime", {}).get("voice") == "aube", saved.get("realtime")
-        checks.append("Aube is visible and selection persists in the isolated profile")
+        checks.append("Current V3 catalogue navigation reaches Aube beyond the base voices and its selection persists")
         terminal.command("/voice settings")
         terminal.wait("Choose a voice")
         terminal.send("\x1b[B")
         terminal.send("\r")
         terminal.wait("Select voice")
-        terminal.send("\x1b[B")
-        terminal.wait("bubbie")
+        assert selected_voice() == "aube", terminal.text()
+        checks.append("Reopening the picker highlights the persisted Aube selection")
+        choose_voice("bubbie")
         assert "No results" not in terminal.text(), terminal.text()
         (root / "bubbie-picker.txt").write_text(terminal.text())
         terminal.send("\x1b")
-        terminal.read(.5)
+        terminal.wait("Voice settings")
         saved = tomllib.loads((profile / "config.toml").read_text())
         assert saved["realtime"]["voice"] == "aube"
-        checks.append("Bubbie is visible and cancelling keeps the saved voice")
+        checks.append("Bubbie remains reachable and cancelling returns to voice settings without changing the saved voice")
         return checks
     finally:
         (root / "terminal.txt").write_text(terminal.text())
