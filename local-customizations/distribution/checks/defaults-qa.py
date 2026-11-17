@@ -71,7 +71,8 @@ trust_level = "trusted"
     report = {'checks': [], 'executable_sha256': digest, 'real_model_requests': 0}
     term = None
     try:
-        term = qa.qa.Terminal(args.executable, profile, workspace)
+        term = qa.qa.Terminal(args.executable, profile, workspace,
+                              extra_env={'CODEX_PLUS_ONE': '1'} if args.owner_harness else None)
         term.wait('OpenAI Codex')
         qa.until(term, lambda: footer(term, 'EL2 Control'), 'EL2 default did not activate.')
         qa.until(term, lambda: footer(term, 'GPT-6.1-Sol xhigh'),

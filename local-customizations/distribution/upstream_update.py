@@ -56,6 +56,23 @@ def resource_digest(release):
     return assets[0]['digest'][7:]
 
 
+def installed_source_matches(root, installed, custom):
+    """A verification-only fix does not require recompiling unchanged native code."""
+    built = installed.get('source_commit')
+    if built == custom:
+        return True
+    if not built or installed.get('verification_source_commit') != custom:
+        return False
+    result = subprocess.run(['git', '-C', str(root), 'diff', '--name-only', built, custom],
+                            capture_output=True, text=True)
+    if result.returncode:
+        return False
+    allowed = ('local-customizations/distribution/checks/',
+               'local-customizations/distribution/tests/', 'local-customizations/tests/')
+    return all(path == 'local-customizations/distribution/upstream_update.py'
+               or path.startswith(allowed) for path in result.stdout.splitlines())
+
+
 def check_downgrade(release, selected):
     receipt = selected / 'custom-build.json'
     if not receipt.is_file():
@@ -239,7 +256,7 @@ def update(args):
             return
         custom = custom_revision(root)
         if (installed.get('upstream_release') == release['tag_name']
-                and installed.get('source_commit') == custom):
+                and installed_source_matches(root, installed, custom)):
             checksums = installed.get('binary_sha256', {})
             if (checksums and all(sha256(selected / 'bin' / name) == checksums.get(name)
                                   for name in ('codex', 'codex-exec-server', 'codex-code-mode-host'))):

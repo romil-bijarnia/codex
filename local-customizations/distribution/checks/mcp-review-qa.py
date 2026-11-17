@@ -177,6 +177,8 @@ class AppServer:
                    CODEX_APP_SERVER_DISABLE_MANAGED_CONFIG="1",
                    HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9",
                    NO_PROXY="127.0.0.1,localhost")
+        if os.environ.get('CODEX_PLUS_ONE') == '1':
+            env['CODEX_PLUS_ONE'] = '1'
         self.log = log_path.open("w")
         self.process = subprocess.Popen([str(binary), "app-server"], cwd=workspace,
                                         env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,

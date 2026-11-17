@@ -99,6 +99,18 @@ class UpstreamUpdateTests(unittest.TestCase):
                 updater.custom_revision(root)
             run.assert_not_called()
 
+    def test_verification_only_commit_does_not_force_native_rebuild(self):
+        root, native, _ = self.fixture()
+        check = root / 'local-customizations/distribution/checks/owner.py'
+        check.parent.mkdir();check.write_text('correct owner test environment\n')
+        verified = self.commit(root, 'Fix only verification setup')
+        installed = {'source_commit': native, 'verification_source_commit': verified}
+        self.assertTrue(updater.installed_source_matches(root, installed, verified))
+        code = root / 'codex-rs/native.rs';code.parent.mkdir();code.write_text('changed native code\n')
+        changed = self.commit(root, 'Native behaviour change')
+        installed['verification_source_commit'] = changed
+        self.assertFalse(updater.installed_source_matches(root, installed, changed))
+
     def test_latest_is_semantic_not_api_order_or_publication_time(self):
         old = dict(self.release, tag_name='rust-v2.0.1-alpha.1')
         other_series = dict(self.release, tag_name='rust-v1.99.0-alpha.99')
