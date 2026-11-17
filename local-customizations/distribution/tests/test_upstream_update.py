@@ -116,6 +116,12 @@ class UpstreamUpdateTests(unittest.TestCase):
         self.assertEqual(api.call_count, 2)
         sleep.assert_called_once_with(1)
 
+    def test_failed_atomic_patch_still_reports_its_conflicting_paths(self):
+        diagnostic = (b"Applied patch to 'native.rs' with conflicts.\n"
+                      b'error: patch failed: removed.rs:1\n')
+        with patch.object(updater, 'output', return_value=''):
+            self.assertEqual(updater.conflicted_paths(self.home, diagnostic), ['native.rs', 'removed.rs'])
+
     def test_same_file_keeps_custom_section_and_new_upstream_section(self):
         root, custom, upstream = self.fixture()
         source, commit = self.prepare(root, custom, self.home / 'update')

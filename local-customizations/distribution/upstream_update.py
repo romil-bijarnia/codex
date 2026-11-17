@@ -103,6 +103,16 @@ def additional_custom_source(root, custom, installed):
     return [(base, revision)]
 
 
+def conflicted_paths(source, diagnostic):
+    paths = set(output(['git', '-C', source, 'diff', '--name-only', '--diff-filter=U']).splitlines())
+    # Git can roll back the whole application when a deletion cannot be merged.
+    # In that case the index has no U entries, but stderr still names the overlaps.
+    text = diagnostic.decode(errors='replace')
+    paths.update(re.findall(r"Applied patch to '([^']+)' with conflicts\.", text))
+    paths.update(re.findall(r'(?m)^error: patch failed: (.+):\d+$', text))
+    return sorted(paths)
+
+
 def prepare_candidate(root, custom, release, folder, additional=()):
     """Apply the custom delta with its real base, not a blanket ours/theirs rule."""
     source = folder / 'source'
@@ -114,7 +124,9 @@ def prepare_candidate(root, custom, release, folder, additional=()):
                     and report.get('upstream_release') == release['tag_name']
                     and report.get('additional_sources', []) == [list(pair) for pair in additional]):
                 if report.get('status') == 'source_conflict':
-                    raise RuntimeError(f'The recorded source conflict still needs resolution: {report_path}. '
+                    names = '\n'.join(report.get('conflicts', [])[:12])
+                    raise RuntimeError(f'The recorded source conflict still needs resolution ({len(report.get("conflicts", []))} files).\n'
+                                       f'{names}\nDetails: {report_path}. '
                                        'The working harness is unchanged; no duplicate build was started.')
                 commit = report.get('source_commit')
                 if (commit and output(['git', '-C', source, 'rev-parse', 'HEAD']) == commit
@@ -137,7 +149,7 @@ def prepare_candidate(root, custom, release, folder, additional=()):
               'additional_sources': [list(pair) for pair in additional]}
     log = b''
     for old_base, revision in [*additional, (base, custom)]:
-        delta = subprocess.check_output(['git', '-C', str(source), 'diff', '--binary', old_base, revision])
+        delta = subprocess.check_output(['git', '-C', str(source), 'diff', '--no-ext-diff', '--binary', old_base, revision])
         if not delta:
             raise RuntimeError('The custom delta is empty; refusing to substitute bare upstream for the harness.')
         applied = subprocess.run(['git', '-C', str(source), 'apply', '--3way', '--index', '-'],
@@ -145,7 +157,7 @@ def prepare_candidate(root, custom, release, folder, additional=()):
         log += applied.stderr
         atomic_write(folder / 'integration.log', log)
         if applied.returncode:
-            conflicts = output(['git', '-C', source, 'diff', '--name-only', '--diff-filter=U']).splitlines()
+            conflicts = conflicted_paths(source, applied.stderr)
             report.update(status='source_conflict', conflicts=conflicts, conflict_source=revision)
             atomic_write(folder / 'result.json', json.dumps(report, indent=2) + '\n')
             names = '\n'.join(conflicts[:12]) or applied.stderr.decode(errors='replace')[-1800:]
