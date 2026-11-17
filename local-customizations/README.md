@@ -35,6 +35,13 @@ instructions, account data and memory settings are not rewritten by this
 source cleanup. The remaining [instruction helpers](prompts/README.md) do not
 provide or select a replacement model base.
 
+The optional `distribution/bin/codex+1` launcher runs a separately pinned fork
+package without replacing the primary `codex` command. It shares login,
+sessions, AGENTS.md, plugins and databases, but filters the primary launcher's
+`model_instructions_file` and selects the chosen model's stock instructions.
+This keeps `codex+1` independent from a personal prompt configured for the
+primary CLI.
+
 The original macOS launcher recipe below remains available. Current Linux
 behavior and recovery are documented in [the Linux notes](linux/README.md).
 

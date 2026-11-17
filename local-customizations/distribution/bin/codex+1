@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Run the separately pinned fork without selecting or updating the primary CLI."""
+import os
+import json
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+
+ROOT = Path.home() / '.local/share/codex-plus-one'
+CONFIG_HOME = ROOT / 'home'
+SHARED_HOME_ENV = 'CODEX_PLUS_ONE_SHARED_HOME'
+VALUE_OPTIONS = {
+    '-c', '--config', '-m', '--model', '-p', '--profile', '-C', '--cd',
+    '-a', '--ask-for-approval', '-s', '--sandbox', '-i', '--image',
+    '--enable', '--disable', '--remote', '--remote-auth-token-env', '--add-dir',
+}
+
+
+def shared_home():
+    """Return the real Codex home even when called from a codex+1 shell."""
+    configured = os.environ.get(SHARED_HOME_ENV)
+    if configured:
+        return Path(configured).expanduser().resolve()
+    candidate = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+    candidate = candidate.expanduser().resolve()
+    if candidate == CONFIG_HOME.resolve():
+        return (Path.home() / '.codex').resolve()
+    return candidate
+
+
+def prepare_config_home():
+    """Mirror shared Codex state while omitting its custom model prompt."""
+    source_home = shared_home()
+    CONFIG_HOME.mkdir(parents=True, exist_ok=True, mode=0o700)
+    CONFIG_HOME.chmod(0o700)
+
+    # Login, sessions, AGENTS.md, plugins and databases remain shared. Only
+    # config.toml is local so the primary launcher's prompt setting is untouched.
+    for source in source_home.iterdir():
+        if source.name == 'config.toml':
+            continue
+        destination = CONFIG_HOME / source.name
+        if destination.is_symlink():
+            if destination.resolve(strict=False) == source.resolve(strict=False):
+                continue
+            destination.unlink()
+        elif destination.exists():
+            raise RuntimeError(f'codex+1 config overlay contains an unexpected file: {destination}')
+        destination.symlink_to(source, target_is_directory=source.is_dir())
+
+    source_config = source_home / 'config.toml'
+    config = source_config.read_text() if source_config.is_file() else ''
+    config = re.sub(
+        r'(?m)^[ \t]*model_instructions_file[ \t]*=.*(?:\n|$)',
+        '',
+        config,
+    )
+    generated = (
+        '# Generated for codex+1 from the shared config; custom model prompt omitted.\n'
+        + config
+    )
+    config_path = CONFIG_HOME / 'config.toml'
+    temporary = CONFIG_HOME / f'.config.toml.{os.getpid()}.tmp'
+    temporary.write_text(generated)
+    temporary.chmod(0o600)
+    os.replace(temporary, config_path)
+    return source_home
+
+
+def option_value(arguments, short, long):
+    value = None
+    iterator = iter(range(len(arguments)))
+    for index in iterator:
+        argument = arguments[index]
+        if argument in (short, long) and index + 1 < len(arguments):
+            value = arguments[index + 1]
+            next(iterator, None)
+        elif argument.startswith(long + '='):
+            value = argument.split('=', 1)[1]
+    return value
+
+
+def stock_instructions(arguments, source_home):
+    """Materialize the selected model's built-in prompt as a runtime override."""
+    config = tomllib.loads((CONFIG_HOME / 'config.toml').read_text())
+    profile_name = option_value(arguments, '-p', '--profile')
+    profile = config.get('profiles', {}).get(profile_name, {}) if profile_name else {}
+    model = option_value(arguments, '-m', '--model') or profile.get('model') or config.get('model')
+    if not model:
+        raise RuntimeError('codex+1 could not determine the selected model')
+
+    catalog = json.loads((source_home / 'models_cache.json').read_text())
+    selected = next((item for item in catalog.get('models', []) if item.get('slug') == model), None)
+    instructions = ((selected or {}).get('model_messages') or {}).get('instructions_template')
+    if not instructions or not instructions.strip():
+        raise RuntimeError(f'codex+1 could not find stock instructions for model {model}')
+
+    path = CONFIG_HOME / 'stock-model-instructions.md'
+    temporary = CONFIG_HOME / f'.stock-model-instructions.{os.getpid()}.tmp'
+    temporary.write_text(instructions.rstrip() + '\n')
+    temporary.chmod(0o600)
+    os.replace(temporary, path)
+    return path
+
+
+def command(arguments):
+    arguments = iter(arguments)
+    for argument in arguments:
+        if argument == '--':
+            return None
+        if argument in VALUE_OPTIONS:
+            next(arguments, None)
+        elif not argument.startswith('-'):
+            return argument
+    return None
+
+
+def main(arguments=None):
+    arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if command(arguments) == 'update':
+        print('codex+1 is pinned separately. Its updater is disabled so it cannot replace codex.',
+              file=sys.stderr)
+        return 2
+    executable = ROOT / 'current/bin/codex'
+    if not executable.is_file():
+        print(f'The separate fork package is missing: {executable}', file=sys.stderr)
+        return 1
+    source_home = prepare_config_home()
+    instructions = stock_instructions(arguments, source_home)
+    os.environ[SHARED_HOME_ENV] = str(source_home)
+    os.environ['CODEX_HOME'] = str(CONFIG_HOME)
+    isolation = [] if '--no-daemon' in arguments else ['--no-daemon']
+    os.execv(str(executable), [str(executable), *isolation, '-c',
+                             'check_for_update_on_startup=false', '-c',
+                             f'model_instructions_file="{instructions}"', *arguments])
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
