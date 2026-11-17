@@ -31,6 +31,10 @@ def launcher_path():
     return PRIMARY_LAUNCHER or ROOT / 'bin/codex+1'
 
 
+def command_label():
+    return 'codex' if PRIMARY_LAUNCHER is not None else 'codex+1'
+
+
 def shared_home():
     """Return the real Codex home even when called from a codex+1 shell."""
     configured = os.environ.get(SHARED_HOME_ENV)
@@ -56,15 +60,15 @@ def prepare_config_home():
         if destination.is_symlink():
             if destination.resolve(strict=False) == source.resolve(strict=False):
                 continue
-            raise RuntimeError(f'codex+1 shared-state link changed: {destination}')
+            raise RuntimeError(f'{command_label()} shared-state link changed: {destination}')
         if destination.exists():
-            raise RuntimeError(f'codex+1 overlay has an unexpected file: {destination}')
+            raise RuntimeError(f'{command_label()} overlay has an unexpected file: {destination}')
         destination.symlink_to(source)
 
     bin_dir = CONFIG_HOME / 'bin'
     if bin_dir.is_symlink():
         if bin_dir.resolve(strict=False) != (source_home / 'bin').resolve(strict=False):
-            raise RuntimeError(f'codex+1 helper directory link changed: {bin_dir}')
+            raise RuntimeError(f'{command_label()} helper directory link changed: {bin_dir}')
         # Older launchers linked the whole directory, which made /fork use
         # the primary alpha launcher. Only unlink the private overlay link.
         bin_dir.unlink()
@@ -77,9 +81,9 @@ def prepare_config_home():
             if destination.is_symlink():
                 if destination.resolve(strict=False) == source.resolve(strict=False):
                     continue
-                raise RuntimeError(f'codex+1 helper link changed: {destination}')
+                raise RuntimeError(f'{command_label()} helper link changed: {destination}')
             if destination.exists():
-                raise RuntimeError(f'codex+1 helper is unexpectedly local: {destination}')
+                raise RuntimeError(f'{command_label()} helper is unexpectedly local: {destination}')
             destination.symlink_to(source)
     helper = bin_dir / 'codex-fork-window'
     launcher = launcher_path()
@@ -90,9 +94,9 @@ def prepare_config_home():
                 helper.unlink()
                 helper.symlink_to(launcher)
             else:
-                raise RuntimeError(f'codex+1 fork helper link changed: {helper}')
+                raise RuntimeError(f'{command_label()} fork helper link changed: {helper}')
     elif helper.exists():
-        raise RuntimeError(f'codex+1 fork helper is unexpectedly local: {helper}')
+        raise RuntimeError(f'{command_label()} fork helper is unexpectedly local: {helper}')
     else:
         helper.symlink_to(launcher)
 
@@ -121,7 +125,7 @@ def prepare_config_home():
                       and not legacy_generated)
     if locally_edited:
         if prior_source_hash != original_hash:
-            print('codex+1: its saved settings differ from the primary Codex config; '
+            print(f'{command_label()}: its saved harness settings differ from the shared config; '
                   'keeping the fork settings unchanged.', file=sys.stderr)
     elif current != generated or prior_generated_hash is None:
         temporary = CONFIG_HOME / f'.config.toml.{os.getpid()}.tmp'
@@ -137,7 +141,7 @@ def prepare_config_home():
 
 def fork_window(arguments):
     """Resume a native /fork in a new Terminal with the pinned fork binary."""
-    parser = argparse.ArgumentParser(description='Open a codex+1 fork window.')
+    parser = argparse.ArgumentParser(description='Open a Codex fork window.')
     parser.add_argument('--resume', required=True)
     parser.add_argument('--workdir', type=Path, required=True)
     backend = parser.add_mutually_exclusive_group(required=True)
@@ -196,16 +200,21 @@ def fork_window(arguments):
     return 0
 
 
-def command(arguments):
-    arguments = iter(arguments)
-    for argument in arguments:
+def command_index(arguments):
+    arguments = iter(enumerate(arguments))
+    for index, argument in arguments:
         if argument == '--':
             return None
         if argument in VALUE_OPTIONS:
             next(arguments, None)
         elif not argument.startswith('-'):
-            return argument
+            return index
     return None
+
+
+def command(arguments):
+    index = command_index(arguments)
+    return arguments[index] if index is not None else None
 
 
 def main(arguments=None):
@@ -213,6 +222,10 @@ def main(arguments=None):
     if Path(sys.argv[0]).name == 'codex-fork-window':
         return fork_window(arguments)
     if command(arguments) == 'update':
+        if PRIMARY_LAUNCHER is not None:
+            index = command_index(arguments)
+            os.execv(str(PRIMARY_LAUNCHER), [str(PRIMARY_LAUNCHER), 'update', *arguments[index + 1:]])
+            return 0
         print('codex+1 is pinned separately. Its updater is disabled so it cannot replace codex.',
               file=sys.stderr)
         return 2
@@ -223,7 +236,7 @@ def main(arguments=None):
     source_home, config_path = prepare_config_home()
     bubblewrap = shutil.which('bwrap')
     if not bubblewrap:
-        print('codex+1 requires bubblewrap to isolate its config.', file=sys.stderr)
+        print(f'{command_label()} requires bubblewrap to isolate its config.', file=sys.stderr)
         return 1
     os.environ[SHARED_HOME_ENV] = str(source_home)
     os.environ['CODEX_HOME'] = str(CONFIG_HOME)

@@ -133,6 +133,14 @@ class PlusOneLauncherTests(unittest.TestCase):
             self.assertIn(str(native), execv.call_args.args[1])
             self.assertIn('instructions=""', execv.call_args.args[1])
 
+    def test_primary_update_with_global_options_routes_to_the_single_updater(self):
+        launcher = load_launcher()
+        launcher.PRIMARY_LAUNCHER = Path('/fixture/codex')
+        with patch.object(launcher.os, 'execv') as execute, \
+             patch.object(launcher.sys, 'argv', ['codex']):
+            self.assertEqual(launcher.main(['-m', 'update', 'update', '--check']), 0)
+        execute.assert_called_once_with('/fixture/codex', ['/fixture/codex', 'update', '--check'])
+
     def test_remote_launch_does_not_inject_no_daemon(self):
         launcher = load_launcher()
         with tempfile.TemporaryDirectory() as temporary:
