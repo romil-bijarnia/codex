@@ -72,6 +72,42 @@ def stable_package_version(commit):
     return stable_release_pin()['compiled_version'] + '+romil.' + commit[:12]
 
 
+def release_pin():
+    """Validate a release base without treating an alpha as a stable release."""
+    if CONFIG.get('upstream_channel') == 'stable':
+        return stable_release_pin()
+    tag = CONFIG.get('upstream_release', '')
+    match = re.fullmatch(r'rust-v(\d+\.\d+\.\d+-alpha\.\d+(?:\.\d+)*)', tag)
+    commit = CONFIG.get('upstream_commit', '')
+    digest = CONFIG.get('resource_sha256', '')
+    if (CONFIG.get('upstream_channel') != 'alpha' or match is None
+            or not re.fullmatch(r'[0-9a-f]{40}', commit)
+            or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+        raise RuntimeError('The source manifest must pin an exact release tag, commit and resource checksum.')
+    return {'upstream_channel': 'alpha', 'upstream_release': tag,
+            'upstream_commit': commit, 'compiled_version': match.group(1),
+            'official_resources_sha256': digest}
+
+
+def package_version(commit):
+    if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise RuntimeError('Package identity requires a complete personal source commit SHA.')
+    return release_pin()['compiled_version'] + '+romil.' + commit[:12]
+
+
+def validate_release_manifest(manifest):
+    if CONFIG.get('upstream_channel') == 'stable':
+        return validate_stable_manifest(manifest)
+    pin = release_pin()
+    if (any(manifest.get(key) != value for key, value in pin.items())
+            or manifest.get('official_resources_tag') != pin['upstream_release']
+            or manifest.get('version') != package_version(manifest.get('source_commit'))
+            or manifest.get('voice_build_commit') != manifest.get('source_commit')
+            or 'voice-runtime' not in manifest.get('check_suites', [])
+            or 'voice-runtime' not in manifest.get('required_local_checks', [])):
+        raise RuntimeError('The published build does not match the exact custom alpha source and voice checks.')
+
+
 def validate_stable_manifest(manifest):
     """Reject a differently based or merely relabelled download before selection."""
     pin = stable_release_pin()

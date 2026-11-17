@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 import time
 
-from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, validate_stable_manifest
+from common import ROOT, CONFIG, REPO, TARGET, api, atomic_link, atomic_write, output, release_tag, run, sha256, source_revision, source_root, release_pin as stable_release_pin, validate_release_manifest as validate_stable_manifest
 from voice import VOICE_CHECK, check_voice_runtime, verify_voice_resources
 from backend import acquire_rollout_lock, backend_status
 
@@ -79,7 +79,7 @@ def extract(archive, destination):
 
 
 def verify_package(package, manifest):
-    if manifest.get('upstream_channel') == 'stable':
+    if manifest.get('upstream_channel') in ('stable', 'alpha'):
         validate_stable_manifest(manifest)
         verify_voice_resources(package, manifest['voice_build_commit'], manifest['upstream_commit'])
     metadata = json.loads((package / 'codex-package.json').read_text())
@@ -199,7 +199,10 @@ def refresh_source():
 
 def status():
     selected = (PACKAGES / 'current').resolve()
+    receipt = selected / 'custom-build.json'
     print(json.dumps({'repository': REPO, 'channel': stable_release_pin()['upstream_channel'],
+                      'update_policy': 'latest-with-custom-sections',
+                      'selected_build': json.loads(receipt.read_text()) if receipt.is_file() else None,
                       'source_branch': CONFIG['source_branch'],
                       'upstream_release': CONFIG['upstream_release'],
                       'source_checkout': str(source_root()),
@@ -324,9 +327,19 @@ def main():
     commands.add_parser('status', help='Show the selected build and update channel')
     launcher = commands.add_parser('install-launcher', help='Enable codex update without changing the selected executable')
     launcher.add_argument('--replace-legacy', action='store_true', help='Replace only the verified launcher from the former package repository')
+    local = commands.add_parser('install-package', help='Verify and select a complete locally built custom package')
+    local.add_argument('--package', type=Path, required=True)
+    local.add_argument('--manifest', type=Path, required=True)
     args = parser.parse_args()
     try:
-        {'update': lambda: update(args), 'status': status,
+        def install_local():
+            platform_check()
+            manifest = json.loads(args.manifest.read_text())
+            validate_stable_manifest(manifest)
+            destination = select_package(args.package, manifest)
+            start_backend_rollout(destination)
+            print(f"Installed {manifest['version']}. Existing chats were not restarted.")
+        {'update': lambda: update(args), 'status': status, 'install-package': install_local,
          'install-launcher': lambda: install_launcher(args.replace_legacy)}[args.command]()
     except (RuntimeError, OSError, subprocess.CalledProcessError, ValueError, KeyError) as error:
         print(f'codex update: {error}', file=sys.stderr)

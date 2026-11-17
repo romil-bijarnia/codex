@@ -6,7 +6,7 @@ import sys
 
 root = Path(__file__).resolve().parent.parent
 if sys.argv[1:2] == ['update']:
-    os.execv(sys.executable, [sys.executable, str(root / 'manage.py'), 'update', *sys.argv[2:]])
+    os.execv(sys.executable, [sys.executable, str(root / 'upstream_update.py'), *sys.argv[2:]])
 if sys.argv[1:2] == ['custom-status']:
     os.execv(sys.executable, [sys.executable, str(root / 'manage.py'), 'status', *sys.argv[2:]])
 home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))

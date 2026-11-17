@@ -1,5 +1,15 @@
 # Stable Codex source workflow
 
+For routine updates, use [UPDATE.md](UPDATE.md). `codex update` now carries the
+custom delta onto the latest published release, including alphas. The stable pin
+described below is the original source baseline, not a permanent update ceiling.
+The same exact-source, complete-package and voice checks apply to newer pins.
+
+For the current automatic `codex update` path, read [UPDATE.md](UPDATE.md).
+This document describes the original stable-baseline recipe. The explicit
+manifest pin remains a source/resource identity check, not an instruction to
+stay on that release or exclude alpha upgrades.
+
 ## Source of truth
 
 - Repository: https://github.com/romil-bijarnia/codex

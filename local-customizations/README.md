@@ -4,8 +4,11 @@ The primary source is `romil-bijarnia/codex`, branch `main`, based on the offici
 stable `rust-v0.167.2` release. The native customizations and helpers are ordinary
 tracked source files. The local checkout is `$HOME/Work/codex`.
 
-Use [WORKFLOW.md](WORKFLOW.md). Stable upgrades must use release tags rather than
-unreleased upstream main. The build in `distribution/` verifies the exact tag,
+Use [UPDATE.md](UPDATE.md) for `codex update`, which integrates the custom source
+with new published upstream releases, including alphas, without whole-file overrides.
+The manifest is the current baseline, not a permanent update ceiling.
+See [WORKFLOW.md](WORKFLOW.md) for the original pinned-source build workflow.
+The build in `distribution/` verifies the exact release tag,
 commit, source workspace version and official resource checksum. The native
 version is `0.167.2`; complete package provenance includes the custom source SHA.
 The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,

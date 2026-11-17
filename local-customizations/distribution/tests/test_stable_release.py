@@ -18,6 +18,13 @@ import manage
 
 class StableReleaseTests(unittest.TestCase):
     def setUp(self):
+        # These are stable-release fixtures, independent of the current source pin.
+        fixture = patch.dict(common.CONFIG, upstream_channel='stable',
+                             upstream_release='rust-v0.167.2',
+                             upstream_commit='ce21072c90d32c40af7a55b60b2fb35c84a43a6a',
+                             resource_sha256='56b08c1214e062a5b61684bacb5033c4372a01062a47c87c49a32be83af70695')
+        fixture.start()
+        self.addCleanup(fixture.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tarfile
 
-from common import ROOT, CONFIG, REPO, TARGET, api, atomic_write, output, release_tag, run, sha256, source_revision, source_root, stable_release_pin, stable_package_version
+from common import ROOT, CONFIG, REPO, TARGET, api, atomic_write, output, release_tag, run, sha256, source_revision, source_root, release_pin as stable_release_pin, package_version as stable_package_version
 from voice import VOICE_CHECK, assemble_voice_resources, check_voice_runtime, verify_voice_resources
 from voice_build import build_voice_host
 
@@ -60,8 +60,9 @@ def official_resources(folder):
     pin = stable_release_pin()
     release = api(f"repos/{CONFIG['upstream_repository']}/releases/tags/{pin['upstream_release']}")
     if (release.get('tag_name') != pin['upstream_release']
-            or release.get('prerelease') is not False or release.get('draft') is not False):
-        raise RuntimeError('The resource release is not the exact pinned public stable release.')
+            or release.get('prerelease') is not (pin['upstream_channel'] == 'alpha')
+            or release.get('draft') is not False):
+        raise RuntimeError('The resource release is not the exact pinned public release and channel.')
     name = 'codex-package-' + CONFIG['resource_target'] + '.tar.gz'
     assets = [asset for asset in release['assets'] if asset['name'] == name]
     if len(assets) != 1:
@@ -125,7 +126,7 @@ def publish(output_dir, manifest):
 
 def source_times(source, restore=False):
     # Cargo uses source mtimes. A fresh checkout must not invalidate every unchanged crate.
-    cache = Path.home() / '.cache/codex-customizations/source-fingerprints.json'
+    cache = Path(os.environ.get('CODEX_BUILD_CACHE', Path.home() / '.cache/codex-customizations')) / 'source-fingerprints.json'
     previous = {}
     if restore and cache.exists():
         try:previous = json.loads(cache.read_text())
@@ -170,13 +171,14 @@ def build(work, build_plan, output_dir):
                CARGO_PROFILE_RELEASE_DEBUG='0', CARGO_PROFILE_RELEASE_STRIP='symbols',
                CARGO_PROFILE_RELEASE_LTO='false', CARGO_PROFILE_RELEASE_CODEGEN_UNITS='16',
                STABLE_GIT_COMMIT=commit)
-    env['CARGO_TARGET_DIR'] = str(Path.home() / '.cache/codex-customizations/target')
+    cache_root = Path(os.environ.get('CODEX_BUILD_CACHE', Path.home() / '.cache/codex-customizations'))
+    env['CARGO_TARGET_DIR'] = str(cache_root / 'target')
     env['PATH'] = str(Path(output(['rustup', 'which', '--toolchain', toolchain, 'cargo'])).parent) + os.pathsep + env['PATH']
     os.environ['CODEX_REPO_ROOT'] = str(source)
     sys.path.insert(0, str(source / 'scripts'))
     from codex_package.targets import TARGET_SPECS
     from codex_package.v8 import resolve_codex_v8_cargo_env
-    env.update(resolve_codex_v8_cargo_env(TARGET_SPECS[TARGET], environ=env, cache_root=Path.home() / '.cache/codex-customizations/v8'))
+    env.update(resolve_codex_v8_cargo_env(TARGET_SPECS[TARGET], environ=env, cache_root=cache_root / 'v8'))
     command = ['cargo', 'build', '--locked', '--release', '--jobs', os.environ.get('CARGO_BUILD_JOBS', '2')]
     for project, binary in [('codex-cli', 'codex'), ('codex-exec-server-cli', 'codex-exec-server'), ('codex-code-mode-host', 'codex-code-mode-host'), ('codex-bwrap', 'bwrap')]:
         command += ['-p', project, '--bin', binary]

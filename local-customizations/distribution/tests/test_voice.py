@@ -18,7 +18,7 @@ class VoiceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.commit = common.stable_release_pin()['upstream_commit']
+        self.commit = common.release_pin()['upstream_commit']
         self.source = 'a' * 40
 
     def resources(self):
