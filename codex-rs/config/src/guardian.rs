@@ -1,10 +1,9 @@
-//! Translates legacy Guardian settings and applies live managed constraints.
+//! Translates legacy Guardian settings and applies captured managed constraints.
 //! Catalog policies take precedence over legacy scope and feature settings.
 
 use crate::ConfigRequirements;
 use codex_features::FeatureToml;
 use codex_features::GuardianV2ConfigToml;
-use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::openai_models::GuardianModelPolicy;
 use codex_protocol::openai_models::GuardianReviewMode;
 use codex_protocol::openai_models::GuardianUnscoredAction;
@@ -14,15 +13,11 @@ use codex_protocol::openai_models::ModelInfo;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuardianPolicyLoader {
     default: GuardianModelPolicy,
-    force_synchronous_review: bool,
     scoring_disabled: bool,
 }
 
 impl GuardianPolicyLoader {
-    pub fn new(
-        legacy: Option<&FeatureToml<GuardianV2ConfigToml>>,
-        requirements: &ConfigRequirements,
-    ) -> Self {
+    pub fn new(legacy: Option<&FeatureToml<GuardianV2ConfigToml>>) -> Self {
         let scope = match legacy {
             Some(FeatureToml::Config(config)) => config.review_scope.as_ref(),
             Some(FeatureToml::Enabled(_)) | None => None,
@@ -60,14 +55,14 @@ impl GuardianPolicyLoader {
         Self {
             default,
             scoring_disabled: !enabled.unwrap_or(/*default*/ false),
-            force_synchronous_review: requirements
-                .approvals_reviewer
-                .can_set(&ApprovalsReviewer::User)
-                .is_err(),
         }
     }
 
-    pub fn resolve(&self, model: Option<&ModelInfo>) -> GuardianModelPolicy {
+    pub fn resolve(
+        &self,
+        model: Option<&ModelInfo>,
+        _requirements: &ConfigRequirements,
+    ) -> GuardianModelPolicy {
         let catalog = model.and_then(|model| model.guardian.as_ref());
         let mut policy = catalog.cloned().unwrap_or_else(|| self.default.clone());
         if catalog.is_none()
@@ -79,7 +74,7 @@ impl GuardianPolicyLoader {
             policy.unscored_action = GuardianUnscoredAction::InvalidateScore;
         }
         // Preserve the legacy feature gate: explicit catalog policies bypass it.
-        if self.force_synchronous_review || self.scoring_disabled && catalog.is_none() {
+        if self.scoring_disabled && catalog.is_none() {
             policy.disable_scoring();
         }
         policy

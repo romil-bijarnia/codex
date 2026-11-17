@@ -12,6 +12,14 @@ impl App {
         app_server: &mut AppServerSession,
         forked: &AppServerStartedThread,
     ) -> Option<Result<()>> {
+        // Cloud sessions are not addressable by a local or daemon endpoint. Keep
+        // their upstream fork handling instead of handing them to a local server.
+        let endpoint = match &self.app_server_target {
+            AppServerTarget::Embedded => None,
+            AppServerTarget::LocalDaemon { endpoint, .. }
+            | AppServerTarget::Remote { endpoint } => Some(endpoint),
+            AppServerTarget::Cloud => return None,
+        };
         let launcher = self.config.codex_home.join("bin/codex-fork-window");
         if !launcher.is_file() {
             return None;
@@ -63,9 +71,8 @@ impl App {
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::piped());
-                match &self.app_server_target {
-                    AppServerTarget::LocalDaemon { endpoint, .. }
-                    | AppServerTarget::Remote { endpoint } => match endpoint {
+                match endpoint {
+                    Some(endpoint) => match endpoint {
                         RemoteAppServerEndpoint::UnixSocket { socket_path } => {
                             command
                                 .arg("--remote")
@@ -84,7 +91,7 @@ impl App {
                             }
                         }
                     },
-                    AppServerTarget::Embedded => {
+                    None => {
                         command.arg("--no-daemon");
                     }
                 }

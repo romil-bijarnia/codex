@@ -6,6 +6,8 @@
 //! and later resolved through the stored responder.
 //! Explicit MCP elicitation requests can be surfaced by root and non-root agents.
 
+use crate::McpServerKey;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -51,6 +53,8 @@ mod user_verification_elicitation;
 
 #[derive(Debug, Clone)]
 pub struct ElicitationReviewRequest {
+    /// Exact registration that sent the request; `server_name` is its configured display name.
+    pub server_key: McpServerKey,
     pub server_name: String,
     pub request_id: RequestId,
     pub elicitation: Elicitation,
@@ -101,7 +105,6 @@ struct ActiveElicitation {
 pub(crate) struct ElicitationRequestRouter {
     requests: Arc<StdMutex<PendingResponders>>,
     terminal_actions_finished: Arc<tokio::sync::Notify>,
-    auto_deny: Arc<AtomicBool>,
     full_access_form_input_enabled: Arc<AtomicBool>,
 }
 
@@ -241,14 +244,6 @@ impl ElicitationRequestRouter {
         }
     }
 
-    pub(crate) fn auto_deny(&self) -> bool {
-        self.auto_deny.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn set_auto_deny(&self, auto_deny: bool) {
-        self.auto_deny.store(auto_deny, Ordering::Relaxed);
-    }
-
     pub(crate) fn full_access_form_input_enabled(&self) -> bool {
         self.full_access_form_input_enabled.load(Ordering::Acquire)
     }
@@ -279,9 +274,10 @@ impl ElicitationRequestRouter {
         &self,
         events: Option<Sender<Event>>,
         authority: &ElicitationAuthority,
-        server_name: String,
+        server_key: McpServerKey,
         request: ElicitationRequest,
     ) -> Result<ElicitationResponse> {
+        let server_name = server_key.name().to_owned();
         let Some(events) = events else {
             return Ok(ElicitationResponse {
                 action: ElicitationAction::Decline,
@@ -323,6 +319,7 @@ impl ElicitationRequestRouter {
             msg: EventMsg::ElicitationRequest(ElicitationRequestEvent {
                 turn_id: None,
                 server_name,
+                environment_id: server_key.scoped_environment_id().map(str::to_owned),
                 id: ProtocolRequestId::String(public_request_id),
                 request,
             }),
@@ -426,6 +423,7 @@ impl ElicitationRequestManager {
 
     pub(crate) fn make_sender(
         &self,
+        server_key: McpServerKey,
         server_name: String,
         tx_event: Option<Sender<Event>>,
         client_mcp_extensions: &ClientMcpExtensions,
@@ -442,6 +440,7 @@ impl ElicitationRequestManager {
             let router = router.clone();
             let tx_event = tx_event.clone();
             let server_name = server_name.clone();
+            let server_key = server_key.clone();
             let authority = authority.clone();
             async move {
                 let authority = authority
@@ -469,7 +468,7 @@ impl ElicitationRequestManager {
                         router,
                         tx_event,
                         authority,
-                        server_name,
+                        server_key,
                         ElicitationRequest::UserVerification {
                             meta,
                             title,
@@ -479,14 +478,6 @@ impl ElicitationRequestManager {
                     )
                     .await;
                 }
-                if router.auto_deny() {
-                    return Ok(ElicitationResponse {
-                        action: ElicitationAction::Decline,
-                        content: None,
-                        meta: None,
-                    });
-                }
-
                 if elicitation
                     .meta()
                     .and_then(|meta| meta.get(APPROVAL_KIND_KEY))
@@ -514,7 +505,7 @@ impl ElicitationRequestManager {
                     ..
                 } = &authority;
                 let approval_policy = config.approval_policy.value();
-                let Some(permission_profile) = config.permission_profile_for_server(&server_name)
+                let Some(permission_profile) = config.permission_profile_for_server(&server_key)
                 else {
                     return Ok(ElicitationResponse {
                         action: ElicitationAction::Decline,
@@ -542,6 +533,7 @@ impl ElicitationRequestManager {
                         return Ok(
                             match reviewer
                                 .review(ElicitationReviewRequest {
+                                    server_key,
                                     server_name,
                                     request_id: id,
                                     elicitation,
@@ -613,6 +605,7 @@ impl ElicitationRequestManager {
 
                     if let Some(reviewer) = reviewer {
                         let request = ElicitationReviewRequest {
+                            server_key: server_key.clone(),
                             server_name: server_name.clone(),
                             request_id: id.clone(),
                             elicitation: elicitation.clone(),
@@ -685,7 +678,7 @@ impl ElicitationRequestManager {
                     },
                 };
                 router
-                    .request_user_interaction(tx_event, &authority, server_name, request)
+                    .request_user_interaction(tx_event, &authority, server_key, request)
                     .await
             }
             .boxed()

@@ -78,7 +78,7 @@ impl App {
         app_server: &mut AppServerSession,
         thread_id: ThreadId,
         enabled: bool,
-    ) {
+    ) -> bool {
         if !self
             .chat_widget
             .config_ref()
@@ -86,7 +86,7 @@ impl App {
             .enabled(Feature::CliDaybreak)
             || self.active_thread_id != Some(thread_id)
         {
-            return;
+            return false;
         }
         if enabled
             && (!self.chat_widget.daybreak_account_eligible()
@@ -95,7 +95,7 @@ impl App {
             self.chat_widget.add_error_message(
                 "Daybreak availability could not be confirmed for this account.".into(),
             );
-            return;
+            return false;
         }
         let return_selection = if enabled {
             Some(DaybreakReturnSelection {
@@ -116,7 +116,7 @@ impl App {
                     self.chat_widget.add_error_message(format!(
                         "Failed to read the model to restore after Daybreak: {error}"
                     ));
-                    return;
+                    return false;
                 }
             }
         };
@@ -138,7 +138,7 @@ impl App {
                 self.chat_widget.add_error_message(
                     "Daybreak defaults require GPT-6-Sol with Daybreak Blue and Extra high reasoning, but that combination is unavailable. Your model and Daybreak setting were not changed.".into(),
                 );
-                return;
+                return false;
             }
         }
         if enabled && !self.chat_widget.daybreak_enabled {
@@ -146,7 +146,7 @@ impl App {
                 self.chat_widget.add_error_message(format!(
                     "Failed to read the thread to save Daybreak: {error}"
                 ));
-                return;
+                return false;
             }
             if let Err(error) = self.write_daybreak_return(
                 thread_id,
@@ -155,7 +155,7 @@ impl App {
                 self.chat_widget.add_error_message(format!(
                     "Failed to remember the model to restore after Daybreak: {error}"
                 ));
-                return;
+                return false;
             }
         }
         if enabled
@@ -167,7 +167,7 @@ impl App {
                 "Could not switch to GPT-6-Sol at Extra high reasoning; Daybreak was not enabled."
                     .into(),
             );
-            return;
+            return false;
         }
         if !self
             .save_daybreak_preference(app_server, thread_id, enabled)
@@ -181,7 +181,7 @@ impl App {
             {
                 self.clear_daybreak_return(thread_id);
             }
-            return;
+            return false;
         }
         if !enabled {
             if let Some(selection) = return_selection
@@ -192,10 +192,11 @@ impl App {
                 self.chat_widget.add_error_message(
                     "Daybreak is off, but the original model and reasoning level could not be restored.".into(),
                 );
-                return;
+                return false;
             }
             self.clear_daybreak_return(thread_id);
         }
+        true
     }
 
     pub(super) async fn disable_daybreak_for_model_change(

@@ -1,100 +1,68 @@
-# Stable Codex source workflow
-
-For routine updates, use [UPDATE.md](UPDATE.md). `codex update` now carries the
-custom delta onto the latest published release, including alphas. The stable pin
-described below is the original source baseline, not a permanent update ceiling.
-The same exact-source, complete-package and voice checks apply to newer pins.
-
-For the current automatic `codex update` path, read [UPDATE.md](UPDATE.md).
-This document describes the original stable-baseline recipe. The explicit
-manifest pin remains a source/resource identity check, not an instruction to
-stay on that release or exclude alpha upgrades.
+# Codex source and verified package workflow
 
 ## Source of truth
 
 - Repository: https://github.com/romil-bijarnia/codex
-- Only working/default branch: `main`.
-- Current official baseline: `rust-v0.167.2`.
-- Baseline commit: `ce21072c90d32c40af7a55b60b2fb35c84a43a6a`.
+- Working/default branch: `main`.
+- Exact upstream release, commit and resource checksum: `distribution/manifest.json`.
 - Local checkout: `$HOME/Work/codex`.
-- Native customizations, launchers, helpers and prompt sources are ordinary Git files.
+- Native customizations, launch helpers and prompt sources are ordinary Git files.
 
-The repository keeps prior development history, but its current source tree is
-ported to the stable release. The explicit pin in
-`local-customizations/distribution/manifest.json` identifies the baseline; a
-merge-base against upstream main does not identify the version being built.
+The current personal fork is the sole customization source. Do not combine an
+independently installed alpha's custom branch with it. Do not replace the fork
+with stock binaries or choose a subset of its custom features without instruction.
+GitHub's fork banner compares against development main, not the recorded release.
 
-## Source changes and stable upgrades
-
-Save custom changes normally on `main` and push them to `origin/main`.
-Do not use GitHub's **Sync fork / Update branch** against upstream main for a
-stable-version upgrade: main includes unreleased development changes.
-
-GitHub's fork ahead/behind banner compares against upstream main, not the pinned
-stable release. Remaining development-main divergence is expected and does not
-mean the stable-release merge is unresolved.
-
-For an upstream upgrade, select the next non-prerelease official release, port
-the retained custom changes onto that release's actual source, and update the
-pinned tag, commit and resource checksum together. Preserve the single main
-branch and existing history; do not discard custom behaviour or force-push
-merely to change the displayed version. Review and test the resulting source
-before building. Changing only a version string is not a stable-source upgrade.
-
-The builder checks the official release is neither draft nor prerelease, checks
-the fetched tag's exact commit, requires the matching workspace version and
-verifies the official package checksum. It does not fetch development-main
-code or choose a newer alpha resource package.
-
-## Build, test and install
-
-The optional `personal-build.yml` workflow is manual. The exact source commit
-includes its recipe and checks. The build compiles the CLI and its companion
-executables from the same stable-based tree and retains the matching complete
-resource package. It does not copy a single executable over a working install.
-
-Focused updater tests:
-
-```sh
-python3 -m unittest discover -s local-customizations/distribution/tests -v
-```
-
-Package checks exercise defaults, Daybreak, picker display, helpers, literal
-input/API regressions and steering with disposable profiles and local responses.
-Those checks do not establish live kernel/EL2 activation or every Rust test target.
-
-Voice has a mandatory native startup gate at build time and before installation.
-The CLI and voice helper are built from the same committed source with the same
-`STABLE_GIT_COMMIT`; the strict same-build handshake is not weakened or bypassed.
-The helper links the hash-verified pinned official audio libraries through
-build-only aliases and supported system-deps link inputs, not the runner's
-GStreamer version. Native library bytes, `runtime.json` and `sources.json` remain
-unchanged; the assembled manifest records the custom helper and its actual hash
-separately from native library provenance. The complete voice inventory is checked
-against its hashes and stable source before compilation. The real
-`codex debug voice` client must then complete the helper handshake, initialize
-the native audio runtime and shut down cleanly. It opens no audio streams and
-starts no network session. A picker-only check cannot satisfy this gate.
-Use `codex debug voice --list-devices` to additionally enumerate local devices
-without recording or playing audio.
-
-After the exact stable-based build passes, the source updater installs it with
-checksum verification and the required local renderer check:
+## Routine update
 
 ```sh
 codex update
 codex custom-status
 ```
 
-Normal launches execute the selected complete package. Running terminal clients
-retain their loaded executable; the shared backend only rolls over after observed
-idle time. Do not terminate active chats merely to change the footer version.
-The CLI reports `0.167.2`; package metadata uses `0.167.2+romil.<source SHA>` so
-custom provenance is retained without a development-version label.
+See [UPDATE.md](UPDATE.md). The updater starts from the newest published release,
+including alpha releases, and applies the fork's difference from its recorded
+base. It does not freeze entire files or use blanket ours/theirs resolution.
+Conflicts remain in a private checkout; the working installation is unchanged.
+A compatibility port preserves custom behaviour while retaining unrelated new
+upstream APIs and features, then advances the exact source/resource pin together.
+
+Do not use GitHub Sync fork against development main as a substitute for this
+release-based process, force-push over custom work, or relabel an old source tree.
+The builder checks the release channel, exact tag commit, workspace version and
+resource checksum. Alpha and stable pins are distinct and are never relabelled.
+
+## Verification and selection
+
+```sh
+python3 -m unittest discover -s local-customizations/distribution/tests -v
+python3 -m unittest discover -s local-customizations/tests -v
+```
+
+The committed recipe builds a complete native package. It exercises defaults,
+Daybreak, picker display, integrations, MCP handling, steering and fork windows
+with disposable homes and local synthetic responses. No real model requests are
+required. These checks are not a claim that every Rust test target was run.
+
+Native voice startup is mandatory during build and before installation. The CLI
+and voice helper use the same committed source and STABLE_GIT_COMMIT. Their
+strict identity handshake is not weakened. Matching official native libraries,
+runtime.json and sources.json retain their hashes; custom helper provenance is
+recorded separately. `codex debug voice` initializes and shuts down the native
+runtime without opening audio streams or making a network session.
+
+The verified source is published with a normal fast-forward push before atomic
+package selection. The primary launcher retains the fork's existing launch
+behaviour and saved settings. Only then is the recognised old codex+1 command
+retired. Active clients are not restarted; backend handover waits for observed
+idle time. Kernel/EL2 activation is not established merely by these package tests.
+
+The optional personal-build.yml GitHub workflow can build the same exact source;
+local updates do not need an agent to supervise compilation or runner queues.
 
 ## Data and recovery
 
-Credentials, private AGENTS.md, sessions, personal databases, caches and generated
-products stay out of source commits. Recovery documentation and reusable
-installation/configuration material are in GRID. Live package receipts determine
-what is installed; never rewrite old receipts to make them look like a new build.
+Credentials, personal instructions, sessions, databases, caches and generated
+products stay out of commits. Reusable recovery instructions are in GRID under
+tools/codex-update. Live receipts identify the installed source and upstream base;
+never rewrite an old receipt to make it appear current.

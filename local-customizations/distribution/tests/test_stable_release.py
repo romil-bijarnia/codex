@@ -41,7 +41,7 @@ class StableReleaseTests(unittest.TestCase):
         return dict(build.plan(self.commit), repository=common.REPO,
                     version=common.stable_package_version(self.commit),
                     official_resources_tag=self.pin['upstream_release'],
-                    check_suites=['voice-runtime'], required_local_checks=['voice-runtime'],
+                    check_suites=['voice-runtime', 'owner-defaults', 'owner-mcp'], required_local_checks=['voice-runtime'],
                     asset='codex-custom-' + common.TARGET + '.tar.gz')
 
     def test_plan_uses_pinned_stable_version_not_newest_release(self):

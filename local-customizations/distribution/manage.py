@@ -79,6 +79,10 @@ def extract(archive, destination):
 
 
 def verify_package(package, manifest):
+    if manifest.get('launcher_mode') == 'personal-harness':
+        required = {'owner-defaults', 'owner-mcp'}
+        if not required <= set(manifest.get('check_suites', [])):
+            raise RuntimeError('The unified harness has not passed its owner-mode checks; the working package is unchanged.')
     if manifest.get('upstream_channel') in ('stable', 'alpha'):
         validate_stable_manifest(manifest)
         verify_voice_resources(package, manifest['voice_build_commit'], manifest['upstream_commit'])

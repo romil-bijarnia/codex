@@ -5,6 +5,7 @@ use crate::protocol::item_builders::build_file_change_begin_item;
 use crate::protocol::item_builders::build_file_change_end_item;
 use crate::protocol::item_builders::build_item_from_guardian_event;
 use crate::protocol::item_builders::review_output_text;
+use crate::protocol::v2::AgentMessageModeration;
 use crate::protocol::v2::CollabAgentState;
 use crate::protocol::v2::CollabAgentTool;
 use crate::protocol::v2::CollabAgentToolCallStatus;
@@ -626,8 +627,19 @@ impl ThreadHistoryBuilder {
             return;
         }
 
-        let id = self.next_item_id();
+        let legacy_id = self.next_item_id();
+        let id = payload
+            .moderation
+            .as_ref()
+            .map_or(legacy_id, |decision| decision.item_id.clone());
         self.push_item_in_current_turn(ThreadItemPayload::AgentMessage {
+            moderation: payload
+                .moderation
+                .as_ref()
+                .map(|decision| AgentMessageModeration {
+                    moderated: decision.moderated,
+                    display: decision.display.clone(),
+                }),
             id,
             text: payload.message.clone(),
             phase: payload.phase.clone(),
@@ -949,6 +961,7 @@ impl ThreadHistoryBuilder {
         let item = ThreadItemPayload::McpToolCall {
             id: payload.call_id.clone(),
             server: payload.invocation.server.clone(),
+            environment_id: payload.invocation.environment_id.clone(),
             tool: payload.invocation.tool.clone(),
             status: McpToolCallStatus::InProgress,
             arguments: payload
@@ -1007,6 +1020,7 @@ impl ThreadHistoryBuilder {
         let item = ThreadItemPayload::McpToolCall {
             id: payload.call_id.clone(),
             server: payload.invocation.server.clone(),
+            environment_id: payload.invocation.environment_id.clone(),
             tool: payload.invocation.tool.clone(),
             status,
             arguments: payload
@@ -1449,6 +1463,7 @@ impl ThreadHistoryBuilder {
             if let Some(turn) = self.current_turn.as_mut().filter(|turn| turn.id == turn_id) {
                 let changed_turn = apply_abort(turn);
                 self.record_changed_turn(changed_turn);
+                self.finish_current_turn();
                 return;
             }
 
@@ -1459,10 +1474,13 @@ impl ThreadHistoryBuilder {
             }
         }
 
-        // If the event has no ID (or refers to an unknown turn), fall back to the active turn.
-        if let Some(turn) = self.current_turn.as_mut() {
+        // Fall back only when the abort or the active turn lacks an explicit ID.
+        if let Some(turn) = self.current_turn.as_mut()
+            && (payload.turn_id.is_none() || turn.has_generated_id)
+        {
             let changed_turn = apply_abort(turn);
             self.record_changed_turn(changed_turn);
+            self.finish_current_turn();
         }
     }
 
@@ -1580,6 +1598,7 @@ impl ThreadHistoryBuilder {
     }
 
     fn new_turn(&mut self, id: Option<String>) -> PendingTurn {
+        let has_generated_id = id.is_none();
         let id = id.unwrap_or_else(|| {
             if self.next_rollout_index == 0 {
                 Uuid::now_v7().to_string()
@@ -1589,6 +1608,7 @@ impl ThreadHistoryBuilder {
         });
         PendingTurn {
             id,
+            has_generated_id,
             root_turn_id: None,
             items: Vec::new(),
             item_index: TurnItemIndex::default(),
@@ -1918,6 +1938,7 @@ impl TurnItemIndex {
 
 struct PendingTurn {
     id: String,
+    has_generated_id: bool,
     root_turn_id: Option<String>,
     items: Vec<ThreadItemPayload>,
     item_index: TurnItemIndex,
@@ -2135,6 +2156,7 @@ mod tests {
             };
             builder.handle_event_for_history_mode(&EventMsg::ItemStarted(started), mode);
             let completed = ItemCompletedEvent {
+                content_token_count: None,
                 thread_id: ThreadId::default(),
                 turn_id: turn_id.clone(),
                 item,
@@ -2163,6 +2185,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "Hi there".into(),
                 phase: None,
                 memory_citation: None,
@@ -2184,6 +2207,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "Reply two".into(),
                 phase: None,
                 memory_citation: None,
@@ -2225,6 +2249,7 @@ mod tests {
         assert_eq!(
             first.items[1].payload,
             ThreadItemPayload::AgentMessage {
+                moderation: None,
                 id: "item-2".into(),
                 text: "Hi there".into(),
                 phase: None,
@@ -2260,6 +2285,7 @@ mod tests {
         assert_eq!(
             second.items[1].payload,
             ThreadItemPayload::AgentMessage {
+                moderation: None,
                 id: "item-5".into(),
                 text: "Reply two".into(),
                 phase: None,
@@ -2336,13 +2362,25 @@ mod tests {
         });
         let events = vec![
             EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: "turn-1".into(),
                 item: entered,
                 started_at_ms: Some(0),
                 completed_at_ms: 0,
             }),
+            // A late abort for a discarded turn must preserve the review turn's explicit ID.
+            EventMsg::TurnAborted(TurnAbortedEvent {
+                root_turn_id: None,
+                turn_id: Some("discarded-turn".into()),
+                started_at: None,
+                reason: TurnAbortReason::Replaced,
+                error: None,
+                completed_at: None,
+                duration_ms: None,
+            }),
             EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: "turn-1".into(),
                 item: exited,
@@ -2368,6 +2406,7 @@ mod tests {
         let turns = builder.finish();
 
         assert_eq!(turns[0].id, "turn-1");
+        assert_eq!(turns[0].status, TurnStatus::Completed);
         assert_eq!(
             turns[0].item_payloads().collect::<Vec<_>>(),
             [
@@ -2594,6 +2633,7 @@ mod tests {
                 collaboration_mode_kind: Default::default(),
             }),
             EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: turn_id.to_string(),
                 item: sleep_item,
@@ -2679,6 +2719,7 @@ mod tests {
                 collaboration_mode_kind: Default::default(),
             }),
             EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: turn_id.to_string(),
                 item: CoreTurnItem::Extension(CoreExtensionItem::ImageGeneration(
@@ -2797,6 +2838,7 @@ mod tests {
                 interaction_input: None,
             }),
             EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id,
                 turn_id: turn_id.to_string(),
                 item: command_item,
@@ -2971,6 +3013,7 @@ mod tests {
             },
         ];
         let events = vec![EventMsg::AgentMessage(AgentMessageEvent {
+            moderation: None,
             message: "Final reply".into(),
             phase: Some(CoreMessagePhase::FinalAnswer),
             memory_citation: None,
@@ -2987,6 +3030,7 @@ mod tests {
         assert_eq!(
             turns[0].items[0].payload,
             ThreadItemPayload::AgentMessage {
+                moderation: None,
                 id: "item-1".into(),
                 text: "Final reply".into(),
                 phase: Some(CoreMessagePhase::FinalAnswer),
@@ -3117,6 +3161,7 @@ mod tests {
                 text: "first content".into(),
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "interlude".into(),
                 phase: None,
                 memory_citation: None,
@@ -3167,6 +3212,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "Working...".into(),
                 phase: None,
                 memory_citation: None,
@@ -3191,6 +3237,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "Second attempt complete.".into(),
                 phase: None,
                 memory_citation: None,
@@ -3223,6 +3270,7 @@ mod tests {
         assert_eq!(
             first_turn.items[1].payload,
             ThreadItemPayload::AgentMessage {
+                moderation: None,
                 id: "item-2".into(),
                 text: "Working...".into(),
                 phase: None,
@@ -3249,6 +3297,7 @@ mod tests {
         assert_eq!(
             second_turn.items[1].payload,
             ThreadItemPayload::AgentMessage {
+                moderation: None,
                 id: "item-4".into(),
                 text: "Second attempt complete.".into(),
                 phase: None,
@@ -3271,6 +3320,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "A1".into(),
                 phase: None,
                 memory_citation: None,
@@ -3286,6 +3336,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "A2".into(),
                 phase: None,
                 memory_citation: None,
@@ -3302,6 +3353,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "A3".into(),
                 phase: None,
                 memory_citation: None,
@@ -3333,6 +3385,7 @@ mod tests {
                     }],
                 },
                 &ThreadItemPayload::AgentMessage {
+                    moderation: None,
                     id: "item-2".into(),
                     text: "A1".into(),
                     phase: None,
@@ -3354,6 +3407,7 @@ mod tests {
                     }],
                 },
                 &ThreadItemPayload::AgentMessage {
+                    moderation: None,
                     id: "item-4".into(),
                     text: "A3".into(),
                     phase: None,
@@ -3377,6 +3431,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "A1".into(),
                 phase: None,
                 memory_citation: None,
@@ -3392,6 +3447,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "A2".into(),
                 phase: None,
                 memory_citation: None,
@@ -3536,6 +3592,7 @@ mod tests {
                 call_id: "mcp-1".into(),
                 invocation: McpInvocation {
                     server: "docs".into(),
+                    environment_id: None,
                     tool: "lookup".into(),
                     arguments: Some(serde_json::json!({"id":"123"})),
                 },
@@ -3601,6 +3658,7 @@ mod tests {
             ThreadItemPayload::McpToolCall {
                 id: "mcp-1".into(),
                 server: "docs".into(),
+                environment_id: None,
                 tool: "lookup".into(),
                 status: McpToolCallStatus::Failed,
                 arguments: serde_json::json!({"id":"123"}),
@@ -3635,6 +3693,7 @@ mod tests {
                 call_id: "mcp-1".into(),
                 invocation: McpInvocation {
                     server: "docs".into(),
+                    environment_id: None,
                     tool: "lookup".into(),
                     arguments: Some(serde_json::json!({"id":"123"})),
                 },
@@ -3672,6 +3731,7 @@ mod tests {
             ThreadItemPayload::McpToolCall {
                 id: "mcp-1".into(),
                 server: "docs".into(),
+                environment_id: None,
                 tool: "lookup".into(),
                 status: McpToolCallStatus::Completed,
                 arguments: serde_json::json!({"id":"123"}),
@@ -4073,6 +4133,7 @@ mod tests {
         use codex_protocol::protocol::HasLegacyEvent;
 
         let completion = ItemCompletedEvent {
+            content_token_count: None,
             thread_id: ThreadId::new(),
             turn_id: "turn-a".into(),
             started_at_ms: None,
@@ -4080,6 +4141,7 @@ mod tests {
             item: CoreTurnItem::McpToolCall(McpToolCallItem {
                 id: "mcp-1".into(),
                 server: "slack".into(),
+                environment_id: None,
                 tool: "search".into(),
                 arguments: serde_json::json!({"query": "incident"}),
                 connector_id: None,
@@ -4388,9 +4450,11 @@ mod tests {
             ("c", "latest"),
         ] {
             builder.handle_live_paginated_event(&EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id: ThreadId::default(),
                 turn_id: turn_id.clone(),
                 item: CoreTurnItem::AgentMessage(codex_protocol::items::AgentMessageItem {
+                    moderation: None,
                     id: id.into(),
                     content: vec![codex_protocol::items::AgentMessageContent::Text {
                         text: text.into(),
@@ -4441,6 +4505,7 @@ mod tests {
         }));
         for message in ["draft", "answer"] {
             builder.handle_event(&EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: message.into(),
                 phase: None,
                 memory_citation: None,
@@ -4750,6 +4815,7 @@ mod tests {
                 time_to_first_token_ms: None,
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "still in b".into(),
                 phase: None,
                 memory_citation: None,
@@ -4825,6 +4891,7 @@ mod tests {
                     misalignment: None,
                     message: "Selected model is at capacity. Please try a different model.".into(),
                     codex_error_info: Some(CodexErrorInfo::PolicyCapacityUnavailable),
+                    rejected_audio_file_ids: Vec::new(),
                 }),
                 completed_at: Some(20),
                 duration_ms: Some(10_000),
@@ -4945,6 +5012,7 @@ mod tests {
                 duration_ms: None,
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "still in b".into(),
                 phase: None,
                 memory_citation: None,
@@ -5224,6 +5292,7 @@ mod tests {
                 ..Default::default()
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
+                moderation: None,
                 message: "done".into(),
                 phase: None,
                 memory_citation: None,
@@ -5234,6 +5303,7 @@ mod tests {
                 misalignment: None,
                 message: "rollback failed".into(),
                 codex_error_info: Some(CodexErrorInfo::ThreadRollbackFailed),
+                rejected_audio_file_ids: Vec::new(),
             }),
         ];
 
@@ -5281,6 +5351,7 @@ mod tests {
                 misalignment: None,
                 message: "request-level failure".into(),
                 codex_error_info: Some(CodexErrorInfo::BadRequest),
+                rejected_audio_file_ids: Vec::new(),
             }),
         ];
 
@@ -5339,6 +5410,7 @@ mod tests {
                 codex_error_info: Some(CodexErrorInfo::ResponseStreamDisconnected {
                     http_status_code: Some(502),
                 }),
+                rejected_audio_file_ids: Vec::new(),
             }),
             EventMsg::TurnComplete(TurnCompleteEvent {
                 root_turn_id: None,
@@ -5404,6 +5476,7 @@ mod tests {
                     misalignment: None,
                     message: "Selected model is at capacity. Please try a different model.".into(),
                     codex_error_info: Some(CodexErrorInfo::ServerOverloaded),
+                    rejected_audio_file_ids: Vec::new(),
                 }),
                 completed_at: Some(20),
                 duration_ms: Some(10_000),
@@ -5446,10 +5519,13 @@ mod tests {
 
     #[test]
     fn rebuilds_hook_prompt_items_from_rollout_response_items() {
-        let hook_prompt = build_hook_prompt_message(&[
-            CoreHookPromptFragment::from_single_hook("Retry with tests.", "hook-run-1"),
-            CoreHookPromptFragment::from_single_hook("Then summarize cleanly.", "hook-run-2"),
-        ])
+        let hook_prompt = build_hook_prompt_message(
+            &[
+                CoreHookPromptFragment::from_single_hook("Retry with tests.", "hook-run-1"),
+                CoreHookPromptFragment::from_single_hook("Then summarize cleanly.", "hook-run-2"),
+            ],
+            &codex_protocol_test_support::uuid_v7_item_id_generator_for_test(),
+        )
         .expect("hook prompt message");
         let items = vec![
             RolloutItem::EventMsg(EventMsg::TurnStarted(TurnStartedEvent {
@@ -5530,6 +5606,7 @@ mod tests {
         }));
         let changes =
             builder.handle_event_with_changes(&EventMsg::ItemCompleted(ItemCompletedEvent {
+                content_token_count: None,
                 thread_id: ThreadId::new(),
                 turn_id: "turn-a".into(),
                 item: hook_prompt,
@@ -5551,6 +5628,7 @@ mod tests {
             .join("worker")
             .expect("worker path");
         let spawn = ItemCompletedEvent {
+            content_token_count: None,
             thread_id: ThreadId::new(),
             turn_id: "turn-a".into(),
             item: CoreTurnItem::SubAgentActivity(CoreSubAgentActivityItem {
@@ -5601,6 +5679,7 @@ mod tests {
                     time_to_first_token_ms: None,
                 })),
                 RolloutItem::EventMsg(EventMsg::ItemCompleted(ItemCompletedEvent {
+                    content_token_count: None,
                     thread_id: ThreadId::new(),
                     turn_id: "turn-a".into(),
                     item: CoreTurnItem::SubAgentActivity(CoreSubAgentActivityItem {

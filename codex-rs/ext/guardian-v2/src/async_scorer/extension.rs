@@ -63,14 +63,12 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                     return;
                 }
             };
-            let policy = guardian_config.policy_for_model(model.as_deref());
+            let policy = guardian_config.policy_for_model(
+                model.as_deref(),
+                input.config.config_layer_stack.requirements(),
+            );
             let scoring_enabled = policy.scoring_enabled();
-            let sampler_config = super::startup::sampler_config(
-                &input,
-                Arc::clone(&self.auth_manager),
-                self.thread_manager.upgrade(),
-            )
-            .await;
+            let sampler_config = super::startup::sampler_config(&input).await;
 
             if scoring_enabled && guardian_config.transcript.include_images {
                 input

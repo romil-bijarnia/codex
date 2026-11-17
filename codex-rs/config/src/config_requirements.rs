@@ -1,5 +1,7 @@
 use crate::ApplicationRequirementsToml;
 use codex_features::FeatureToml;
+use codex_features::RuntimeAgentInstancesConfigToml;
+use codex_features::RuntimeAuthMode;
 use codex_model_provider_info::ModelProviderInfo;
 pub use codex_model_provider_info::ResidencyRequirement;
 use codex_protocol::config_types::ApprovalsReviewer;
@@ -367,6 +369,18 @@ pub enum NetworkDomainPermissionToml {
     Deny,
 }
 
+impl NetworkDomainPermissionToml {
+    /// Unsupported patterns retain their exact spelling. They can never compare equal
+    /// to a valid selector and disappear when two published declarations are combined.
+    pub(crate) fn pattern_identity(self, pattern: &str) -> Result<String, String> {
+        match self {
+            Self::Allow => codex_network_proxy::canonical_allow_pattern(pattern),
+            Self::Deny => codex_network_proxy::canonical_deny_pattern(pattern),
+        }
+        .map_err(|_| pattern.to_owned())
+    }
+}
+
 impl std::fmt::Display for NetworkDomainPermissionToml {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let permission = match self {
@@ -416,6 +430,8 @@ pub struct NetworkRequirementsToml {
     pub http_port: Option<u16>,
     pub socks_port: Option<u16>,
     pub allow_upstream_proxy: Option<bool>,
+    /// Route outbound TCP from managed Linux sandbox commands through the managed SOCKS5 proxy.
+    pub transparent_tcp: Option<bool>,
     pub dangerously_allow_non_loopback_proxy: Option<bool>,
     pub dangerously_allow_all_unix_sockets: Option<bool>,
     pub domains: Option<NetworkDomainPermissionsToml>,
@@ -431,6 +447,45 @@ pub struct NetworkRequirementsToml {
     /// Requirements-only header injections. These annotate matching requests
     /// without changing whether non-matching requests are allowed.
     pub header_injections: Option<Vec<NetworkHeaderInjectionToml>>,
+}
+
+impl NetworkRequirementsToml {
+    /// Compare the selector identities used by the proxy without modifying the published
+    /// representation. Keep allow and deny contributions distinct, including shadowed grants.
+    pub(crate) fn describes_same_policy(&self, other: &Self) -> bool {
+        if self == other {
+            return true;
+        }
+        let domain_rules = |policy: &Self| {
+            policy.domains.as_ref().map(|domains| {
+                domains
+                    .entries
+                    .iter()
+                    .map(|(pattern, &rule)| (rule, rule.pattern_identity(pattern)))
+                    .collect::<BTreeSet<_>>()
+            })
+        };
+        let review_patterns = |policy: &Self| {
+            policy.review_domains.as_ref().map(|patterns| {
+                patterns
+                    .iter()
+                    .map(|pattern| {
+                        codex_network_proxy::canonical_review_pattern(pattern)
+                            .map_err(|_| pattern.to_owned())
+                    })
+                    .collect::<BTreeSet<_>>()
+            })
+        };
+        if domain_rules(self) != domain_rules(other)
+            || review_patterns(self) != review_patterns(other)
+        {
+            return false;
+        }
+        let mut comparable = other.clone();
+        comparable.domains.clone_from(&self.domains);
+        comparable.review_domains.clone_from(&self.review_domains);
+        self == &comparable
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -458,6 +513,7 @@ struct RawNetworkRequirementsToml {
     http_port: Option<u16>,
     socks_port: Option<u16>,
     allow_upstream_proxy: Option<bool>,
+    transparent_tcp: Option<bool>,
     dangerously_allow_non_loopback_proxy: Option<bool>,
     dangerously_allow_all_unix_sockets: Option<bool>,
     domains: Option<NetworkDomainPermissionsToml>,
@@ -487,6 +543,7 @@ impl<'de> Deserialize<'de> for NetworkRequirementsToml {
             http_port,
             socks_port,
             allow_upstream_proxy,
+            transparent_tcp,
             dangerously_allow_non_loopback_proxy,
             dangerously_allow_all_unix_sockets,
             domains,
@@ -517,6 +574,7 @@ impl<'de> Deserialize<'de> for NetworkRequirementsToml {
             http_port,
             socks_port,
             allow_upstream_proxy,
+            transparent_tcp,
             dangerously_allow_non_loopback_proxy,
             dangerously_allow_all_unix_sockets,
             domains: domains
@@ -570,6 +628,8 @@ pub struct NetworkConstraints {
     pub http_port: Option<u16>,
     pub socks_port: Option<u16>,
     pub allow_upstream_proxy: Option<bool>,
+    /// Route outbound TCP from managed Linux sandbox commands through the managed SOCKS5 proxy.
+    pub transparent_tcp: Option<bool>,
     pub dangerously_allow_non_loopback_proxy: Option<bool>,
     pub dangerously_allow_all_unix_sockets: Option<bool>,
     pub domains: Option<NetworkDomainPermissionsToml>,
@@ -599,6 +659,7 @@ impl From<NetworkRequirementsToml> for NetworkConstraints {
             http_port,
             socks_port,
             allow_upstream_proxy,
+            transparent_tcp,
             dangerously_allow_non_loopback_proxy,
             dangerously_allow_all_unix_sockets,
             domains,
@@ -613,6 +674,7 @@ impl From<NetworkRequirementsToml> for NetworkConstraints {
             http_port,
             socks_port,
             allow_upstream_proxy,
+            transparent_tcp,
             dangerously_allow_non_loopback_proxy,
             dangerously_allow_all_unix_sockets,
             domains,
@@ -933,14 +995,46 @@ impl WindowsRequirementsToml {
 }
 
 #[derive(Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(from = "FeatureRequirementsInput")]
 pub struct FeatureRequirementsToml {
-    #[serde(flatten)]
     pub entries: BTreeMap<String, bool>,
+    pub runtime_auth_mode: Option<RuntimeAuthMode>,
+}
+
+// Keep boolean requirements unchanged while accepting the same typed runtime setting as config.
+#[derive(Deserialize)]
+struct FeatureRequirementsInput {
+    runtime_agent_instances: Option<FeatureToml<RuntimeAgentInstancesConfigToml>>,
+    #[serde(flatten)]
+    entries: BTreeMap<String, bool>,
+}
+
+impl From<FeatureRequirementsInput> for FeatureRequirementsToml {
+    fn from(input: FeatureRequirementsInput) -> Self {
+        let mut entries = input.entries;
+        if let Some(enabled) = input
+            .runtime_agent_instances
+            .as_ref()
+            .and_then(FeatureToml::enabled)
+        {
+            entries.insert("runtime_agent_instances".to_string(), enabled);
+        }
+        let runtime_auth_mode = input
+            .runtime_agent_instances
+            .and_then(|feature| match feature {
+                FeatureToml::Enabled(_) => None,
+                FeatureToml::Config(config) => config.mode,
+            });
+        Self {
+            entries,
+            runtime_auth_mode,
+        }
+    }
 }
 
 impl FeatureRequirementsToml {
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.runtime_auth_mode.is_none()
     }
 }
 
@@ -1289,15 +1383,16 @@ pub struct ConfigRequirementsWithSources {
 
 impl ConfigRequirementsWithSources {
     pub(crate) fn validate_network_spelling(&self) -> Result<(), ConstraintError> {
-        if let (Some(nested), Some(top_level)) = (&self.permissions_network, &self.network) {
+        if let (Some(nested), Some(top_level)) = (&self.permissions_network, &self.network)
+            && !nested.value.describes_same_policy(&top_level.value)
+        {
             return Err(ConstraintError::InvalidValue {
                 field_name: "permissions.network",
                 candidate: format!(
                     "configured together with top-level network requirements from {}",
                     top_level.source
                 ),
-                allowed: "specify managed network requirements through exactly one surface"
-                    .to_string(),
+                allowed: "legacy and permissions.network requirements must describe the same network policy".to_string(),
                 requirement_source: nested.source.clone(),
             });
         }
@@ -1487,6 +1582,8 @@ impl ConfigRequirementsWithSources {
         }
     }
 
+    /// Public loader view. Older runtime clients still read the top-level
+    /// network field when selecting an executor policy, including on resume.
     pub fn into_toml(self) -> ConfigRequirementsToml {
         let ConfigRequirementsWithSources {
             config_server,
@@ -1541,6 +1638,12 @@ impl ConfigRequirementsWithSources {
             permissions.get_or_insert_with(Default::default).network =
                 Some(Box::new(network.value));
         }
+        let network = network.map(|sourced| sourced.value).or_else(|| {
+            permissions
+                .as_ref()
+                .and_then(|permissions| permissions.network.as_deref())
+                .cloned()
+        });
         ConfigRequirementsToml {
             config_server: config_server.map(|sourced| sourced.value),
             allowed_login_methods: allowed_login_methods.map(|sourced| sourced.value),
@@ -1582,7 +1685,7 @@ impl ConfigRequirementsWithSources {
             apps: apps.map(|sourced| sourced.value),
             rules: rules.map(|sourced| sourced.value),
             enforce_residency: enforce_residency.map(|sourced| sourced.value),
-            network: network.map(|sourced| sourced.value),
+            network,
             application: application.map(|sourced| sourced.value),
             permissions,
             auto_review: auto_review.map(|sourced| sourced.value),
@@ -2467,10 +2570,13 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
                 /*source*/ None,
             ),
         };
-        let network = permissions_network
-            .map(|network| *network)
-            .or(network)
-            .map(|Sourced { value, source }| Sourced::new(NetworkConstraints::from(value), source));
+        let network = match (permissions_network, network) {
+            // A dual-published source keeps its original selector text on older executors.
+            (Some(nested), Some(legacy)) if nested.source == legacy.source => Some(legacy),
+            (Some(nested), _) => Some(*nested),
+            (None, legacy) => legacy,
+        }
+        .map(|Sourced { value, source }| Sourced::new(NetworkConstraints::from(value), source));
         let filesystem = permissions
             .filter(|permissions| permissions.value.filesystem.is_some())
             .map(|Sourced { value, source }| {
@@ -3253,34 +3359,6 @@ tracestate = { managed = { tenant = "enterprise", region = "us" }, other = { kee
     }
 
     #[test]
-    fn auto_review_required_for_model_matches_exact_provider_aliases() {
-        let requirements = ConfigRequirements {
-            auto_review_required_models: Some(Sourced::new(
-                BTreeSet::from(["protected-model".to_string()]),
-                RequirementSource::Unknown,
-            )),
-            ..Default::default()
-        };
-
-        for (model, protected) in [
-            ("protected-model", true),
-            ("protected-model-preview", false),
-            ("openai-codex/protected-model-preview", false),
-            ("provider_1/protected-model", true),
-            ("protected-modelish", false),
-            ("/protected-model", false),
-            ("bad.provider/protected-model", false),
-            ("provider/nested/protected-model", false),
-        ] {
-            assert_eq!(
-                requirements.auto_review_required_for_model(model),
-                protected,
-                "{model}"
-            );
-        }
-    }
-
-    #[test]
     fn merge_unset_fields_copies_every_field_and_sets_sources() {
         let mut target = ConfigRequirementsWithSources::default();
         let source = RequirementSource::LegacyManagedConfigTomlFromMdm;
@@ -3298,6 +3376,7 @@ tracestate = { managed = { tenant = "enterprise", region = "us" }, other = { kee
         ];
         let feature_requirements = FeatureRequirementsToml {
             entries: BTreeMap::from([("personality".to_string(), true)]),
+            ..Default::default()
         };
         let browser_use = BrowserUseRequirementsToml {
             extension: None,
@@ -4803,6 +4882,7 @@ allowed_approvals_reviewers = ["user"]
                         ("apps".to_string(), false),
                         ("personality".to_string(), true),
                     ]),
+                    ..Default::default()
                 },
                 RequirementSource::Unknown,
             ))
@@ -4938,6 +5018,15 @@ command = "python3 /enterprise/hooks/pre.py"
             ))
         };
         assert_eq!(parse("network_proxy")?, parse("experimental_network")?);
+        for table in ["network_proxy", "experimental_network"] {
+            let dual: ConfigRequirementsToml = from_str(&format!(
+                "[{table}]\ndenied_domains = ['2001:db8::1']\n\
+                 [permissions.network]\ndenied_domains = ['2001:0db8:0:0:0:0:0:1']"
+            ))?;
+            let expected = dual.network.clone().map(NetworkConstraints::from);
+            let runtime = ConfigRequirements::try_from(with_unknown_source(dual))?;
+            assert_eq!(runtime.network.map(|network| network.value), expected);
+        }
         for values in ["", "enabled = true"] {
             let both = format!("[network_proxy]\n{values}\n[experimental_network]\n{values}");
             assert!(from_str::<ConfigRequirementsToml>(&both).is_err());
@@ -4951,6 +5040,7 @@ command = "python3 /enterprise/hooks/pre.py"
             [permissions.network]
             enabled = true
             allow_upstream_proxy = false
+            transparent_tcp = true
             dangerously_allow_all_unix_sockets = true
             managed_allowed_domains_only = true
             allow_local_binding = false
@@ -4985,6 +5075,7 @@ command = "python3 /enterprise/hooks/pre.py"
 
         assert_eq!(sourced_network.source, source);
         assert_eq!(sourced_network.value.enabled, Some(true));
+        assert_eq!(sourced_network.value.transparent_tcp, Some(true));
         assert_eq!(sourced_network.value.allow_upstream_proxy, Some(false));
         assert_eq!(
             sourced_network.value.dangerously_allow_all_unix_sockets,

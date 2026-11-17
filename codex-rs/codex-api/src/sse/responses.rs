@@ -1,10 +1,12 @@
 use super::responses_error::parse_failed_response;
+use crate::common::ReasoningRemovalReason;
 use crate::common::ResponseEvent;
 use crate::common::ResponseStream;
 use crate::common::SafetyBuffering;
 use crate::common::SafetyBufferingTreatment;
 use crate::error::ApiError;
 use crate::error::parse_terminal_provider_error;
+use crate::guardian_assessment::parse_guardian_assessment;
 use crate::rate_limits::parse_all_rate_limits;
 use crate::safety_buffering::treatment_from_headers;
 use crate::telemetry::SseTelemetry;
@@ -20,6 +22,7 @@ use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -164,6 +167,7 @@ pub struct ResponsesStreamEvent {
     pub(crate) headers: Option<Value>,
     metadata: Option<Value>,
     response: Option<Value>,
+    response_id: Option<Value>,
     error: Option<Value>,
     item: Option<Value>,
     item_id: Option<String>,
@@ -225,12 +229,21 @@ impl ResponsesStreamEvent {
         &self,
         safety_buffering: Option<SafetyBuffering>,
     ) -> Vec<ResponseEvent> {
+        let guardian = if self.kind() == "response.metadata" {
+            parse_guardian_assessment(
+                self.response_id.as_ref().and_then(Value::as_str),
+                self.metadata.as_ref(),
+            )
+        } else {
+            None
+        };
         [
             self.model_verifications()
                 .map(ResponseEvent::ModelVerifications),
             self.turn_moderation_metadata()
                 .map(ResponseEvent::TurnModerationMetadata),
             safety_buffering.map(ResponseEvent::SafetyBuffering),
+            guardian.map(ResponseEvent::GuardianAssessment),
         ]
         .into_iter()
         .flatten()
@@ -361,6 +374,29 @@ impl ResponsesEventError {
     }
 }
 
+// Diagnostic fields are optional and must never make an otherwise valid response fail.
+fn reasoning_removals(response: &Value) -> Option<BTreeMap<ReasoningRemovalReason, i64>> {
+    let transformations = response.get("input_transformations")?.as_array()?;
+    let mut counts = BTreeMap::new();
+    for transformation in transformations {
+        if transformation.get("type").and_then(Value::as_str) != Some("reasoning")
+            || transformation.get("action").and_then(Value::as_str) != Some("removed")
+        {
+            continue;
+        }
+        let reason = match transformation.get("reason").and_then(Value::as_str) {
+            Some("organization_mismatch") => ReasoningRemovalReason::OrganizationMismatch,
+            Some("end_user_mismatch") => ReasoningRemovalReason::EndUserMismatch,
+            Some("model_mismatch") => ReasoningRemovalReason::ModelMismatch,
+            Some("prefix_mismatch") => ReasoningRemovalReason::PrefixMismatch,
+            Some("turn_boundary") => ReasoningRemovalReason::TurnBoundary,
+            _ => ReasoningRemovalReason::Other,
+        };
+        *counts.entry(reason).or_default() += 1;
+    }
+    Some(counts)
+}
+
 pub fn process_responses_event(
     event: ResponsesStreamEvent,
 ) -> std::result::Result<Option<ResponseEvent>, ResponsesEventError> {
@@ -481,6 +517,7 @@ pub fn process_responses_event(
                 }
             }
             if let Some(resp_val) = event.response {
+                let reasoning_removals = reasoning_removals(&resp_val);
                 let metadata = resp_val
                     .get("usage")
                     .filter(|usage| !usage.is_null())
@@ -494,6 +531,7 @@ pub fn process_responses_event(
                             response_id: resp.id,
                             token_usage: resp.usage.map(Into::into),
                             usage_metadata: resp.usage_metadata,
+                            reasoning_removals,
                             end_turn: if interrupted {
                                 Some(false)
                             } else {
@@ -668,7 +706,14 @@ async fn process_sse_with_treatment(
                 let error = error.into_api_error();
                 if matches!(
                     error,
-                    ApiError::FlexUnavailable | ApiError::ResponseIncomplete(_)
+                    ApiError::FlexUnavailable
+                        | ApiError::ContextWindowExceeded
+                        | ApiError::InvalidRequest { .. }
+                        | ApiError::SessionBudgetExceeded
+                        | ApiError::InferenceHookDenied { .. }
+                        | ApiError::AccessProgramNotEnabled { .. }
+                        | ApiError::ContentPolicyViolation { .. }
+                        | ApiError::ResponseIncomplete(_)
                 ) {
                     let _ = tx_event.send(Err(error)).await;
                     return;
@@ -863,6 +908,7 @@ mod tests {
                 response_id,
                 token_usage,
                 usage_metadata,
+                reasoning_removals: _,
                 end_turn,
             }) => {
                 assert_eq!(response_id, "resp1");
@@ -1061,6 +1107,7 @@ mod tests {
                 response_id,
                 token_usage,
                 usage_metadata,
+                reasoning_removals: _,
                 end_turn,
             }) => {
                 assert_eq!(response_id, "resp1");
@@ -1657,6 +1704,7 @@ mod tests {
                 response_id,
                 token_usage: None,
                 usage_metadata: None,
+                reasoning_removals: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1698,6 +1746,7 @@ mod tests {
                 response_id,
                 token_usage: None,
                 usage_metadata: None,
+                reasoning_removals: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1734,6 +1783,7 @@ mod tests {
                 response_id,
                 token_usage: None,
                 usage_metadata: None,
+                reasoning_removals: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1770,6 +1820,7 @@ mod tests {
                 response_id,
                 token_usage: None,
                 usage_metadata: None,
+                reasoning_removals: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );

@@ -328,6 +328,13 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('instructions=""', observed['arguments'])
         self.assertNotIn(str(self.home / '.local/share/codex-plus-one/current/bin/codex'), observed['arguments'])
 
+    def test_unified_package_without_owner_checks_cannot_replace_working_install(self):
+        package, manifest = self.candidate()
+        manifest['launcher_mode'] = 'personal-harness'
+        with self.assertRaisesRegex(RuntimeError, 'owner-mode checks'):
+            manage.select_package(package, manifest)
+        self.assertEqual((self.packages / 'current').resolve(), self.old)
+
     def test_retirement_removes_only_known_old_command_and_preserves_settings(self):
         old = self.home / '.local/share/codex-plus-one'
         (old / 'bin').mkdir(parents=True)

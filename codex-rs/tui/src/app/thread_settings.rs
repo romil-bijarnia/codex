@@ -7,6 +7,7 @@ use crate::session_state::ThreadSessionState;
 use codex_app_server_protocol::ApprovalsReviewer as AppServerApprovalsReviewer;
 use codex_app_server_protocol::ThreadSettings;
 use codex_app_server_protocol::ThreadSettingsUpdateParams;
+use codex_app_server_protocol::ThreadSettingsUpdatedNotification;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::models::PermissionProfile;
@@ -125,6 +126,22 @@ impl App {
         self.send_thread_settings_update(app_server, params).await;
     }
 
+    // Retained blank sessions stay subscribed after their event channels are cleared.
+    pub(super) async fn update_retained_blank_settings(
+        &mut self,
+        thread_id: ThreadId,
+        notification: &ThreadSettingsUpdatedNotification,
+    ) -> bool {
+        if !self.agents_overview.blank_sessions.contains_key(&thread_id)
+            || self.thread_event_channels.contains_key(&thread_id)
+        {
+            return false;
+        }
+        self.apply_thread_settings_to_cached_session(thread_id, &notification.thread_settings)
+            .await;
+        true
+    }
+
     pub(super) async fn apply_thread_settings_to_cached_session(
         &mut self,
         thread_id: ThreadId,
@@ -188,7 +205,10 @@ impl App {
     }
 }
 
-fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: &ThreadSettings) {
+pub(super) fn apply_thread_settings_to_session(
+    session: &mut ThreadSessionState,
+    settings: &ThreadSettings,
+) {
     if settings.collaboration_mode.mode == ModeKind::Default {
         session.model = settings.model.clone();
         session.reasoning_effort = settings.effort.clone();
@@ -202,6 +222,10 @@ fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: 
         settings.cwd.as_path(),
     );
     session.active_permission_profile = settings.active_permission_profile.clone().map(Into::into);
+    if let Some(environments) = &settings.environments {
+        session.primary_environment_cwd =
+            crate::session_state::primary_environment_cwd(environments);
+    }
     session.set_cwd_retargeting_implicit_runtime_workspace_root(settings.cwd.clone());
     let mut collaboration_mode = settings.collaboration_mode.clone();
     collaboration_mode
@@ -210,6 +234,7 @@ fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: 
         .clone_from(&settings.model);
     collaboration_mode.settings.reasoning_effort = settings.effort.clone();
     session.collaboration_mode = Some(Box::new(collaboration_mode));
+    session.thread_settings_confirmed = true;
 }
 
 fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bool {

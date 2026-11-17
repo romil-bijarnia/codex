@@ -175,6 +175,7 @@ def build(work, build_plan, output_dir):
     cache_root = Path(os.environ.get('CODEX_BUILD_CACHE', Path.home() / '.cache/codex-customizations'))
     env['CARGO_TARGET_DIR'] = str(cache_root / 'target')
     env['PATH'] = str(Path(output(['rustup', 'which', '--toolchain', toolchain, 'cargo'])).parent) + os.pathsep + env['PATH']
+    env['RUSTC'] = output(['rustup', 'which', '--toolchain', toolchain, 'rustc'])
     os.environ['CODEX_REPO_ROOT'] = str(source)
     sys.path.insert(0, str(source / 'scripts'))
     from codex_package.targets import TARGET_SPECS
@@ -207,13 +208,17 @@ def build(work, build_plan, output_dir):
         destination.parent.mkdir(parents=True, exist_ok=True);shutil.copy2(package / 'customizations' / origin, destination)
     python = Path(sys.executable)
     test_env = dict(os.environ, HOME=str(qa_home))
-    test_env.pop('CODEX_HOME', None)
+    for name in ('CODEX_HOME', 'CODEX_PLUS_ONE', 'CODEX_PLUS_ONE_SHARED_HOME'):
+        test_env.pop(name, None)
     voice_report = check_voice_runtime(package, commit, commit)
     voice_output = work / 'checks/voice-runtime.json';voice_output.parent.mkdir(parents=True, exist_ok=True)
     voice_output.write_text(json.dumps(voice_report, indent=2) + '\n')
     suites = [VOICE_CHECK]
-    for name, script, extra in [('defaults','defaults-qa.py',[]),('daybreak-defaults','daybreak-defaults-qa.py',[]),('picker-display','picker-order-qa.py',['--display-only']),('integrations-portable','terminal-integrations-qa.py',['--without-bundled-renderer']),('regressions','cli-regression-qa.py',['--source',str(source)]),('mcp-approvals','mcp-review-qa.py',[]),('steering','steering-qa.py',[]),('fork-window','fork-window-qa.py',[])]:
-        run([python, ROOT / 'checks' / script, package / 'bin/codex', work / 'checks' / name, *extra], env=test_env)
+    for name, script, extra in [('defaults','defaults-qa.py',[]),('owner-defaults','defaults-qa.py',['--owner-harness']),('daybreak-defaults','daybreak-defaults-qa.py',[]),('picker-display','picker-order-qa.py',['--display-only']),('integrations-portable','terminal-integrations-qa.py',['--without-bundled-renderer']),('regressions','cli-regression-qa.py',['--source',str(source)]),('mcp-approvals','mcp-review-qa.py',[]),('owner-mcp','mcp-review-qa.py',['--cases','full-access','malformed-strict','human-input']),('steering','steering-qa.py',[]),('fork-window','fork-window-qa.py',[])]:
+        suite_env = dict(test_env)
+        if name.startswith('owner-'):
+            suite_env['CODEX_PLUS_ONE'] = '1'
+        run([python, ROOT / 'checks' / script, package / 'bin/codex', work / 'checks' / name, *extra], env=suite_env)
         suites.append(name)
     manifest = package_manifest(package, build_plan, check_suites=suites, real_model_requests=0,
                                 kernel_activation_verified=False, compiled_version=cargo_version, required_local_checks=[VOICE_CHECK, 'bundled-visualization-renderer'], official_resources_tag=release['tag_name'], build_kind='remote-source-build')

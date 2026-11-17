@@ -41,6 +41,11 @@ mod memento_v2;
 pub use memento_v2::ContextManagementToolMessages;
 pub use memento_v2::HistoryToolMessages;
 pub use memento_v2::NotesToolMessages;
+mod plugins;
+pub use plugins::GenericPluginMessages;
+pub use plugins::PluginMessages;
+pub use plugins::PluginRecommendationMessages;
+pub use plugins::SelectedPluginMessages;
 #[path = "openai_models/guardian.rs"]
 mod guardian;
 pub use guardian::GuardianModelPolicy;
@@ -54,6 +59,7 @@ mod guardian_v2;
 mod reasoning_effort;
 
 pub use access_programs::ModelAccessPrograms;
+pub use access_programs::SavedDaybreakChoice;
 pub use guardian_v2::AsyncClassifierMode;
 pub use guardian_v2::GuardianV2ModelConfig;
 pub use guardian_v2::GuardianV2TranscriptModelConfig;
@@ -343,6 +349,14 @@ pub enum WebSearchToolType {
     TextAndImage,
 }
 
+/// Provider preference selected by the resolved model catalog entry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchProvider {
+    Standalone,
+    SearchMcp,
+}
+
 /// Server-provided truncation policy metadata for a model.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, TS, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -455,6 +469,8 @@ pub struct ModelInfo {
     pub apply_patch_tool_type: Option<ApplyPatchToolType>,
     #[serde(default)]
     pub web_search_tool_type: WebSearchToolType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search_provider: Option<WebSearchProvider>,
     pub truncation_policy: TruncationPolicyConfig,
     #[serde(default)]
     pub supports_image_detail_original: bool,
@@ -513,6 +529,10 @@ pub struct ModelInfo {
     /// Reasoning effort used for multi-agent work when the user selects Ultra.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_agent_reasoning_effort: Option<ReasoningEffort>,
+    /// Whether native multi-agent tools follow the model's tool mode instead of staying direct-only.
+    /// When absent, preserve the runtime's `multi_agent_v2.non_code_mode_only` setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_agent_tools_in_code_mode: Option<bool>,
 }
 
 /// Where model metadata was obtained during local catalog resolution.
@@ -580,9 +600,12 @@ impl ModelInfo {
 /// retained for model catalog compatibility.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelMessages {
-    /// Optional model-owned Apps wording, transported without runtime interpretation.
+    /// Model-owned Apps usage guidance, subject to existing Apps availability and authorization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apps: Option<AppsMessages>,
+    /// Model-owned plugin wording; runtime capability facts and eligibility remain client-owned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins: Option<PluginMessages>,
     /// Developer guidance after a content-filter block. Missing, null, blank, or values over
     /// 512 UTF-8 bytes use the bundled guidance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -608,11 +631,11 @@ pub struct ModelMessages {
     pub confirmation_policies: Option<ConfirmationPolicies>,
 }
 
-/// Optional Apps wording from the model catalog, preserved for future runtime consumption.
+/// Literal model-owned Apps guidance inside the existing developer fragment markers.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct AppsMessages {
-    /// Missing and null deserialize as `None`; all strings preserve their exact bytes.
-    /// Rendering, size limits, and empty-string behavior are defined by consumers.
+    /// Missing/null uses bundled guidance; empty clears it. Whitespace-only or more than
+    /// 800 UTF-8 bytes falls back to bundled guidance. Other values preserve exact bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_instructions: Option<String>,
 }
@@ -1205,6 +1228,7 @@ mod tests {
             default_verbosity: None,
             apply_patch_tool_type: None,
             web_search_tool_type: WebSearchToolType::Text,
+            web_search_provider: None,
             truncation_policy: TruncationPolicyConfig::bytes(/*limit*/ 10_000),
             supports_image_detail_original: false,
             context_window: None,
@@ -1226,6 +1250,7 @@ mod tests {
             tool_mode: None,
             multi_agent_version: None,
             multi_agent_reasoning_effort: None,
+            multi_agent_tools_in_code_mode: None,
         }
     }
     #[test]
@@ -1764,6 +1789,7 @@ mod tests {
             apps: Some(AppsMessages {
                 usage_instructions: Some("Literal Apps {{guidance}}".to_string()),
             }),
+            plugins: None,
             content_filter_guidance: Some("Offer a permitted alternative.".to_string()),
             persistent_instructions: Some("Persistent catalog instructions".to_string()),
             tools: Some(ToolMessages {
@@ -1925,6 +1951,24 @@ mod tests {
         assert_eq!(model.auto_review_model_override, None);
         assert_eq!(model.tool_mode, None);
         assert_eq!(model.multi_agent_reasoning_effort, None);
+    }
+
+    #[test]
+    fn model_info_preserves_multi_agent_code_mode_presence() {
+        let base = test_model(/*spec*/ None);
+        let base_json = serde_json::to_value(&base).expect("serialize model");
+        assert!(base_json.get("multi_agent_tools_in_code_mode").is_none());
+        assert_eq!(
+            serde_json::from_value::<ModelInfo>(base_json.clone()).unwrap(),
+            base
+        );
+        for value in [None, Some(false), Some(true)] {
+            let mut json = base_json.clone();
+            json["multi_agent_tools_in_code_mode"] = serde_json::to_value(value).unwrap();
+            let mut expected = base.clone();
+            expected.multi_agent_tools_in_code_mode = value;
+            assert_eq!(serde_json::from_value::<ModelInfo>(json).unwrap(), expected);
+        }
     }
 
     #[test]

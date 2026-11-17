@@ -24,11 +24,14 @@ use codex_code_mode_protocol::host::HostHello;
 use codex_code_mode_protocol::host::HostRequest;
 use codex_code_mode_protocol::host::HostResponse;
 use codex_code_mode_protocol::host::HostToClient;
+use codex_code_mode_protocol::host::LARGE_DELEGATE_CAPACITY_CAPABILITY;
+use codex_code_mode_protocol::host::MAX_PENDING_DELEGATE_CALLS;
 use codex_code_mode_protocol::host::ProtocolVersion;
 use codex_code_mode_protocol::host::RequestId;
 use codex_code_mode_protocol::host::SESSION_RESOURCE_LIMITS_CAPABILITY;
 use codex_code_mode_protocol::host::SessionId;
 use codex_code_mode_protocol::host::SupportedProtocolVersions;
+use codex_code_mode_protocol::host::TOOL_CATALOG_CAPABILITY;
 use codex_code_mode_protocol::host::WireContentItem;
 use codex_code_mode_protocol::host::WireExecuteRequest;
 use codex_code_mode_protocol::host::WireOutputTruncation;
@@ -96,6 +99,7 @@ async fn decode_frame(frame: EncodedFrame) -> HostToClient {
 
 fn execute_request(source: &str) -> WireExecuteRequest {
     WireExecuteRequest {
+        catalog_revision: None,
         tool_call_id: "call-1".to_string(),
         enabled_tools: Vec::new(),
         source: source.to_string(),
@@ -282,8 +286,10 @@ impl AsyncWrite for BlockingWriter {
 #[tokio::test]
 async fn supported_capabilities_are_negotiated_when_optional_or_required() {
     for capability in [
+        TOOL_CATALOG_CAPABILITY,
         SESSION_RESOURCE_LIMITS_CAPABILITY,
         BOUNDED_OUTPUT_CAPABILITY,
+        LARGE_DELEGATE_CAPACITY_CAPABILITY,
     ] {
         let capability = Capability::new(capability).expect("supported capability");
         let host_capabilities =
@@ -660,7 +666,7 @@ fn request_history_is_bounded() {
 #[tokio::test]
 async fn request_task_panic_disconnects_host() {
     let (outgoing_tx, _outgoing_rx) = mpsc::channel(/*max_capacity*/ 1);
-    let peer = Arc::new(HostPeer::new(outgoing_tx));
+    let peer = Arc::new(HostPeer::new(outgoing_tx, MAX_PENDING_DELEGATE_CALLS));
     let state = HostState {
         sessions: Mutex::new(HashMap::new()),
         limits: Arc::new(HostLimits::new()),
@@ -688,7 +694,7 @@ async fn request_task_panic_disconnects_host() {
 #[tokio::test]
 async fn execute_request_id_remains_active_until_initial_response() {
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(/*max_capacity*/ 4);
-    let peer = Arc::new(HostPeer::new(outgoing_tx));
+    let peer = Arc::new(HostPeer::new(outgoing_tx, MAX_PENDING_DELEGATE_CALLS));
     let state = Arc::new(HostState {
         sessions: Mutex::new(HashMap::new()),
         limits: Arc::new(HostLimits::new()),
@@ -749,7 +755,7 @@ async fn execute_request_id_remains_active_until_initial_response() {
 #[tokio::test]
 async fn active_cell_limit_rejects_execute_without_disconnecting() {
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(/*max_capacity*/ 1);
-    let peer = Arc::new(HostPeer::new(outgoing_tx));
+    let peer = Arc::new(HostPeer::new(outgoing_tx, MAX_PENDING_DELEGATE_CALLS));
     let state = HostState {
         sessions: Mutex::new(HashMap::new()),
         limits: Arc::new(HostLimits {
@@ -797,7 +803,7 @@ async fn active_cell_limit_rejects_execute_without_disconnecting() {
 #[tokio::test]
 async fn cell_forwarding_panic_disconnects_host() {
     let (outgoing_tx, _outgoing_rx) = mpsc::channel(/*max_capacity*/ 1);
-    let peer = Arc::new(HostPeer::new(outgoing_tx));
+    let peer = Arc::new(HostPeer::new(outgoing_tx, MAX_PENDING_DELEGATE_CALLS));
     peer.spawn_critical("cell forwarding", async {
         panic!("cell forwarding panic probe");
     });

@@ -62,7 +62,8 @@ impl ChatWidget {
                 self.app_event_tx.send(AppEvent::FollowTranscript);
                 let steer_only = self.config.features.enabled(Feature::SteerOnly);
                 let should_submit_now = steer_only
-                    || (self.is_session_configured()
+                    || (!self.thread_stream_disconnected
+                        && self.is_session_configured()
                         && !self.is_plan_streaming_in_tui()
                         && !self.input_queue.submissions_paused()
                         && !self.input_queue.rate_limit_recovery_pending
@@ -82,7 +83,12 @@ impl ChatWidget {
                     self.reasoning_header = None;
                     self.reasoning_summary_parts.clear();
                     self.set_status_header(String::from("Working"));
-                    self.submit_user_message(user_message);
+                    self.submit_user_message_with_history_and_shell_escape_policy(
+                        user_message,
+                        UserMessageHistoryRecord::UserMessageText,
+                        ShellEscapePolicy::Allow,
+                        UserMessageSource::DirectEnter,
+                    );
                 } else {
                     self.queue_user_message(user_message);
                 }
@@ -197,6 +203,18 @@ impl ChatWidget {
                     true
                 }
                 QueuedInputAction::Plain | QueuedInputAction::Literal => {
+                    if self.thread_stream_disconnected
+                        || !self.is_session_configured()
+                        || self.input_queue.rate_limit_recovery_pending
+                        || self.pending_image_submission.is_some()
+                        || self.safety_recourse.is_some()
+                    {
+                        self.restore_user_message_with_pastes_to_composer(
+                            user_message,
+                            pending_pastes,
+                        );
+                        return false;
+                    }
                     // Literal submissions retain collapsed pastes so a hidden `!`
                     // never becomes a shell command. Expand the payload while
                     // retaining that literal policy, including if sending is blocked.
@@ -221,7 +239,8 @@ impl ChatWidget {
                 }
             };
         }
-        let should_run_now = self.is_session_configured()
+        let should_run_now = !self.thread_stream_disconnected
+            && self.is_session_configured()
             && !self.is_user_turn_pending_or_running()
             && !self.input_queue.submissions_paused()
             && !self.input_queue.rate_limit_recovery_pending;
@@ -291,11 +310,24 @@ impl ChatWidget {
         if self.config.features.enabled(Feature::SteerOnly) {
             // Old saved input stays editable; enabling steer-only must not launch it later.
             let mut messages = Vec::new();
+            let mut unconfirmed = Vec::new();
             while let Some((message, history)) = self.pop_next_queued_user_message() {
+                if matches!(message.delivery, MessageDelivery::Unconfirmed(_)) {
+                    // An uncertain receipt is not an unsent draft. Keep its identity
+                    // until history confirms admission rather than enabling a duplicate resend.
+                    unconfirmed.push((message, history));
+                    continue;
+                }
                 messages.push((
                     user_message_for_restore(message.user_message, &history),
                     message.pending_pastes,
                 ));
+            }
+            for (message, history) in unconfirmed {
+                self.input_queue.queued_user_messages.push_back(message);
+                self.input_queue
+                    .queued_user_message_history_records
+                    .push_back(history);
             }
             if !messages.is_empty() {
                 for (message, pending_pastes) in messages.into_iter().rev() {
@@ -306,7 +338,8 @@ impl ChatWidget {
             }
             return false;
         }
-        if !self.is_session_configured()
+        if self.thread_stream_disconnected
+            || !self.is_session_configured()
             || self.fork_in_progress
             || self.has_misalignment_policy_violation()
             || self.input_queue.submissions_paused()
@@ -324,8 +357,13 @@ impl ChatWidget {
         }
         let mut submitted_follow_up = false;
         while !self.is_user_turn_pending_or_running() {
-            let Some((queued_message, history_record)) = self.pop_next_queued_user_message() else {
+            let Some((mut queued_message, history_record)) = self.pop_next_queued_user_message()
+            else {
                 break;
+            };
+            queued_message.source = match queued_message.source {
+                UserMessageSource::DirectEnter => UserMessageSource::Prompt,
+                source => source,
             };
             match queued_message.action {
                 QueuedInputAction::Plain => {
@@ -411,7 +449,7 @@ impl ChatWidget {
     pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
         self.pending_image_submission.is_some()
             || self.input_queue.user_turn_pending_start
-            || self.turn_lifecycle.agent_turn_running
+            || self.turn_lifecycle.is_running_or_admitted()
             || self.review.is_review_mode
             || (self.bottom_pane.is_task_running() && self.mcp_startup_status.is_none())
     }
@@ -451,9 +489,8 @@ impl ChatWidget {
         mut collaboration_mode: CollaborationModeMask,
     ) {
         if self.blocks_direct_input {
-            self.add_error_message(if self.external_writer_view {
-                "This thread is open elsewhere. Close it there and retry resume to continue."
-                    .to_string()
+            self.add_error_message(if let Some(reason) = self.read_only_thread {
+                reason.message().to_string()
             } else {
                 PARENT_OWNED_INPUT_MESSAGE.to_string()
             });

@@ -96,6 +96,8 @@ async fn rejected_steer_client_id_does_not_take_an_unrelated_pending_message() {
     ] {
         chat.input_queue.pending_steers.push_back(PendingSteer {
             client_id: id.to_owned(),
+            admitted_turn_id: None,
+            optimistically_rendered: false,
             user_message: UserMessage::from(text),
             history_record: UserMessageHistoryRecord::UserMessageText,
             source: UserMessageSource::Prompt,
@@ -114,4 +116,24 @@ async fn rejected_steer_client_id_does_not_take_an_unrelated_pending_message() {
         chat.input_queue.rejected_steers_queue[0].text,
         "recover this steer"
     );
+}
+
+#[tokio::test]
+async fn steer_only_keeps_unconfirmed_receipt_out_of_editable_retry() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+    chat.set_feature_enabled(Feature::SteerOnly, true);
+    let mut message = QueuedUserMessage::from(UserMessage::from("possibly admitted input"));
+    message.delivery = MessageDelivery::Unconfirmed(Some("uncertain-client-id".to_owned()));
+    chat.input_queue.queued_user_messages.push_back(message);
+    chat.input_queue
+        .queued_user_message_history_records
+        .push_back(UserMessageHistoryRecord::UserMessageText);
+
+    assert!(!chat.maybe_send_next_queued_input());
+    assert!(chat.bottom_pane.composer_text().is_empty());
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+    assert!(matches!(
+        &chat.input_queue.queued_user_messages[0].delivery,
+        MessageDelivery::Unconfirmed(Some(id)) if id == "uncertain-client-id"
+    ));
 }

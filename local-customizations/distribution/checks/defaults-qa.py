@@ -25,7 +25,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('executable', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--owner-harness', action='store_true')
     args = parser.parse_args()
+    if args.owner_harness:
+        os.environ['CODEX_PLUS_ONE'] = '1'
     args.output.mkdir(parents=True, exist_ok=False)
     profile, workspace = args.output / 'profile', args.output / 'workspace'
     profile.mkdir()
@@ -90,6 +93,17 @@ trust_level = "trusted"
         selection_path = selection_dir / f'{first_id}.json'
         assert not qa.Responses.requests, 'Startup sent a model request.'
         report['checks'].append('Fresh CLI restores Sol xhigh, EL2 and Daybreak off without bridge activation or a model request.')
+        if args.owner_harness:
+            term.command('/permissions')
+            term.wait('Update Model Permissions')
+            popup = term.text().split('Update Model Permissions', 1)[-1]
+            assert 'EL2 Control' in popup, term.text()
+            for label in ('Full Access', 'Read Only', 'Ask for approval', 'Approve for me'):
+                assert label not in popup, term.text()
+            qa.snapshot(term, args.output, 'owner-el2-only-picker')
+            term.send('\x1b')
+            term.read(.3)
+            report['checks'].append('The unified owner harness exposes only EL2 Control in the permission picker.')
         term.command('DEFAULTS_PERSISTENCE_FIXTURE')
         term.wait('DAYBREAK_QA_OK')
         term.read(1)
@@ -98,6 +112,13 @@ trust_level = "trusted"
         assert request['reasoning']['effort'] == 'xhigh'
         assert request.get('access_programs', {}).get('cyber') in (None, 'standard'), request.get('access_programs')
         report['checks'].append('A localhost fixture request carries Sol, xhigh and no Daybreak access program.')
+        if args.owner_harness:
+            report['owner_harness'] = True
+            report['startup_bridge_activation'] = False
+            report['synthetic_model_requests'] = len(qa.Responses.requests)
+            report['passed'] = True
+            print(json.dumps(report, indent=2))
+            return
         term.command('/permissions :danger-full-access')
         term.wait('Enable full access?')
         term.send('1')

@@ -361,7 +361,130 @@ where
     }
 }
 
+#[cfg(test)]
+pub(crate) async fn evaluate_host_policy(
+    state: &NetworkProxyState,
+    decider: Option<&Arc<dyn NetworkPolicyDecider>>,
+    request: &NetworkPolicyRequest,
+) -> Result<NetworkDecision> {
+    evaluate_host_policy_for_dial(state, decider, request, /*dial*/ None).await
+}
 
+pub(crate) async fn evaluate_host_policy_for_dial(
+    state: &NetworkProxyState,
+    decider: Option<&Arc<dyn NetworkPolicyDecider>>,
+    request: &NetworkPolicyRequest,
+    dial: Option<(
+        &rama_net::address::HostWithPort,
+        &mut rama_core::extensions::Extensions,
+    )>,
+) -> Result<NetworkDecision> {
+    let execution_id = state.execution_id();
+    let host_decision = state.host_blocked(&request.host, request.port).await?;
+    let (decision, policy_override) = match host_decision {
+        HostBlockDecision::Allowed => (NetworkDecision::Allow, false),
+        HostBlockDecision::Blocked(HostBlockReason::NotAllowed) => {
+            if let Some(decider) = decider {
+                let mut attributed_request = request.clone();
+                if attributed_request.environment_id.is_none()
+                    && let Some(environment_id) = state.environment_id()
+                {
+                    attributed_request.environment_id = Some(environment_id.to_string());
+                }
+                attributed_request.execution_id = execution_id.clone();
+                let mut decider_decision =
+                    map_decider_decision(decider.decide(attributed_request).await);
+                // Approval permits DNS, but cannot bypass private-address or explicit deny policy.
+                if matches!(decider_decision, NetworkDecision::Allow)
+                    && let HostBlockDecision::Blocked(reason) = state
+                        .host_blocked_with_local_binding(
+                            &request.host,
+                            request.port,
+                            /*allow_local_binding*/ None,
+                            HostAuthorization::Approved,
+                        )
+                        .await?
+                {
+                    decider_decision = NetworkDecision::deny_with_source(
+                        reason.as_str(),
+                        NetworkDecisionSource::BaselinePolicy,
+                    );
+                }
+                let policy_override = matches!(decider_decision, NetworkDecision::Allow);
+                (decider_decision, policy_override)
+            } else {
+                (
+                    NetworkDecision::deny_with_source(
+                        HostBlockReason::NotAllowed.as_str(),
+                        NetworkDecisionSource::BaselinePolicy,
+                    ),
+                    false,
+                )
+            }
+        }
+        HostBlockDecision::Blocked(reason) => (
+            NetworkDecision::deny_with_source(
+                reason.as_str(),
+                NetworkDecisionSource::BaselinePolicy,
+            ),
+            false,
+        ),
+    };
+
+    let (policy_decision, source, reason) = match &decision {
+        NetworkDecision::Allow => (
+            POLICY_DECISION_ALLOW,
+            if policy_override {
+                NetworkDecisionSource::Decider
+            } else {
+                NetworkDecisionSource::BaselinePolicy
+            },
+            if policy_override {
+                HostBlockReason::NotAllowed.as_str()
+            } else {
+                POLICY_REASON_ALLOW
+            },
+        ),
+        NetworkDecision::Deny {
+            reason,
+            source,
+            decision,
+        } => (decision.as_str(), *source, reason.as_str()),
+    };
+
+    emit_policy_audit_event(
+        state,
+        PolicyAuditEventArgs {
+            scope: POLICY_SCOPE_DOMAIN,
+            decision: policy_decision,
+            source: source.as_str(),
+            reason,
+            protocol: request.protocol,
+            server_address: request.host.as_str(),
+            server_port: request.port,
+            method: request.method.as_deref(),
+            client_addr: request.client_addr.as_deref(),
+            execution_id: execution_id.as_deref(),
+            policy_override,
+        },
+    );
+
+    if let Some((target, extensions)) = dial
+        && matches!(decision, NetworkDecision::Allow)
+    {
+        let authorization = if policy_override {
+            HostAuthorization::Approved
+        } else {
+            HostAuthorization::RequireAllowlist
+        };
+        extensions.insert(crate::connect_policy::DialPolicy::new(
+            target,
+            authorization,
+            request,
+        ));
+    }
+    Ok(decision)
+}
 
 fn map_decider_decision(decision: NetworkDecision) -> NetworkDecision {
     match decision {

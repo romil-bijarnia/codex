@@ -1,8 +1,8 @@
 # Local CLI customizations
 
-The primary source is `romil-bijarnia/codex`, branch `main`, based on the official
-stable `rust-v0.167.2` release. The native customizations and helpers are ordinary
-tracked source files. The local checkout is `$HOME/Work/codex`.
+The primary source is `romil-bijarnia/codex`, branch `main`. Its exact upstream
+release base is recorded in `distribution/manifest.json`. The native customizations
+and helpers are ordinary tracked source files. The local checkout is `$HOME/Work/codex`.
 
 Use [UPDATE.md](UPDATE.md) for `codex update`, which integrates the custom source
 with new published upstream releases, including alphas, without whole-file overrides.
@@ -10,7 +10,7 @@ The manifest is the current baseline, not a permanent update ceiling.
 See [WORKFLOW.md](WORKFLOW.md) for the original pinned-source build workflow.
 The build in `distribution/` verifies the exact release tag,
 commit, source workspace version and official resource checksum. The native
-version is `0.167.2`; complete package provenance includes the custom source SHA.
+version follows the pinned release; complete package provenance includes the custom source SHA.
 The original 0.166.0 `SNAPSHOT.json` and macOS recipes below are historical,
 not current installation instructions or evidence about the selected Linux build.
 
@@ -31,21 +31,18 @@ are used instead. Immediate release uses the upstream `thread_unload_delay_secs 
 setting; it is not a replacement lock implementation. A chat still open in
 another client, or still doing work, is not forcibly unlocked.
 
-No custom system prompt is bundled or installed by this fork. The CLI uses
-its normal upstream model instructions unless the user explicitly configures
-an override. Global AGENTS.md remains separate personal context. Existing
-instructions, account data and memory settings are not rewritten by this
-source cleanup. The remaining [instruction helpers](prompts/README.md) do not
-provide or select a replacement model base.
+No custom system prompt is bundled or installed by this fork. The personal
+harness retains its existing instruction configuration; global AGENTS.md is
+separate personal context. Account data and memory settings are not replaced.
+The remaining [instruction helpers](prompts/README.md) do not install a model base.
 
-The optional `distribution/bin/codex+1` launcher runs a separately pinned fork
-package without replacing the primary `codex` command. It shares login,
-sessions, AGENTS.md, plugins and databases, but filters the primary launcher's
-`model_instructions_file` and selects the chosen model's stock instructions.
-This keeps `codex+1` independent from a personal prompt configured for the
-primary CLI.
+There is one normal command: `codex`. Its verified personal-harness package uses
+the fork's existing saved settings and launch behaviour. The implementation in
+`distribution/bin/codex+1` is retained as an internal migration helper, not a
+second package source. The recognised old command is retired only after the
+unified package is verified and selected. Settings and active sessions survive.
 
-On Linux that launcher marks the native process as the owner harness. Its
+On Linux the personal launcher marks the native process as the owner harness. Its
 permission picker exposes only **EL2 Control**, which applies Full Access with
 `approval_policy = "never"` and `approvals_reviewer = "user"` before enabling
 the additional kernel and CPU interfaces. The harness does not install the

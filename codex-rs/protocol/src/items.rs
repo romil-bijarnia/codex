@@ -1,5 +1,15 @@
+mod display;
+
+pub use display::AgentMessageDisplay;
+pub use display::AgentMessageDisplayVersion;
+pub use display::AnswerAnnotation;
+pub use display::AnswerReplacement;
+pub use display::BlockReason;
+pub use display::HelplineSubject;
+pub use display::TrustedContacts;
+
 use crate::AgentPath;
-use crate::ResponseItemId;
+use crate::ItemIdGenerator;
 use crate::ThreadId;
 use crate::dynamic_tools::DynamicToolCallOutputContentItem;
 use crate::mcp::CallToolResult;
@@ -151,6 +161,15 @@ pub struct AsyncUserInputQuestion {
     pub options: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS, JsonSchema)]
+#[serde(from = "display::StoredModeration")]
+pub struct AgentMessageModeration {
+    pub moderated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub display: Option<AgentMessageDisplay>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema)]
 /// Assistant-authored message payload used in turn-item streams.
 ///
@@ -158,6 +177,9 @@ pub struct AsyncUserInputQuestion {
 /// should use it when present, but retain legacy completion semantics when it
 /// is `None`.
 pub struct AgentMessageItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub moderation: Option<AgentMessageModeration>,
     pub id: String,
     pub content: Vec<AgentMessageContent>,
     /// Optional phase metadata carried through from `ResponseItem::Message`.
@@ -459,6 +481,10 @@ pub enum McpAppDisplayMode {
 pub struct McpToolCallItem {
     pub id: String,
     pub server: String,
+    /// Registration scope, not necessarily the server's execution environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub environment_id: Option<String>,
     pub tool: String,
     pub arguments: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -727,7 +753,10 @@ impl HookPromptFragment {
     }
 }
 
-pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<ResponseItem> {
+pub fn build_hook_prompt_message(
+    fragments: &[HookPromptFragment],
+    item_id_generator: &ItemIdGenerator,
+) -> Option<ResponseItem> {
     let mut content = Vec::new();
     let mut metadata = Vec::new();
     for fragment in fragments {
@@ -744,7 +773,7 @@ pub fn build_hook_prompt_message(fragments: &[HookPromptFragment]) -> Option<Res
     Some(ResponseItem::Message {
         status: None,
         encrypted_content: None,
-        id: Some(ResponseItemId::new("msg")),
+        id: Some(item_id_generator("msg")),
         role: "user".to_string(),
         content,
         phase: None,
@@ -920,7 +949,9 @@ mod tests {
             HookPromptFragment::from_single_hook("Retry with care & joy.", "hook-run-1"),
             HookPromptFragment::from_single_hook("Then summarize cleanly.", "hook-run-2"),
         ];
-        let message = build_hook_prompt_message(&original).expect("hook prompt");
+        let message =
+            build_hook_prompt_message(&original, &crate::uuid_v7_item_id_generator_for_test())
+                .expect("hook prompt");
 
         let ResponseItem::Message { id, content, .. } = message else {
             panic!("expected hook prompt message");
