@@ -325,7 +325,7 @@ class UpdateTests(unittest.TestCase):
         observed = json.loads(result.stdout)
         self.assertEqual(observed['owner'], '1')
         self.assertIn(str(self.packages / 'current/bin/codex'), observed['arguments'])
-        self.assertIn('instructions=""', observed['arguments'])
+        self.assertNotIn('instructions=""', observed['arguments'])
         self.assertNotIn(str(self.home / '.local/share/codex-plus-one/current/bin/codex'), observed['arguments'])
 
     def test_unified_package_without_owner_checks_cannot_replace_working_install(self):

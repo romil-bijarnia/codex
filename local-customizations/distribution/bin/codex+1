@@ -245,8 +245,7 @@ def main(arguments=None):
     isolation = [] if '--no-daemon' in arguments or remote else ['--no-daemon']
     os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--bind', str(config_path),
                          str(source_home / 'config.toml'), '--', str(executable), *isolation,
-                         '-c', 'check_for_update_on_startup=false',
-                         '-c', 'instructions=""', *arguments])
+                         '-c', 'check_for_update_on_startup=false', *arguments])
 
 
 if __name__ == '__main__':

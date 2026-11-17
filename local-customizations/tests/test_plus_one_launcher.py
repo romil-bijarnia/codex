@@ -131,7 +131,7 @@ class PlusOneLauncherTests(unittest.TestCase):
                 launcher.main(['--version'])
                 self.assertEqual(launcher.os.environ['CODEX_PLUS_ONE'], '1')
             self.assertIn(str(native), execv.call_args.args[1])
-            self.assertIn('instructions=""', execv.call_args.args[1])
+            self.assertNotIn('instructions=""', execv.call_args.args[1])
 
     def test_primary_update_with_global_options_routes_to_the_single_updater(self):
         launcher = load_launcher()
@@ -163,7 +163,7 @@ class PlusOneLauncherTests(unittest.TestCase):
             args = execv.call_args.args[1]
             self.assertIn('--remote=unix:///tmp/fixture.sock', args)
             self.assertNotIn('--no-daemon', args)
-            self.assertIn('instructions=""', args)
+            self.assertNotIn('instructions=""', args)
 
     def test_fork_helper_bootstrap_preserves_pinned_launcher(self):
         launcher = load_launcher()
