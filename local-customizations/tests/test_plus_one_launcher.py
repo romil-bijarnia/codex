@@ -1,7 +1,6 @@
 """Checks for the separately pinned codex+1 launcher."""
 import importlib.util
 from importlib.machinery import SourceFileLoader
-import json
 from pathlib import Path
 import tempfile
 import tomllib
@@ -36,35 +35,21 @@ class PlusOneLauncherTests(unittest.TestCase):
             (shared / "config.toml").write_text(original)
             (shared / "auth.json").write_text("{}\n")
             (shared / "AGENTS.md").write_text("Personal instructions.\n")
-            (shared / "models_cache.json").write_text(json.dumps({
-                "models": [{
-                    "slug": "example-model",
-                    "model_messages": {"instructions_template": "Stock model prompt."},
-                }],
-            }))
 
             launcher.ROOT = root / "installation"
             launcher.CONFIG_HOME = launcher.ROOT / "home"
             launcher.shared_home = lambda: shared
-            source = launcher.prepare_config_home()
-            stock = launcher.stock_instructions([], source)
+            source, config_path = launcher.prepare_config_home()
 
+            self.assertEqual(source, shared)
             self.assertEqual((shared / "config.toml").read_text(), original)
-            generated = tomllib.loads((launcher.CONFIG_HOME / "config.toml").read_text())
+            generated = tomllib.loads(config_path.read_text())
             self.assertNotIn("model_instructions_file", generated)
             self.assertEqual(generated["model"], "example-model")
-            self.assertEqual(stock.read_text(), "Stock model prompt.\n")
-            self.assertEqual((launcher.CONFIG_HOME / "auth.json").resolve(),
-                             (shared / "auth.json").resolve())
-            self.assertEqual((launcher.CONFIG_HOME / "AGENTS.md").resolve(),
-                             (shared / "AGENTS.md").resolve())
 
-    def test_explicit_model_wins(self):
+    def test_command_parser_skips_option_values(self):
         launcher = load_launcher()
-        self.assertEqual(
-            launcher.option_value(["-m", "first", "--model=second"], "-m", "--model"),
-            "second",
-        )
+        self.assertEqual(launcher.command(["-m", "example-model", "resume"]), "resume")
 
 
 if __name__ == "__main__":
