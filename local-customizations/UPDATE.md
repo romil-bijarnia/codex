@@ -18,6 +18,11 @@ the other launcher's independent custom branch or replace the fork with a curate
 subset of features. The intended result is one `codex` command; `codex+1` is
 retired only after the unified custom package has passed verification.
 
+Generated Cargo workspace version stamps are normalized separately. Actual custom
+dependency pins and dependency-edge changes are still three-way merged; they are
+not discarded with the generated metadata. Cargo refreshes only workspace entries
+against the new source manifests before the candidate is committed.
+
 Integration happens in a private checkout under
 `$CODEX_HOME/state/codex-customizations/updates/`. Overlapping source changes
 produce a retained checkout, `result.json` and `integration.log`. The command

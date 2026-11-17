@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 
 from common import CONFIG, REPO, api, atomic_write, output, run, sha256, source_root
 
@@ -99,6 +100,45 @@ def conflicted_paths(source, diagnostic):
     return sorted(paths)
 
 
+def reconcile_workspace_lock(source, base, custom, folder):
+    """Merge real lock changes separately from generated workspace version stamps."""
+    from lockfile import LockfileMergeConflict, merge_lockfile
+    path = 'codex-rs/Cargo.lock'
+    manifest = source / 'codex-rs/Cargo.toml'
+    if not manifest.is_file() or not (source / path).is_file():
+        return
+    base_text = output(['git', '-C', source, 'show', f'{base}:{path}']) + '\n'
+    custom_text = output(['git', '-C', source, 'show', f'{custom}:{path}']) + '\n'
+    custom_manifest = tomllib.loads(output(['git', '-C', source, 'show', f'{custom}:codex-rs/Cargo.toml']))
+    toolchain = tomllib.loads((source / 'codex-rs/rust-toolchain.toml').read_text())['toolchain']['channel']
+    run(['rustup', 'toolchain', 'install', toolchain, '--profile', 'minimal'])
+    cargo = output(['rustup', 'which', '--toolchain', toolchain, 'cargo'])
+    env = dict(os.environ, RUSTUP_TOOLCHAIN=toolchain,
+               RUSTC=output(['rustup', 'which', '--toolchain', toolchain, 'rustc']))
+    env['PATH'] = str(Path(cargo).parent) + os.pathsep + env['PATH']
+    metadata = json.loads(output([cargo, 'metadata', '--offline', '--no-deps', '--format-version', '1'],
+                                 cwd=manifest.parent, env=env))
+    members = set(metadata['workspace_members'])
+    names = {p['name'] for p in metadata['packages'] if p['id'] in members}
+    try:
+        merged = merge_lockfile(base_text, custom_text, (source / path).read_text(),
+                                custom_manifest['workspace']['package']['version'], names)
+    except LockfileMergeConflict as error:
+        (source / path).write_text(error.merged_text)
+        raise RuntimeError(f'Genuine custom dependency conflict in {path}; no package was installed.') from error
+    (source / path).write_text(merged)
+    # Only path/workspace versions are refreshed; existing registry and Git pins remain locked.
+    command = [cargo, 'update', '--workspace', '--offline']
+    result = subprocess.run(command, cwd=manifest.parent, env=env, capture_output=True, text=True)
+    if result.returncode:
+        # A new release may require an index or source not yet present in the local cache.
+        result = subprocess.run(command[:-1], cwd=manifest.parent, env=env, capture_output=True, text=True)
+    atomic_write(folder / 'lockfile.log', result.stdout + result.stderr)
+    if result.returncode:
+        raise RuntimeError(f'Workspace dependency resolution failed; nothing was installed. See {folder / "lockfile.log"}.')
+    run(['git', '-C', source, 'add', '--', path])
+
+
 def prepare_candidate(root, custom, release, folder):
     """Apply the custom delta with its real base, not a blanket ours/theirs rule."""
     source = folder / 'source'
@@ -135,7 +175,7 @@ def prepare_candidate(root, custom, release, folder):
               'customization_policy': 'personal-fork-only'}
     log = b''
     for old_base, revision in [(base, custom)]:
-        delta = subprocess.check_output(['git', '-C', str(source), 'diff', '--no-ext-diff', '--binary', old_base, revision])
+        delta = subprocess.check_output(['git', '-C', str(source), 'diff', '--no-ext-diff', '--binary', old_base, revision, '--', '.', ':(exclude)codex-rs/Cargo.lock'])
         if not delta:
             raise RuntimeError('The custom delta is empty; refusing to substitute bare upstream for the harness.')
         applied = subprocess.run(['git', '-C', str(source), 'apply', '--3way', '--index', '-'],
@@ -149,6 +189,13 @@ def prepare_candidate(root, custom, release, folder):
             names = '\n'.join(conflicts[:12]) or applied.stderr.decode(errors='replace')[-1800:]
             raise RuntimeError(f'Upstream overlaps your custom changes. No side was discarded and nothing was installed.\n'
                                f'{names}\nDetails: {folder / "result.json"}\nIntegration log: {folder / "integration.log"}')
+    try:
+        reconcile_workspace_lock(source, base, custom, folder)
+    except RuntimeError as error:
+        report.update(status='source_conflict', conflicts=['codex-rs/Cargo.lock'],
+                      conflict_kind='workspace-dependencies', error=str(error))
+        atomic_write(folder / 'result.json', json.dumps(report, indent=2) + '\n')
+        raise
     original.update(upstream_channel='alpha' if release['prerelease'] else 'stable',
                     upstream_release=release['tag_name'], upstream_commit=upstream,
                     resource_sha256=resource_digest(release))
