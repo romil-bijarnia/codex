@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -57,7 +58,7 @@ class UpstreamUpdateTests(unittest.TestCase):
         self.git(root, 'checkout', '-q', 'main')
         return root, custom, upstream
 
-    def prepare(self, root, custom, folder, additional=()):
+    def prepare(self, root, custom, folder):
         real_run = common.run
         def local_fetch(args, **kwargs):
             args = list(args)
@@ -68,26 +69,27 @@ class UpstreamUpdateTests(unittest.TestCase):
         with patch.object(updater, 'run', side_effect=local_fetch), \
              patch.dict('os.environ', GIT_AUTHOR_NAME='Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
                         GIT_COMMITTER_NAME='Fixture', GIT_COMMITTER_EMAIL='fixture@example.invalid'):
-            return updater.prepare_candidate(root, custom, self.release, folder, additional)
+            return updater.prepare_candidate(root, custom, self.release, folder)
 
-    def test_independently_installed_custom_sections_are_also_preserved(self):
+    def test_installed_other_branch_is_not_used_as_a_second_customization_source(self):
         root, custom, _ = self.fixture()
-        manifest = json.loads((root / 'local-customizations/distribution/manifest.json').read_text())
-        base = manifest['upstream_commit']
-        self.git(root, 'checkout', '-q', '--detach', base)
-        lines = (root / 'native.rs').read_text().splitlines(keepends=True)
-        lines[16] = 'separately installed custom feature\n'
-        (root / 'native.rs').write_text(''.join(lines))
-        separate = self.commit(root, 'Independent installed customization')
-        self.git(root, 'checkout', '-q', 'main')
-        additional = updater.additional_custom_source(root, custom,
-                                                      {'source_commit': separate, 'upstream_commit': base})
-        self.assertEqual(additional, [(base, separate)])
-        source, _ = self.prepare(root, custom, self.home / 'update', additional)
-        text = (source / 'native.rs').read_text()
-        for feature in ('custom permission behaviour', 'new upstream feature',
-                        'separately installed custom feature'):
-            self.assertIn(feature, text)
+        home = self.home / 'profile'
+        package = home / 'packages/standalone/releases/old'
+        package.mkdir(parents=True)
+        (package.parent.parent / 'current').symlink_to(package)
+        (package / 'custom-build.json').write_text(json.dumps({
+            'upstream_release': 'rust-v2.0.0', 'source_commit': 'f' * 40,
+            'upstream_commit': 'e' * 40}))
+        args = SimpleNamespace(channel='latest', check=False, prepare_only=True)
+        with patch.dict('os.environ', CODEX_HOME=str(home)), \
+             patch.object(updater, 'latest_release', return_value=self.release), \
+             patch.object(updater, 'source_root', return_value=root), \
+             patch.object(updater, 'custom_revision', return_value=custom), \
+             patch.object(updater, 'prepare_candidate', return_value=(root, custom)) as prepare, \
+             contextlib.redirect_stdout(io.StringIO()):
+            updater.update(args)
+        prepare.assert_called_once_with(root, custom, self.release,
+            home / 'state/codex-customizations/updates' / (self.release['tag_name'] + '-' + custom[:12]))
 
     def test_other_source_branch_is_not_implicitly_published_to_main(self):
         root, _, _ = self.fixture()

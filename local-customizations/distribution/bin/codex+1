@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the separately pinned fork without selecting or updating the primary CLI."""
+"""Run the personal harness, with migration support for the old pinned command."""
 import argparse
 import hashlib
 import os
@@ -17,12 +17,18 @@ CONFIG_HOME = ROOT / 'home'
 SHARED_HOME_ENV = 'CODEX_PLUS_ONE_SHARED_HOME'
 GENERATED_HASH = '.config-generated.sha256'
 SOURCE_HASH = '.config-source.sha256'
+PRIMARY_LAUNCHER = None
+PRIMARY_EXECUTABLE = None
 VALUE_OPTIONS = {
     '-c', '--config', '-m', '--model', '-p', '--profile', '-C', '--cd',
     '-a', '--ask-for-approval', '-s', '--sandbox', '-i', '--image',
     '--enable', '--disable', '--remote', '--remote-auth-token-env', '--add-dir',
     '--local-provider',
 }
+
+
+def launcher_path():
+    return PRIMARY_LAUNCHER or ROOT / 'bin/codex+1'
 
 
 def shared_home():
@@ -76,10 +82,15 @@ def prepare_config_home():
                 raise RuntimeError(f'codex+1 helper is unexpectedly local: {destination}')
             destination.symlink_to(source)
     helper = bin_dir / 'codex-fork-window'
-    launcher = ROOT / 'bin/codex+1'
+    launcher = launcher_path()
     if helper.is_symlink():
         if helper.resolve(strict=False) != launcher.resolve(strict=False):
-            raise RuntimeError(f'codex+1 fork helper link changed: {helper}')
+            previous = (ROOT / 'bin/codex+1').resolve(strict=False)
+            if PRIMARY_LAUNCHER is not None and helper.resolve(strict=False) == previous:
+                helper.unlink()
+                helper.symlink_to(launcher)
+            else:
+                raise RuntimeError(f'codex+1 fork helper link changed: {helper}')
     elif helper.exists():
         raise RuntimeError(f'codex+1 fork helper is unexpectedly local: {helper}')
     else:
@@ -135,7 +146,7 @@ def fork_window(arguments):
     parser.add_argument('--remote-auth-token-env')
     options = parser.parse_args(arguments)
     directory = options.workdir.expanduser().resolve(strict=True)
-    launcher = ROOT / 'bin/codex+1'
+    launcher = launcher_path()
     command = [str(launcher)]
     if options.remote:
         command += ['--remote', options.remote]
@@ -205,7 +216,7 @@ def main(arguments=None):
         print('codex+1 is pinned separately. Its updater is disabled so it cannot replace codex.',
               file=sys.stderr)
         return 2
-    executable = ROOT / 'current/bin/codex'
+    executable = PRIMARY_EXECUTABLE or ROOT / 'current/bin/codex'
     if not executable.is_file():
         print(f'The separate fork package is missing: {executable}', file=sys.stderr)
         return 1

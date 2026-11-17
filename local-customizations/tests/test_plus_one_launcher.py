@@ -97,6 +97,42 @@ class PlusOneLauncherTests(unittest.TestCase):
             self.assertIn('model = "second"', config_path.read_text())
             self.assertNotIn('model_instructions_file =', config_path.read_text())
 
+    def test_primary_command_reuses_saved_fork_settings_and_migrates_fork_helper(self):
+        launcher = load_launcher()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shared = root / 'shared';shared.mkdir()
+            (shared / 'config.toml').write_text('model = "initial"\n')
+            launcher.ROOT = root / 'installation'
+            launcher.CONFIG_HOME = launcher.ROOT / 'home'
+            launcher.shared_home = lambda: shared
+            _, config = launcher.prepare_config_home()
+            config.write_text('model = "saved-fork-choice"\n')
+            primary = root / '.local/bin/codex'
+            launcher.PRIMARY_LAUNCHER = primary
+            launcher.prepare_config_home()
+            self.assertEqual(config.read_text(), 'model = "saved-fork-choice"\n')
+            self.assertEqual((launcher.CONFIG_HOME / 'bin/codex-fork-window').readlink(), primary)
+
+    def test_primary_command_executes_selected_package_with_fork_behaviour(self):
+        launcher = load_launcher()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native = root / 'selected/bin/codex'
+            native.parent.mkdir(parents=True);native.touch()
+            launcher.ROOT = root / 'legacy'
+            launcher.CONFIG_HOME = launcher.ROOT / 'home'
+            launcher.PRIMARY_EXECUTABLE = native
+            with patch.object(launcher, 'prepare_config_home', return_value=(root / 'shared', root / 'config.toml')), \
+                 patch.object(launcher.shutil, 'which', return_value='/usr/bin/bwrap'), \
+                 patch.object(launcher.os, 'execv') as execv, \
+                 patch.object(launcher.sys, 'argv', ['codex']), \
+                 patch.dict(launcher.os.environ, {}, clear=True):
+                launcher.main(['--version'])
+                self.assertEqual(launcher.os.environ['CODEX_PLUS_ONE'], '1')
+            self.assertIn(str(native), execv.call_args.args[1])
+            self.assertIn('instructions=""', execv.call_args.args[1])
+
     def test_remote_launch_does_not_inject_no_daemon(self):
         launcher = load_launcher()
         with tempfile.TemporaryDirectory() as temporary:

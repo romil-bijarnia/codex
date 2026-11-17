@@ -201,7 +201,7 @@ def status():
     selected = (PACKAGES / 'current').resolve()
     receipt = selected / 'custom-build.json'
     print(json.dumps({'repository': REPO, 'channel': stable_release_pin()['upstream_channel'],
-                      'update_policy': 'latest-with-custom-sections',
+                      'update_policy': 'latest-with-personal-fork',
                       'selected_build': json.loads(receipt.read_text()) if receipt.is_file() else None,
                       'source_branch': CONFIG['source_branch'],
                       'upstream_release': CONFIG['upstream_release'],
@@ -243,6 +243,16 @@ def installed_matches(state, commit=None):
         return True
     except (OSError, RuntimeError, KeyError, ValueError, subprocess.SubprocessError):
         return False
+
+
+def retire_legacy_launcher():
+    """Remove only the recognised old command; retain its settings and active sessions."""
+    launcher = HOME / '.local/bin/codex+1'
+    recognised = {HOME / '.local/share/codex-plus-one/bin/codex+1', ROOT / 'bin/codex+1'}
+    if launcher.is_symlink() and launcher.resolve(strict=False) in {p.resolve(strict=False) for p in recognised}:
+        launcher.unlink()
+        return True
+    return False
 
 
 def update(args):
@@ -338,6 +348,8 @@ def main():
             validate_stable_manifest(manifest)
             destination = select_package(args.package, manifest)
             start_backend_rollout(destination)
+            if manifest.get('launcher_mode') == 'personal-harness':
+                retire_legacy_launcher()
             print(f"Installed {manifest['version']}. Existing chats were not restarted.")
         {'update': lambda: update(args), 'status': status, 'install-package': install_local,
          'install-launcher': lambda: install_launcher(args.replace_legacy)}[args.command]()

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Dispatch the updater; otherwise exec the selected native CLI."""
 import os
+import importlib.util
+from importlib.machinery import SourceFileLoader
+import json
 from pathlib import Path
 import sys
 
@@ -13,4 +16,14 @@ home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
 native = home / 'packages/standalone/current/bin/codex'
 if not native.is_file():
     sys.exit(f'The native Codex package is missing: {native}')
+receipt = native.parent.parent / 'custom-build.json'
+if receipt.is_file() and json.loads(receipt.read_text()).get('launcher_mode') == 'personal-harness':
+    # Reuse the fork's existing config and behaviour rather than creating a third profile.
+    loader = SourceFileLoader('personal_harness', str(root / 'bin/codex+1'))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    harness = importlib.util.module_from_spec(spec)
+    loader.exec_module(harness)
+    harness.PRIMARY_LAUNCHER = Path.home() / '.local/bin/codex'
+    harness.PRIMARY_EXECUTABLE = native
+    raise SystemExit(harness.main())
 os.execv(str(native), [str(native), *sys.argv[1:]])

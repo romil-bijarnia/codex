@@ -308,6 +308,42 @@ class UpdateTests(unittest.TestCase):
         result=subprocess.run([str(manage.ROOT / 'bin/codex'),'--version'],env=env,text=True,capture_output=True,check=True)
         self.assertEqual(result.stdout.strip(),'codex-cli 2.3.4')
 
+    def test_unified_dispatcher_selects_fork_behaviour_without_using_legacy_binary(self):
+        package, _ = self.candidate()
+        (package / 'custom-build.json').write_text(json.dumps({'launcher_mode': 'personal-harness'}))
+        (self.packages / 'current').unlink()
+        (self.packages / 'current').symlink_to(package)
+        helpers = self.home / 'helpers';helpers.mkdir()
+        bubblewrap = helpers / 'bwrap'
+        bubblewrap.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
+                             'print(json.dumps({"arguments":sys.argv[1:],"owner":os.environ.get("CODEX_PLUS_ONE")}))\n')
+        bubblewrap.chmod(0o755)
+        env = dict(os.environ, HOME=str(self.home), CODEX_HOME=str(self.profile),
+                   PATH=str(helpers) + os.pathsep + os.environ['PATH'])
+        result = subprocess.run([str(manage.ROOT / 'bin/codex'), '--version'],
+                                env=env, text=True, capture_output=True, check=True)
+        observed = json.loads(result.stdout)
+        self.assertEqual(observed['owner'], '1')
+        self.assertIn(str(self.packages / 'current/bin/codex'), observed['arguments'])
+        self.assertIn('instructions=""', observed['arguments'])
+        self.assertNotIn(str(self.home / '.local/share/codex-plus-one/current/bin/codex'), observed['arguments'])
+
+    def test_retirement_removes_only_known_old_command_and_preserves_settings(self):
+        old = self.home / '.local/share/codex-plus-one'
+        (old / 'bin').mkdir(parents=True)
+        native = old / 'bin/codex+1';native.write_text('legacy launcher\n')
+        settings = old / 'home/config.toml';settings.parent.mkdir()
+        settings.write_text('model = "saved-choice"\n')
+        command = self.home / '.local/bin/codex+1';command.parent.mkdir(parents=True)
+        command.symlink_to(native)
+        self.assertTrue(manage.retire_legacy_launcher())
+        self.assertFalse(command.is_symlink())
+        self.assertEqual(settings.read_text(), 'model = "saved-choice"\n')
+        self.assertEqual(native.read_text(), 'legacy launcher\n')
+        command.write_text('unrelated user command\n')
+        self.assertFalse(manage.retire_legacy_launcher())
+        self.assertEqual(command.read_text(), 'unrelated user command\n')
+
     def test_launcher_install_is_idempotent_and_preserves_profile(self):
         package, _ = self.candidate();(self.packages / 'current').unlink();(self.packages / 'current').symlink_to(package)
         before = (self.profile / 'config.toml').read_bytes()
@@ -316,6 +352,25 @@ class UpdateTests(unittest.TestCase):
             manage.install_launcher()
         self.assertEqual((self.home / '.local/bin/codex').resolve(), (manage.ROOT / 'bin/codex').resolve())
         self.assertEqual((self.profile / 'config.toml').read_bytes(), before)
+
+    def test_retirement_removes_only_old_command_and_preserves_fork_data(self):
+        old = self.home / '.local/share/codex-plus-one'
+        (old / 'bin').mkdir(parents=True)
+        native = old / 'bin/codex+1';native.write_text('legacy helper\n')
+        (old / 'home').mkdir()
+        settings = old / 'home/config.toml';settings.write_text('model = "saved"\n')
+        command = self.home / '.local/bin/codex+1'
+        command.parent.mkdir(parents=True);command.symlink_to(native)
+        self.assertTrue(manage.retire_legacy_launcher())
+        self.assertFalse(command.is_symlink())
+        self.assertEqual(native.read_text(), 'legacy helper\n')
+        self.assertEqual(settings.read_text(), 'model = "saved"\n')
+
+    def test_retirement_preserves_unrecognised_command(self):
+        command = self.home / '.local/bin/codex+1'
+        command.parent.mkdir(parents=True);command.write_text('unrelated command\n')
+        self.assertFalse(manage.retire_legacy_launcher())
+        self.assertEqual(command.read_text(), 'unrelated command\n')
 
     def test_launcher_replaces_only_explicitly_verified_legacy_launcher(self):
         package, _ = self.candidate();(self.packages / 'current').unlink();(self.packages / 'current').symlink_to(package)

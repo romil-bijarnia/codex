@@ -19,6 +19,7 @@ from voice_build import build_voice_host
 def plan(commit=None):
     commit = source_revision(commit)
     return {'source_commit': commit, 'voice_build_commit': commit, 'source_branch': CONFIG['source_branch'],
+            'launcher_mode': 'personal-harness', 'customization_source': 'personal-fork',
             'release_tag': release_tag(commit), 'target': TARGET, **stable_release_pin()}
 
 

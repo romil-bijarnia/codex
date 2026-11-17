@@ -89,20 +89,6 @@ def custom_revision(root):
     raise RuntimeError('Local and published custom source have diverged. Neither was overwritten; reconcile that source conflict first.')
 
 
-def additional_custom_source(root, custom, installed):
-    """Do not silently drop custom code from an independently installed branch."""
-    revision = installed.get('source_commit', '')
-    base = installed.get('upstream_commit', '')
-    if not all(re.fullmatch(r'[0-9a-f]{40}', value) for value in (revision, base)):
-        raise RuntimeError('The installed custom source/base identity is incomplete. Nothing was installed.')
-    if subprocess.run(['git', '-C', str(root), 'cat-file', '-e', revision + '^{commit}'],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
-        run(['git', '-C', root, 'fetch', '--quiet', 'origin', revision])
-    if subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', revision, custom]).returncode == 0:
-        return []
-    return [(base, revision)]
-
-
 def conflicted_paths(source, diagnostic):
     paths = set(output(['git', '-C', source, 'diff', '--name-only', '--diff-filter=U']).splitlines())
     # Git can roll back the whole application when a deletion cannot be merged.
@@ -113,7 +99,7 @@ def conflicted_paths(source, diagnostic):
     return sorted(paths)
 
 
-def prepare_candidate(root, custom, release, folder, additional=()):
+def prepare_candidate(root, custom, release, folder):
     """Apply the custom delta with its real base, not a blanket ours/theirs rule."""
     source = folder / 'source'
     if source.exists():
@@ -122,7 +108,7 @@ def prepare_candidate(root, custom, release, folder, additional=()):
             report = json.loads(report_path.read_text())
             if (report.get('custom_source') == custom
                     and report.get('upstream_release') == release['tag_name']
-                    and report.get('additional_sources', []) == [list(pair) for pair in additional]):
+                    and report.get('customization_policy') == 'personal-fork-only'):
                 if report.get('status') == 'source_conflict':
                     names = '\n'.join(report.get('conflicts', [])[:12])
                     raise RuntimeError(f'The recorded source conflict still needs resolution ({len(report.get("conflicts", []))} files).\n'
@@ -146,9 +132,9 @@ def prepare_candidate(root, custom, release, folder, additional=()):
     run(['git', '-C', source, '-c', 'advice.detachedHead=false', 'checkout', '--quiet', '--detach', upstream])
     report = {'custom_source': custom, 'custom_base': base, 'upstream_release': release['tag_name'],
               'upstream_commit': upstream, 'checkout': str(source), 'installed': False,
-              'additional_sources': [list(pair) for pair in additional]}
+              'customization_policy': 'personal-fork-only'}
     log = b''
-    for old_base, revision in [*additional, (base, custom)]:
+    for old_base, revision in [(base, custom)]:
         delta = subprocess.check_output(['git', '-C', str(source), 'diff', '--no-ext-diff', '--binary', old_base, revision])
         if not delta:
             raise RuntimeError('The custom delta is empty; refusing to substitute bare upstream for the harness.')
@@ -173,9 +159,6 @@ def prepare_candidate(root, custom, release, folder, additional=()):
     stamp = output(['git', '-C', source, 'show', '-s', '--format=%aI', custom])
     env = dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
     parents = ['-p', custom, '-p', upstream]
-    for _, revision in additional:
-        if revision not in (custom, upstream):
-            parents += ['-p', revision]
     commit = output(['git', '-C', source, 'commit-tree', tree, *parents],
                     input=f"Integrate {release['tag_name']} with the custom harness\n", env=env)
     run(['git', '-C', source, 'reset', '--quiet', '--hard', commit])
@@ -204,10 +187,10 @@ def update(args):
             print(json.dumps({'upstream_release': release['tag_name'], 'resource_sha256': digest,
                               'selected_package': str(selected), 'installed': installed,
                               'custom_source': output(['git', '-C', root, 'rev-parse', 'HEAD']),
+                              'customization_policy': 'personal-fork-only',
                               'integration_evaluated': False, 'real_model_requests': 0}, indent=2))
             return
         custom = custom_revision(root)
-        additional = additional_custom_source(root, custom, installed)
         if (installed.get('upstream_release') == release['tag_name']
                 and installed.get('source_commit') == custom):
             checksums = installed.get('binary_sha256', {})
@@ -217,9 +200,8 @@ def update(args):
                 print(f"Your custom harness is already current with {release['tag_name']}. The idle backend handover is being checked.")
                 return
         identity = release['tag_name'] + '-' + custom[:12]
-        identity += ''.join('-' + revision[:12] for _, revision in additional)
         folder = state / 'updates' / identity
-        source, commit = prepare_candidate(root, custom, release, folder, additional)
+        source, commit = prepare_candidate(root, custom, release, folder)
         if args.prepare_only:
             print(f'Prepared {commit} in {source}. No build was started and nothing was installed.')
             return

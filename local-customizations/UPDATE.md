@@ -9,12 +9,14 @@ releases. This command does not replace the harness with the official binary.
 It performs ordinary Git, build and verification operations without model calls.
 Compilation can still take time, but it does not need a CLI-model conversation.
 
-The updater computes the custom difference from its recorded upstream baseline
+The current personal fork is the single authoritative customization source.
+The updater computes its complete difference from its recorded upstream baseline
 and applies that difference to the new release with a three-way merge. It does
 not freeze whole files, use a blanket `ours`/`theirs` policy, or discard upstream
-changes just because they touch a file containing custom code. If the selected
-installation contains custom code from an independent source branch, that delta
-is also included rather than silently lost.
+changes just because they touch a file containing custom code. It does not mix in
+the other launcher's independent custom branch or replace the fork with a curated
+subset of features. The intended result is one `codex` command; `codex+1` is
+retired only after the unified custom package has passed verification.
 
 Integration happens in a private checkout under
 `$CODEX_HOME/state/codex-customizations/updates/`. Overlapping source changes
