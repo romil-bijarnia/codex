@@ -2,8 +2,9 @@
 
 The custom system-prompt payload, generator, installer and source fragments have
 been removed from this fork. No `compact-base.md` or generated Sara model base
-is bundled, selected or installed. The CLI retains its normal upstream model
-instructions unless the user explicitly configures an override.
+is bundled, selected or installed. The default is the selected model’s stock
+instructions plus the user’s `AGENTS.md`. Use `AGENTS.md` for personal guidance
+instead of replacing the stock model prompt.
 
 AGENTS.md is a separate user-owned instruction layer. This removal does not
 modify AGENTS.md, MACHINE.md, memory files, credentials, existing configuration
@@ -25,6 +26,13 @@ The remaining files serve independent purposes:
 - `.gitignore` keeps local AGENTS.md/MACHINE.md and private inspection products
   out of ordinary source commits.
 
-The generic upstream `model_instructions_file` configuration option remains
-available to users. Existing explicit overrides are not stripped or rewritten
-by the launcher installer.
+The generic upstream `model_instructions_file` option remains available. The
+personal harness does not copy it into generated config, and it drops the
+legacy root `instructions = ""` override when generating or updating an unedited
+harness config. Neither the shared config nor an independently edited harness
+config is rewritten by this migration.
+
+If a previously edited harness config still has `instructions = ""`, remove
+that top-level assignment from the active config and start a new chat. A blank
+assignment disables the model base; leaving the setting unset selects the
+stock prompt. This does not alter already loaded chats.

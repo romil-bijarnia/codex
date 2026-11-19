@@ -48,6 +48,60 @@ class PlusOneLauncherTests(unittest.TestCase):
             self.assertNotIn("model_instructions_file", generated)
             self.assertEqual(generated["model"], "example-model")
 
+    def test_generated_overlay_drops_legacy_blank_base_without_editing_primary(self):
+        launcher = load_launcher()
+        for saved in ('absent', 'generated', 'legacy', 'edited'):
+            with self.subTest(saved=saved), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                shared = root / 'shared'
+                shared.mkdir()
+                primary = shared / 'config.toml'
+                original = (
+                    "notes = '''\ninstructions = \"\"\n'''\n"
+                    'instructions = "" # Old blank model base\n'
+                    'model = "example-model"\n'
+                    '[fixture]\ninstructions = ""\n'
+                )
+                primary.write_text(original)
+                agents = shared / 'AGENTS.md'
+                agents.write_text('Personal instructions.\n')
+                launcher.ROOT = root / 'installation'
+                launcher.CONFIG_HOME = launcher.ROOT / 'home'
+                launcher.shared_home = lambda: shared
+
+                if saved != 'absent':
+                    launcher.CONFIG_HOME.mkdir(parents=True)
+                    overlay = launcher.CONFIG_HOME / 'config.toml'
+                    previous = (
+                        '# Generated for codex+1 from the shared config; custom model prompt omitted.\n'
+                        + original
+                    )
+                    overlay.write_text(previous)
+                    if saved in ('generated', 'edited'):
+                        (launcher.CONFIG_HOME / launcher.GENERATED_HASH).write_text(
+                            launcher.hashlib.sha256(previous.encode()).hexdigest() + '\n')
+                    if saved == 'edited':
+                        overlay.write_text(previous.replace('example-model', 'personal-choice'))
+
+                _, config_path = launcher.prepare_config_home()
+                parsed = tomllib.loads(config_path.read_text())
+                expected = tomllib.loads(original)
+                if saved == 'edited':
+                    expected['model'] = 'personal-choice'
+                else:
+                    del expected['instructions']
+                self.assertEqual(parsed, expected)
+                self.assertEqual(primary.read_text(), original)
+                self.assertEqual((launcher.CONFIG_HOME / 'AGENTS.md').resolve(), agents)
+                content = config_path.read_text()
+                launcher.prepare_config_home()
+                self.assertEqual(config_path.read_text(), content)
+
+    def test_generated_overlay_preserves_nonblank_inline_base(self):
+        launcher = load_launcher()
+        original = 'instructions = "explicit custom base"\n'
+        self.assertEqual(launcher.without_blank_model_base(original), original)
+
     def test_command_parser_skips_option_values(self):
         launcher = load_launcher()
         self.assertEqual(launcher.command(["-m", "example-model", "resume"]), "resume")

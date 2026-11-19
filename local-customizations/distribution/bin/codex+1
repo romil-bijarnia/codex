@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 
 
 ROOT = Path.home() / '.local/share/codex-plus-one'
@@ -45,6 +46,28 @@ def shared_home():
     if candidate == CONFIG_HOME.resolve():
         return (Path.home() / '.codex').resolve()
     return candidate
+
+
+def without_blank_model_base(config):
+    """Drop the legacy blank base from a generated overlay, not from saved config."""
+    try:
+        expected = tomllib.loads(config)
+    except tomllib.TOMLDecodeError:
+        return config
+    if expected.pop('instructions', None) != '':
+        return config
+
+    # Verify the parsed change, so a matching line inside a table or
+    # multiline string is not mistaken for the root assignment.
+    blank_assignment = r"""(?m)^[ \t]*(?:instructions|"instructions"|'instructions')[ \t]*=[ \t]*(?:""|'')[ \t]*(?:#[^\n]*)?(?:\n|\Z)"""
+    for match in re.finditer(blank_assignment, config):
+        candidate = config[:match.start()] + config[match.end():]
+        try:
+            if tomllib.loads(candidate) == expected:
+                return candidate
+        except tomllib.TOMLDecodeError:
+            continue
+    return config
 
 
 def prepare_config_home():
@@ -107,10 +130,8 @@ def prepare_config_home():
         '',
         original,
     )
-    generated = (
-        '# Generated for codex+1 from the shared config; custom model prompt omitted.\n'
-        + config
-    )
+    header = '# Generated for codex+1 from the shared config; custom model prompt omitted.\n'
+    generated = header + without_blank_model_base(config)
     config_path = CONFIG_HOME / 'config.toml'
     generated_hash_path = CONFIG_HOME / GENERATED_HASH
     source_hash_path = CONFIG_HOME / SOURCE_HASH
@@ -120,7 +141,7 @@ def prepare_config_home():
     current_hash = hashlib.sha256(current.encode()).hexdigest() if current is not None else None
     original_hash = hashlib.sha256(original.encode()).hexdigest()
     prior_source_hash = source_hash_path.read_text().strip() if source_hash_path.is_file() else None
-    legacy_generated = prior_generated_hash is None and current == generated
+    legacy_generated = prior_generated_hash is None and current in (generated, header + config)
     locally_edited = (current is not None and current_hash != prior_generated_hash
                       and not legacy_generated)
     if locally_edited:
