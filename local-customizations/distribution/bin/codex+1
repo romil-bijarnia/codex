@@ -264,7 +264,9 @@ def main(arguments=None):
     os.environ['CODEX_PLUS_ONE'] = '1'
     remote = any(arg == '--remote' or arg.startswith('--remote=') for arg in arguments)
     isolation = [] if '--no-daemon' in arguments or remote else ['--no-daemon']
-    os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--bind', str(config_path),
+    # A root bind makes /dev nodev. Give child processes working standard devices,
+    # including /dev/null for the browser opener and subprocess redirection.
+    os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--dev', '/dev', '--bind', str(config_path),
                          str(source_home / 'config.toml'), '--', str(executable), *isolation,
                          '-c', 'check_for_update_on_startup=false', *arguments])
 
