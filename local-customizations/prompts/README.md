@@ -27,6 +27,8 @@ The remaining files serve independent purposes:
 - `university-project-continuity.md` preserves the optional project-home and
   recovery-record instruction for user-owned AGENTS.md. It includes no academic
   documents or submission records and is not installed automatically.
+- `mission-control-validation.md` preserves the native-only visual and interaction
+  verification rule for user-owned AGENTS.md.
 - `refresh-loaded-chats.py` audits existing loaded-chat context by default and
   only applies user-configured context when explicitly run with `--apply`.
   It contains no bundled custom system prompt. Its generic WebSocket `Client`
