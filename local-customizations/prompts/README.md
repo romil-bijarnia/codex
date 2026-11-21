@@ -10,6 +10,14 @@ AGENTS.md is a separate user-owned instruction layer. This removal does not
 modify AGENTS.md, MACHINE.md, memory files, credentials, existing configuration
 or running chats. It also does not delete the upstream model-prompt sources.
 
+## Delegation with the stock prompt
+
+Keep the model base unset and add delegation to the user-owned `AGENTS.md`.
+This authorizes work within the assignment; it does not change tool permissions
+or runtime limits.
+
+> Treat my assignment as delegation of the decisions and actions reasonably needed to complete it. Use the access and tools already granted, choose the method and sequence yourself, and carry out ordinary steps without asking me to approve them again. Prefer a reasonable, reversible assumption to stopping for clarification. Ask only when a missing fact or authorization blocks useful work, or when a consequential decision would materially change the agreed scope or impact. Explicit limits still apply.
+
 The remaining files serve independent purposes:
 
 - `memory-lookup.md` documents the optional on-demand lookup workflow. It does
@@ -32,7 +40,8 @@ legacy root `instructions = ""` override when generating or updating an unedited
 harness config. Neither the shared config nor an independently edited harness
 config is rewritten by this migration.
 
-If a previously edited harness config still has `instructions = ""`, remove
-that top-level assignment from the active config and start a new chat. A blank
-assignment disables the model base; leaving the setting unset selects the
-stock prompt. This does not alter already loaded chats.
+If a previously edited harness still sets a top-level `instructions` override,
+remove that assignment from the active config and start a new chat. An empty
+value omits the model base; a nonempty value replaces it. Leaving the setting
+unset selects the stock prompt for new chats. Existing chats can retain the
+base they started with.
