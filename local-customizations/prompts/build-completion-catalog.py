@@ -27,15 +27,13 @@ COMPLETION = (
     "do more useful work."
 )
 ACCEPTANCE = (
-    "For implementation work, derive an observable acceptance check from the current "
-    "request. Update the check when the user changes a requirement; do not keep a "
-    "superseded condition. Verify the actual workflow the user requested. A passing "
-    "prerequisite or substitute workflow does not establish success. If an approach "
-    "fails, identify which current requirement it blocks and continue useful authorized "
-    "work that can still advance the requested outcome. Call the job blocked only "
-    "when no such work remains."
+    "Do the work the user asked for within the scope they set. For implementation "
+    "work, define the check for success from the current request and update it when a "
+    "requirement changes. Verify the requested result through the workflow the user "
+    "will actually use. When an approach fails, identify which requirement it affects "
+    "and carry out the useful work that still advances the requested result. Call the "
+    "job blocked only when no such work remains."
 )
-
 
 MISSING_SKILL = (
     "If the skill is not found and the skill is necessary to do the user's task, "
