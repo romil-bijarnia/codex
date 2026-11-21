@@ -48,12 +48,11 @@ base they started with.
 
 ## Optional edits to the stock completion prompts
 
-`build-completion-catalog.py` derives a separate local catalog from an unmodified
-provider cache. It removes the optional clarification wait and adds an observable
-completion check for GPT-6.2 Sol and Astra. It also tells the agent to continue
-independent work when a required skill is unavailable. It
-preserves the required approval and clarification rules, all unrelated prompt
-text, and every other model field.
+`build-completion-catalog.py` derives a local catalog from the unmodified provider
+cache. Sol and Astra skip optional questions, verify the requested workflow, and
+retry only when another attempt can add evidence. The edits remove writing and
+reporting rules that add noise. Required approvals and unrelated model fields
+are preserved.
 
 ```sh
 python3 local-customizations/prompts/build-completion-catalog.py \
