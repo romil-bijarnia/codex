@@ -45,3 +45,23 @@ remove that assignment from the active config and start a new chat. An empty
 value omits the model base; a nonempty value replaces it. Leaving the setting
 unset selects the stock prompt for new chats. Existing chats can retain the
 base they started with.
+
+## Optional edits to the stock completion prompts
+
+`build-completion-catalog.py` derives a separate local catalog from an unmodified
+provider cache. It removes the optional clarification wait and adds an observable
+completion check for GPT-6.2 Sol and Astra. It preserves the required approval and
+clarification rules, all other template text, and every other model field.
+
+```sh
+python3 local-customizations/prompts/build-completion-catalog.py \
+  --source "$HOME/.codex/models_cache.json" \
+  --output "$HOME/.codex/prompts/task-completion.models.json"
+```
+
+Set top-level `model_catalog_json` in the active config to the generated file
+using its absolute path. Verify each model with `codex debug prompt-input` and
+start a new chat. A configured catalog is static. To pick up provider changes,
+unset that setting, refresh the unmodified provider cache, regenerate, and verify
+again. Removing the setting restores stock discovery and prompts for fresh chats.
+Do not commit generated catalogs, the provider cache, or personal config.
