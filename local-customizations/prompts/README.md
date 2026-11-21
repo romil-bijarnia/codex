@@ -28,7 +28,8 @@ The remaining files serve independent purposes:
   recovery-record instruction for user-owned AGENTS.md. It includes no academic
   documents or submission records and is not installed automatically.
 - `refresh-loaded-chats.py` audits existing loaded-chat context by default and
-  only applies user-configured context when explicitly run with `--apply`.
+  only applies user-configured context when explicitly run with `--apply`. It
+  uses `model_catalog_json` when set; otherwise it reads the provider cache.
   It contains no bundled custom system prompt. Its generic WebSocket `Client`
   class is also imported by the package updater for read-only idle checks.
 - `.gitignore` keeps local AGENTS.md/MACHINE.md and private inspection products

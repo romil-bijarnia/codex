@@ -163,16 +163,24 @@ def message(role, text, kind=None):
     return item
 
 
+def load_catalog(home, config):
+    selected = config.get('model_catalog_json')
+    path = Path(selected).expanduser() if selected else Path('models_cache.json')
+    if not path.is_absolute():
+        path = home / path
+    models = json.loads(path.read_text())['models']
+    return {model['slug']: model for model in models}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--socket')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
-    models = json.loads((home / 'models_cache.json').read_text())['models']
-    catalog = {model['slug']: model for model in models}
-    personal = (home / 'AGENTS.md').read_text().strip()
     config = tomllib.loads((home / 'config.toml').read_text())
+    catalog = load_catalog(home, config)
+    personal = (home / 'AGENTS.md').read_text().strip()
     developer = config.get('developer_instructions', '').strip()
     rules = ''
     if '<personal_execution_rules>' in developer:
@@ -251,7 +259,7 @@ def main():
     finally:
         client.sock.close()
     print(json.dumps({'applied': args.apply, 'chats': results,
-                      'base_mode': 'file' if config.get('model_instructions_file') else 'inline' if 'instructions' in config else 'stock',
+                      'base_mode': 'file' if config.get('model_instructions_file') else 'inline' if 'instructions' in config else 'catalog' if config.get('model_catalog_json') else 'stock',
                       'personal_execution_rules_configured': bool(rules),
                       'new_turns_started': 0, 'model_requests': 0,
                       'pending_readback_requires_audit_not_repeat_apply':
