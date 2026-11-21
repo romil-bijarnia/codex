@@ -1,1 +1,0 @@
-Never test or verify Mission Control in browser tabs, including headless browser tabs. Verify its visual and interactive behavior on the native desktop surface. Use non-browser unit or API checks where appropriate, but do not substitute them for native visual verification.
