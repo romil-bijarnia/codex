@@ -50,8 +50,10 @@ base they started with.
 
 `build-completion-catalog.py` derives a separate local catalog from an unmodified
 provider cache. It removes the optional clarification wait and adds an observable
-completion check for GPT-6.2 Sol and Astra. It preserves the required approval and
-clarification rules, all other template text, and every other model field.
+completion check for GPT-6.2 Sol and Astra. It also scopes a refusal or unavailable
+skill to the affected work, so independent authorized work can continue. It
+preserves the required approval and clarification rules, all unrelated prompt
+text, and every other model field.
 
 ```sh
 python3 local-customizations/prompts/build-completion-catalog.py \

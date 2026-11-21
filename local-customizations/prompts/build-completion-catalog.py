@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an opt-in catalog with two targeted task-completion prompt edits."""
+"""Build an opt-in catalog with targeted work-continuity prompt edits."""
 
 import argparse
 import json
@@ -37,6 +37,36 @@ ACCEPTANCE = (
 )
 
 
+REFUSAL_SCOPE = (
+    "Do not let an earlier refusal or blocker (e.g. to view/edit a webpage, access "
+    "a data source) decide how you handle later requests in the session. Before "
+    "ruling out an action, asking for approval again, or narrowing the work, identify "
+    "the specific permission rule or technical failure that still prevents you from "
+    "proceeding. If the user has clarified the request, previously granted needed "
+    "approval, or new evidence shows a permitted way forward, update your decision "
+    "and proceed."
+)
+SCOPED_BLOCKER = (
+    "Before declining an action or narrowing the work, identify the specific action "
+    "affected and whether the reason is a binding policy or authorization boundary, "
+    "an observed technical failure, or a missing fact. Do not present uncertainty as "
+    "a denial or a technical failure as a policy decision. Apply the limit only to "
+    "what it actually prevents and continue independent authorized work. Reassess a "
+    "revised request on its current facts, without retrying a denied action through "
+    "another route when the denial still applies."
+)
+MISSING_SKILL = (
+    "If the skill is not found and the skill is necessary to do the user's task, "
+    "stop the turn and tell the user why."
+)
+SCOPED_SKILL = (
+    "If the skill is not found, continue independent work that does not require it "
+    "and that respects the user's requested method. If the skill is required for "
+    "remaining work, name the part it blocks. Stop only when no useful authorized "
+    "work can proceed."
+)
+
+
 def patch_catalog(source):
     models = source["models"]
     for slug in TARGETS:
@@ -45,14 +75,17 @@ def patch_catalog(source):
             raise ValueError(f"{slug}: expected exactly one catalog entry")
         messages = matches[0]["model_messages"]
         template = messages["instructions_template"]
-        for anchor in (WAIT, COMPLETION):
-            if template.count(anchor) != 1:
-                raise ValueError(f"{slug}: stock anchor changed: {anchor[:48]!r}")
-        if PROCEED in template or ACCEPTANCE in template:
-            raise ValueError(f"{slug}: expected an unmodified stock catalog")
-        messages["instructions_template"] = template.replace(WAIT, PROCEED, 1).replace(
-            COMPLETION, COMPLETION + "\n\n" + ACCEPTANCE, 1
+        replacements = (
+            (WAIT, PROCEED),
+            (COMPLETION, COMPLETION + "\n\n" + ACCEPTANCE),
+            (REFUSAL_SCOPE, SCOPED_BLOCKER),
+            (MISSING_SKILL, SCOPED_SKILL),
         )
+        for anchor, replacement in replacements:
+            if template.count(anchor) != 1 or replacement in template:
+                raise ValueError(f"{slug}: expected a unique stock anchor: {anchor[:48]!r}")
+            template = template.replace(anchor, replacement, 1)
+        messages["instructions_template"] = template
     # The cache envelope contains identity and freshness metadata, not model config.
     return {"models": models}
 
