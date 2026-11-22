@@ -186,6 +186,7 @@ class PlusOneLauncherTests(unittest.TestCase):
                 self.assertEqual(launcher.os.environ['CODEX_PLUS_ONE'], '1')
             args = execv.call_args.args[1]
             self.assertEqual(args[1:6], ['--bind', '/', '/', '--dev', '/dev'])
+            self.assertEqual(args[6:9], ['--dev-bind-try', '/dev/owner_el2', '/dev/owner_el2'])
             self.assertIn(str(native), args)
             self.assertNotIn('instructions=""', execv.call_args.args[1])
 
