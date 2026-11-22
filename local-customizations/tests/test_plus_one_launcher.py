@@ -184,7 +184,10 @@ class PlusOneLauncherTests(unittest.TestCase):
                  patch.dict(launcher.os.environ, {}, clear=True):
                 launcher.main(['--version'])
                 self.assertEqual(launcher.os.environ['CODEX_PLUS_ONE'], '1')
-            self.assertIn(str(native), execv.call_args.args[1])
+            args = execv.call_args.args[1]
+            self.assertEqual(args[1:6], ['--bind', '/', '/', '--dev', '/dev'])
+            self.assertEqual(args[6:9], ['--dev-bind-try', '/dev/owner_el2', '/dev/owner_el2'])
+            self.assertIn(str(native), args)
             self.assertNotIn('instructions=""', execv.call_args.args[1])
 
     def test_primary_update_with_global_options_routes_to_the_single_updater(self):

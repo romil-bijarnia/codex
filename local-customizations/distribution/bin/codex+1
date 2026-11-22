@@ -264,7 +264,11 @@ def main(arguments=None):
     os.environ['CODEX_PLUS_ONE'] = '1'
     remote = any(arg == '--remote' or arg.startswith('--remote=') for arg in arguments)
     isolation = [] if '--no-daemon' in arguments or remote else ['--no-daemon']
-    os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--bind', str(config_path),
+    # Supply working standard devices while retaining the owner's EL2 device when
+    # it is active on the host. The try variant keeps Codex usable without it.
+    os.execv(bubblewrap, [bubblewrap, '--bind', '/', '/', '--dev', '/dev',
+                         '--dev-bind-try', '/dev/owner_el2', '/dev/owner_el2',
+                         '--bind', str(config_path),
                          str(source_home / 'config.toml'), '--', str(executable), *isolation,
                          '-c', 'check_for_update_on_startup=false', *arguments])
 
