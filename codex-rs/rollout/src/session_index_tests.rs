@@ -395,6 +395,41 @@ async fn append_and_remove_thread_names_preserves_other_entries() -> std::io::Re
     Ok(())
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn removal_rewrites_shared_index_without_replacing_symlink() -> std::io::Result<()> {
+    let temp = TempDir::new()?;
+    let shared = temp.path().join("shared");
+    let overlay = temp.path().join("overlay");
+    std::fs::create_dir(&shared)?;
+    std::fs::create_dir(&overlay)?;
+
+    let removed_id = ThreadId::new();
+    let kept_id = ThreadId::new();
+    append_thread_name(&shared, removed_id, "removed").await?;
+    append_thread_name(&shared, kept_id, "kept").await?;
+    let relative_shared_index = Path::new("../shared").join(SESSION_INDEX_FILE);
+    std::os::unix::fs::symlink(&relative_shared_index, session_index_path(&overlay))?;
+    std::os::unix::fs::symlink(
+        shared.join(SESSION_INDEX_LOCK_FILE),
+        overlay.join(SESSION_INDEX_LOCK_FILE),
+    )?;
+
+    remove_thread_name_entries(&overlay, removed_id).await?;
+
+    assert_eq!(
+        std::fs::read_link(session_index_path(&overlay))?,
+        relative_shared_index,
+    );
+    for home in [&shared, &overlay] {
+        assert_eq!(
+            find_thread_names_by_ids(home, &HashSet::from([removed_id, kept_id])).await?,
+            HashMap::from([(kept_id, "kept".to_string())]),
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn find_thread_names_by_ids_prefers_latest_entry() -> std::io::Result<()> {
     let temp = TempDir::new()?;
