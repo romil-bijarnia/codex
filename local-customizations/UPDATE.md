@@ -11,9 +11,12 @@ Compilation can still take time, but it does not need a CLI-model conversation.
 
 The current personal fork is the single authoritative customization source.
 The updater computes its complete difference from its recorded upstream baseline
-and applies that difference to the new release with a three-way merge. It does
-not freeze whole files, use a blanket `ours`/`theirs` policy, or discard upstream
-changes just because they touch a file containing custom code. It does not mix in
+and merges that difference into the newest upstream release with Git's
+three-way merge. The recorded release is the merge base even when upstream was
+published from a different branch. Using only the history's common ancestor
+would wrongly carry changes from the old upstream release into the new one.
+The updater does not freeze whole files, use a blanket `ours`/`theirs` policy,
+or discard upstream changes just because they touch custom code. It does not mix in
 the other launcher's independent custom branch or replace the fork with a curated
 subset of features. The intended result is one `codex` command; `codex+1` is
 retired only after the unified custom package has passed verification.
@@ -25,10 +28,19 @@ against the new source manifests before the candidate is committed.
 
 Integration happens in a private checkout under
 `$CODEX_HOME/state/codex-customizations/updates/`. Overlapping source changes
-produce a retained checkout, `result.json` and `integration.log`. The command
-does not guess the intended resolution or install a partial merge. Resolving a
-real incompatibility may require adapting the custom code; preserving behaviour
-is not a promise that every original line remains unchanged.
+leave a real staged merge in a retained checkout with `result.json` and
+`integration.log`. The command does not guess the intended resolution or
+install a partial merge. Resolving an incompatibility may require adapting
+custom code; preserving behaviour does not mean preserving every line.
+
+Use the checkout path printed by the updater to inspect the conflicts. Resolve
+the files there, stage the resolved paths, and leave the candidate uncommitted.
+Run `codex update --continue` to finish integration and run the normal
+verification, build and installation steps. If there is more than one candidate
+for this source revision, specify its release tag after `--continue`. A resumed
+candidate uses the original upstream tag and digest rather than jumping to a
+release published while the conflicts were being resolved. To finish preparing
+without building or installing, use `codex update --prepare-only --continue`.
 
 Clean candidates must pass updater tests, the native build and the existing
 synthetic package checks, including permission/MCP, steering, fork-window and
@@ -52,6 +64,8 @@ codex custom-status
 `--check` queries release/provenance metadata but does not attempt integration.
 `--prepare-only` exercises the real integration without compilation or installation.
 `--channel stable` selects stable releases only, but still refuses a downgrade.
+The updater uses committed fork source. It stops at a dirty source checkout
+rather than overwriting it or publishing unreviewed files.
 
 Install or restore the command dispatcher without changing the selected binary:
 

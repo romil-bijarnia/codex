@@ -34,31 +34,47 @@ class UpstreamUpdateTests(unittest.TestCase):
         self.git(root, 'commit', '-qm', message)
         return self.git(root, 'rev-parse', 'HEAD')
 
-    def fixture(self, overlapping=False):
+    def fixture(self, overlapping=False, sibling_upstream=False, renamed=False, workspace_lock=False):
         root = self.home / 'repo';root.mkdir()
         self.git(root, 'init', '-q', '-b', 'main')
         self.git(root, 'config', 'user.name', 'Fixture')
         self.git(root, 'config', 'user.email', 'fixture@example.invalid')
         lines = [f'line {i}\n' for i in range(40)]
         (root / 'native.rs').write_text(''.join(lines))
-        base = self.commit(root, 'Upstream baseline')
+        if workspace_lock:
+            (root / 'codex-rs').mkdir()
+            (root / updater.WORKSPACE_LOCK).write_text('version = 1\n')
+        common_base = self.commit(root, 'Common ancestor')
+        old = list(lines)
+        if sibling_upstream:
+            old[15] = 'old release only\n'
+            (root / 'native.rs').write_text(''.join(old))
+            base = self.commit(root, 'Upstream baseline')
+        else:
+            base = common_base
         nested = root / 'local-customizations/distribution';nested.mkdir(parents=True)
         manifest = dict(common.CONFIG, upstream_commit=base)
         (nested / 'manifest.json').write_text(json.dumps(manifest))
         (root / 'custom_tool.rs').write_text('additional interface\n')
-        local_lines = list(lines);local_lines[3] = 'custom permission behaviour\n'
+        local_lines = list(old);local_lines[3] = 'custom permission behaviour\n'
         (root / 'native.rs').write_text(''.join(local_lines))
+        if workspace_lock:
+            (root / updater.WORKSPACE_LOCK).write_text('version = 2\n')
         custom = self.commit(root, 'Custom harness')
-        self.git(root, 'checkout', '-q', '--detach', base)
+        self.git(root, 'checkout', '-q', '--detach', common_base if sibling_upstream else base)
         upstream_lines = list(lines)
         upstream_lines[3 if overlapping else 30] = 'new upstream feature\n'
         (root / 'native.rs').write_text(''.join(upstream_lines))
+        if renamed:
+            self.git(root, 'mv', 'native.rs', 'moved.rs')
+        if workspace_lock:
+            (root / updater.WORKSPACE_LOCK).write_text('version = 3\n')
         upstream = self.commit(root, 'New upstream release')
         self.git(root, 'tag', self.release['tag_name'])
         self.git(root, 'checkout', '-q', 'main')
         return root, custom, upstream
 
-    def prepare(self, root, custom, folder):
+    def prepare(self, root, custom, folder, continuation=False, release=None):
         real_run = common.run
         def local_fetch(args, **kwargs):
             args = list(args)
@@ -69,7 +85,7 @@ class UpstreamUpdateTests(unittest.TestCase):
         with patch.object(updater, 'run', side_effect=local_fetch), \
              patch.dict('os.environ', GIT_AUTHOR_NAME='Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
                         GIT_COMMITTER_NAME='Fixture', GIT_COMMITTER_EMAIL='fixture@example.invalid'):
-            return updater.prepare_candidate(root, custom, self.release, folder)
+            return updater.prepare_candidate(root, custom, release or self.release, folder, continuation=continuation)
 
     def test_installed_other_branch_is_not_used_as_a_second_customization_source(self):
         root, custom, _ = self.fixture()
@@ -130,12 +146,6 @@ class UpstreamUpdateTests(unittest.TestCase):
         self.assertEqual(api.call_count, 2)
         sleep.assert_called_once_with(1)
 
-    def test_failed_atomic_patch_still_reports_its_conflicting_paths(self):
-        diagnostic = (b"Applied patch to 'native.rs' with conflicts.\n"
-                      b'error: patch failed: removed.rs:1\n')
-        with patch.object(updater, 'output', return_value=''):
-            self.assertEqual(updater.conflicted_paths(self.home, diagnostic), ['native.rs', 'removed.rs'])
-
     def test_same_file_keeps_custom_section_and_new_upstream_section(self):
         root, custom, upstream = self.fixture()
         source, commit = self.prepare(root, custom, self.home / 'update')
@@ -152,6 +162,23 @@ class UpstreamUpdateTests(unittest.TestCase):
         self.assertEqual(manifest['upstream_channel'], 'alpha')
         self.assertEqual(manifest['resource_sha256'], 'a' * 64)
 
+    def test_uses_the_recorded_base_even_when_official_releases_diverged(self):
+        root, custom, upstream = self.fixture(sibling_upstream=True)
+        source, commit = self.prepare(root, custom, self.home / 'update')
+        content = (source / 'native.rs').read_text()
+        self.assertIn('custom permission behaviour', content)
+        self.assertIn('new upstream feature', content)
+        self.assertNotIn('old release only', content)
+        self.assertEqual(self.git(source, 'rev-list', '--parents', '-n', '1', commit).split(),
+                         [commit, custom, upstream])
+
+    def test_follows_an_upstream_rename_while_preserving_the_custom_change(self):
+        root, custom, _ = self.fixture(renamed=True)
+        source, _ = self.prepare(root, custom, self.home / 'update')
+        self.assertFalse((source / 'native.rs').exists())
+        self.assertIn('custom permission behaviour', (source / 'moved.rs').read_text())
+        self.assertIn('new upstream feature', (source / 'moved.rs').read_text())
+
     def test_overlapping_section_reports_conflict_without_choosing_a_side(self):
         root, custom, _ = self.fixture(overlapping=True)
         folder = self.home / 'update'
@@ -167,6 +194,109 @@ class UpstreamUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'recorded source conflict'):
                 updater.prepare_candidate(root, custom, self.release, folder)
             run.assert_not_called()
+
+    def test_staged_resolution_prepares_the_exact_merge_and_reuses_it(self):
+        root, custom, upstream = self.fixture(overlapping=True)
+        folder = self.home / 'update'
+        with self.assertRaisesRegex(RuntimeError, 'Resolve in'):
+            self.prepare(root, custom, folder)
+        source = folder / 'source'
+        self.assertEqual(len(self.git(source, 'ls-files', '-u', '--', 'native.rs').splitlines()), 3)
+        self.assertTrue((source / 'custom_tool.rs').is_file(), 'non-conflicting custom work is retained')
+        with self.assertRaisesRegex(RuntimeError, 'Resolve and stage all conflicts'):
+            self.prepare(root, custom, folder, continuation=True)
+        native = source / 'native.rs'
+        native.write_text(''.join(f'line {i}\n' for i in range(40)))
+        native.write_text(native.read_text().replace('line 3\n', 'custom permissions and new upstream feature\n'))
+        with self.assertRaisesRegex(RuntimeError, 'Resolve and stage all conflicts'):
+            self.prepare(root, custom, folder, continuation=True)
+        self.git(source, 'add', 'native.rs')
+        (source / 'unrelated').write_text('not in review')
+        with self.assertRaisesRegex(RuntimeError, 'untracked'):
+            self.prepare(root, custom, folder, continuation=True)
+        (source / 'unrelated').unlink()
+        _, candidate = self.prepare(root, custom, folder, continuation=True)
+        self.assertEqual(self.git(source, 'rev-list', '--parents', '-n', '1', candidate).split(),
+                         [candidate, custom, upstream])
+        self.assertEqual(self.prepare(root, custom, folder, continuation=True), (source, candidate))
+        self.assertEqual(self.git(root, 'rev-parse', 'HEAD'), custom)
+        self.assertEqual(self.git(root, 'status', '--porcelain'), '')
+        result = json.loads((folder / 'result.json').read_text())
+        self.assertEqual(result['status'], 'prepared')
+        self.assertFalse(result['installed'])
+
+    def test_resume_rejects_changed_release_resources_and_moved_tag(self):
+        root, custom, _ = self.fixture(overlapping=True)
+        folder = self.home / 'update'
+        with self.assertRaisesRegex(RuntimeError, 'Resolve in'):
+            self.prepare(root, custom, folder)
+        source = folder / 'source'
+        self.git(source, 'checkout', '--theirs', '--', 'native.rs')
+        self.git(source, 'add', 'native.rs')
+        changed = copy.deepcopy(self.release)
+        changed['assets'][0]['digest'] = 'sha256:' + 'b' * 64
+        with self.assertRaisesRegex(RuntimeError, 'pinned release'):
+            self.prepare(root, custom, folder, continuation=True, release=changed)
+        self.git(root, 'tag', '-f', self.release['tag_name'], custom)
+        with self.assertRaisesRegex(RuntimeError, 'upstream tag moved'):
+            self.prepare(root, custom, folder, continuation=True)
+
+    def test_semantic_lock_conflict_is_put_in_the_index_and_explicitly_resumed(self):
+        root, custom, _ = self.fixture(workspace_lock=True)
+        folder = self.home / 'update'
+        with patch.object(updater, 'reconcile_workspace_lock',
+                          side_effect=updater.WorkspaceLockConflict('Dependencies conflict')):
+            with self.assertRaisesRegex(RuntimeError, 'Resolve and stage'):
+                self.prepare(root, custom, folder)
+        source = folder / 'source'
+        self.assertEqual(len(self.git(source, 'ls-files', '-u', '--', updater.WORKSPACE_LOCK).splitlines()), 3)
+        self.assertEqual(json.loads((folder / 'result.json').read_text())['conflict_kind'],
+                         'workspace-dependencies')
+        with self.assertRaisesRegex(RuntimeError, 'Resolve and stage all conflicts'):
+            self.prepare(root, custom, folder, continuation=True)
+        (source / updater.WORKSPACE_LOCK).write_text('version = 4\n')
+        self.git(source, 'add', updater.WORKSPACE_LOCK)
+        with patch.object(updater, 'reconcile_workspace_lock') as lock:
+            self.prepare(root, custom, folder, continuation=True)
+            self.assertTrue(lock.call_args.kwargs['resolved'])
+        self.assertEqual((source / updater.WORKSPACE_LOCK).read_text(), 'version = 4\n')
+
+    def test_resume_uses_pinned_tag_even_when_a_newer_release_exists(self):
+        custom = 'a' * 40
+        (self.home / 'updates').mkdir()
+        for tag, state in ((self.release['tag_name'], 'prepared'), ('rust-v2.0.1-alpha.3', 'source_conflict')):
+            folder = self.home / 'updates' / f'{tag}-{custom[:12]}'
+            folder.mkdir()
+            (folder / 'result.json').write_text(json.dumps(dict(
+                status=state, custom_source=custom, upstream_release=tag, customization_policy='personal-fork-only')))
+        with self.assertRaisesRegex(RuntimeError, 'Specify codex update --continue RELEASE'):
+            updater.pending_release(self.home, custom, '', 'latest')
+        with patch.object(updater, 'api', return_value=self.release) as api:
+            self.assertEqual(updater.pending_release(self.home, custom, self.release['tag_name'], 'latest'),
+                             self.release)
+            api.assert_called_once_with(f"repos/{common.CONFIG['upstream_repository']}/releases/tags/{self.release['tag_name']}")
+
+    def test_same_release_prepare_only_does_not_request_backend_handover(self):
+        import manage
+        root, custom, _ = self.fixture()
+        home = self.home / 'profile'
+        package = home / 'packages/standalone/releases/old'
+        package.mkdir(parents=True)
+        (package.parent.parent / 'current').symlink_to(package)
+        (package / 'custom-build.json').write_text(json.dumps({
+            'upstream_release': self.release['tag_name'], 'source_commit': custom,
+            'binary_sha256': {name: 'c' for name in ('codex', 'codex-exec-server', 'codex-code-mode-host')}}))
+        with patch.dict('os.environ', CODEX_HOME=str(home)), \
+             patch.object(updater, 'latest_release', return_value=self.release), \
+             patch.object(updater, 'source_root', return_value=root), \
+             patch.object(updater, 'custom_revision', return_value=custom), \
+             patch.object(updater, 'sha256', return_value='c'), \
+             patch.object(updater, 'prepare_candidate') as prepare, \
+             patch.object(manage, 'start_backend_rollout') as backend, \
+             contextlib.redirect_stdout(io.StringIO()):
+            updater.update(SimpleNamespace(channel='latest', check=False, prepare_only=True))
+        backend.assert_not_called()
+        prepare.assert_not_called()
 
     def test_repeated_preparation_reuses_clean_exact_candidate(self):
         root, custom, _ = self.fixture()
