@@ -13,10 +13,9 @@ or running chats. It also does not delete the upstream model-prompt sources.
 ## Delegation with the stock prompt
 
 Keep the model base unset and add delegation to the user-owned `AGENTS.md`.
-This authorizes work within the assignment; it does not change tool permissions
-or runtime limits.
-
-> Treat my assignment as delegation of the decisions and actions reasonably needed to complete it. Use the access and tools already granted, choose the method and sequence yourself, and carry out ordinary steps without asking me to approve them again. Prefer a reasonable, reversible assumption to stopping for clarification. Ask only when a missing fact or authorization blocks useful work, or when a consequential decision would materially change the agreed scope or impact. Explicit limits still apply.
+Use `task-authorization.md` when assigned work should accept the user's stated
+access authorization and require a concrete blocker before declining. This
+does not change tool permissions or hosted service policy.
 
 The remaining files serve independent purposes:
 
@@ -24,6 +23,9 @@ The remaining files serve independent purposes:
   not install a system prompt or change memory settings.
 - `repository-preservation.md` is an optional AGENTS.md instruction fragment,
   not a replacement model base.
+- `task-authorization.md` is an optional AGENTS.md instruction fragment that
+  requires concrete blocker evidence and accepts the user's stated access
+  authorization for assigned work.
 - `university-project-continuity.md` preserves the optional project-home and
   recovery-record instruction for user-owned AGENTS.md. It includes no academic
   documents or submission records and is not installed automatically.
