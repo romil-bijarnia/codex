@@ -82,6 +82,12 @@ pub async fn remove_thread_name_entries(
         return Ok(());
     }
     with_session_index_lock(codex_home, move || {
+        // Replace the shared index, not a symlink to it in an alternate Codex home.
+        let path = match std::fs::canonicalize(&path) {
+            Ok(path) => path,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err),
+        };
         let contents = match std::fs::read_to_string(&path) {
             Ok(contents) => contents,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),

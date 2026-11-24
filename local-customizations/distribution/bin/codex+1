@@ -70,6 +70,63 @@ def without_blank_model_base(config):
     return config
 
 
+def repair_legacy_session_index(source, destination):
+    """Rejoin an index split by an older client's atomic deletion rewrite."""
+    from contextlib import closing
+    import fcntl
+    import json
+    import sqlite3
+    import stat
+    from uuid import UUID
+
+    lock = source.with_name(source.name + '.lock')
+    private_lock = destination.with_name(destination.name + '.lock')
+    try:
+        if not private_lock.is_symlink() or not private_lock.samefile(lock):
+            return False
+        with lock.open('r+b') as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if destination.is_symlink():
+                return destination.resolve(strict=True) == source.resolve(strict=True)
+            if not stat.S_ISREG(destination.lstat().st_mode):
+                return False
+            source = source.resolve(strict=True)
+            shared, private = source.read_bytes(), destination.read_bytes()
+            if shared != private:
+                # Only replay whole-thread removals, never overwrite independent
+                # writes or prefer a stale copy over entries still in the state DB.
+                def rows(data):
+                    return [(UUID(json.loads(line)['id']), line) for line in data.splitlines()]
+
+                old, new = rows(shared), rows(private)
+                kept = {thread for thread, _ in new}
+                removed = {thread for thread, _ in old} - kept
+                if not removed or [row for row in old if row[0] in kept] != new:
+                    return False
+                database = source.with_name('state_5.sqlite')
+                with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=0)) as db:
+                    if any(db.execute('SELECT 1 FROM threads WHERE id = ?', (str(thread),)).fetchone()
+                           for thread in removed):
+                        return False
+                with tempfile.NamedTemporaryFile(dir=source.parent, prefix='.session-index-', delete=False) as out:
+                    temporary = Path(out.name)
+                    try:
+                        out.write(private)
+                        os.fchmod(out.fileno(), stat.S_IMODE(source.stat().st_mode))
+                        out.flush()
+                        os.fsync(out.fileno())
+                        os.replace(temporary, source)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+            with tempfile.TemporaryDirectory(dir=destination.parent, prefix='.index-relink-') as directory:
+                link = Path(directory) / destination.name
+                link.symlink_to(source)
+                os.replace(link, destination)
+            return True
+    except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
+        return False
+
+
 def prepare_config_home():
     """Keep one writable config and share all other Codex state by symlink."""
     source_home = shared_home()
@@ -85,6 +142,8 @@ def prepare_config_home():
                 continue
             raise RuntimeError(f'{command_label()} shared-state link changed: {destination}')
         if destination.exists():
+            if source.name == 'session_index.jsonl' and repair_legacy_session_index(source, destination):
+                continue
             raise RuntimeError(f'{command_label()} overlay has an unexpected file: {destination}')
         destination.symlink_to(source)
 
