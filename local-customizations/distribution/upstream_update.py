@@ -187,6 +187,8 @@ def reconcile_workspace_lock(source, base, custom, folder, *, upstream, resolved
     path = 'codex-rs/Cargo.lock'
     manifest = source / 'codex-rs/Cargo.toml'
     if not manifest.is_file() or not (source / path).is_file():
+        if resolved:
+            raise RuntimeError(f'Resolve and stage {path}; deleting it cannot resolve the workspace conflict.')
         return
     if resolved:
         tomllib.loads((source / path).read_text())  # Refuse an unfinished resolution.
@@ -309,9 +311,13 @@ def prepare_candidate(root, custom, release, folder, *, continuation=False):
                                        'The working harness is unchanged; no duplicate build was started.')
                 commit = report.get('source_commit')
                 if (commit and report.get('status') in ('prepared', 'installed')
-                        and report.get('resource_sha256', resource_digest(release)) == resource_digest(release)
                         and output(['git', '-C', source, 'rev-parse', 'HEAD']) == commit
                         and not output(['git', '-C', source, 'status', '--porcelain'])):
+                    pin = manifest_at(source, commit)
+                    if (pin.get('upstream_release') != release['tag_name']
+                            or pin.get('upstream_commit') != report.get('upstream_commit')
+                            or pin.get('resource_sha256') != resource_digest(release)):
+                        raise RuntimeError('The prepared candidate no longer matches its pinned release resources.')
                     if continuation and fetch_target(source, release) != report.get('upstream_commit'):
                         raise RuntimeError('The recorded upstream tag moved. The checkout was not overwritten.')
                     return source, commit
