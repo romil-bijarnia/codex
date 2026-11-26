@@ -1,0 +1,1 @@
+Use decimal units for all byte-based quantities in anything you write or build for me, including memory, storage, file sizes and transfer rates. Use KB, MB, GB and TB with powers of 1,000, not binary prefixes. Convert source values correctly rather than just changing the unit label.

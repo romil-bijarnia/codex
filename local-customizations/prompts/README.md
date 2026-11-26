@@ -19,6 +19,8 @@ does not change tool permissions or hosted service policy.
 
 The remaining files serve independent purposes:
 
+- `decimal-byte-units.md` is an optional AGENTS.md instruction fragment for
+  reporting byte-based quantities in decimal units.
 - `memory-lookup.md` documents the optional on-demand lookup workflow. It does
   not install a system prompt or change memory settings.
 - `repository-preservation.md` is an optional AGENTS.md instruction fragment,
